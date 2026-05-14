@@ -199,6 +199,18 @@ def _resolve_local_audio_path(audio_reference: str) -> Path | None:
     return Path(unquote(audio_reference))
 
 
+def _resolve_playable_audio_reference(value: Any) -> str | None:
+    audio_reference = _coerce_str(value)
+    if audio_reference is None:
+        return None
+
+    audio_path = _resolve_local_audio_path(audio_reference)
+    if audio_path is None or not audio_path.exists():
+        return None
+
+    return audio_reference
+
+
 def _coerce_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -759,6 +771,7 @@ class GptSovitsSynthesisAdapter(StubSpeechSynthesisService):
             status=_coerce_str(response.get("status")) or "ready",
             text=_coerce_str(response.get("text")) or request.text,
             locale=_coerce_str(response.get("locale")) or request.locale,
+            audio_reference=_resolve_playable_audio_reference(response.get("audio_reference")),
             timing=_deserialize_timing_metadata(response.get("timing"), request.timing or self.default_timing),
         )
 

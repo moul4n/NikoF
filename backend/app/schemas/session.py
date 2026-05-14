@@ -82,6 +82,7 @@ class SpeechSynthesisContract:
     status: str
     text: str
     locale: str
+    audio_reference: str | None = None
     timing: SpeechTimingMetadata | None = None
 
 

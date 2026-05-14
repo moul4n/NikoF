@@ -20,12 +20,19 @@ import {
 } from "../avatar/loaders/speechLifecycle";
 import { createAvatarRuntime, type AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
 import type {
+  BackendSessionEventDocument,
   BackendSpeechSynthesisDocument,
   BackendSpeechTranscriptionDocument,
   CharacterCatalog,
   CharacterCatalogEntry,
   CharacterId
 } from "../shared/types/character";
+
+type ImportMetaWithOptionalEnv = ImportMeta & {
+  env?: {
+    VITE_BACKEND_API_BASE_URL?: string;
+  };
+};
 
 type CatalogLoadState =
   | {
@@ -58,7 +65,11 @@ type SpeechLifecycleLoadState = {
   message: string | null;
 };
 
+type SpeechPlaybackStatus = "idle" | "audio" | "timing";
+
 export type SurfaceMode = "control" | "display";
+
+const frontendBackendApiBaseUrl = resolveFrontendBackendApiBaseUrl();
 
 function findCharacterEntry(catalog: CharacterCatalog | null, characterId: CharacterId | null): CharacterCatalogEntry | null {
   if (!catalog || !characterId) {
@@ -90,6 +101,65 @@ function formatDurationLabel(durationMs: number | null | undefined): string {
   }
 
   return `${(durationMs / 1000).toFixed(2)}s`;
+}
+
+function resolveFrontendBackendApiBaseUrl(): string {
+  const configuredBaseUrl = (import.meta as ImportMetaWithOptionalEnv).env?.VITE_BACKEND_API_BASE_URL?.trim();
+
+  if (!configuredBaseUrl) {
+    return "/api";
+  }
+
+  return configuredBaseUrl.replace(/\/+$/, "");
+}
+
+function looksLikeWindowsAbsolutePath(value: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(value);
+}
+
+function buildSpeechSynthesisPlaybackKey(event: BackendSessionEventDocument | null): string | null {
+  if (!event?.synthesis) {
+    return null;
+  }
+
+  return [
+    event.session_id,
+    event.character_id,
+    event.timestamp,
+    event.status,
+    event.synthesis.profile_id,
+    event.synthesis.locale,
+    event.synthesis.text,
+    event.synthesis.audio_reference ?? ""
+  ].join("|");
+}
+
+function resolveSpeechSynthesisAudioSource(audioReference: string | null | undefined): string | null {
+  const trimmedReference = audioReference?.trim();
+
+  if (!trimmedReference || trimmedReference.startsWith("session://")) {
+    return null;
+  }
+
+  if (/^(https?:|blob:|data:|file:)/i.test(trimmedReference)) {
+    return trimmedReference;
+  }
+
+  if (looksLikeWindowsAbsolutePath(trimmedReference)) {
+    return `file:///${trimmedReference.replace(/\\/g, "/")}`;
+  }
+
+  if (trimmedReference.startsWith("/")) {
+    return trimmedReference;
+  }
+
+  const normalizedReference = trimmedReference.replace(/^\.?\//, "");
+
+  if (normalizedReference.startsWith("api/")) {
+    return `/${normalizedReference}`;
+  }
+
+  return `${frontendBackendApiBaseUrl}/${normalizedReference}`;
 }
 
 function describeSpeechLifecycleStateMessage(state: SpeechLifecycleLoadState): string | null {
@@ -299,6 +369,7 @@ interface ControlSurfaceSummaryPanelProps {
   backendSyncState: BackendSyncState;
   speechLifecycleState: SpeechLifecycleLoadState;
   speechLifecycleSnapshot: ConsumedSpeechLifecycleSnapshot | null;
+  speechPlaybackStatusLabel: string;
 }
 
 function ControlSurfaceSummaryPanel({
@@ -306,7 +377,8 @@ function ControlSurfaceSummaryPanel({
   backendStatusMessage,
   backendSyncState,
   speechLifecycleState,
-  speechLifecycleSnapshot
+  speechLifecycleSnapshot,
+  speechPlaybackStatusLabel
 }: ControlSurfaceSummaryPanelProps): JSX.Element {
   const speechDeliveryLabel =
     speechLifecycleState.status === "offline"
@@ -345,6 +417,10 @@ function ControlSurfaceSummaryPanel({
           <dt>Speech delivery</dt>
           <dd>{speechDeliveryLabel}</dd>
         </div>
+        <div>
+          <dt>Playback bridge</dt>
+          <dd>{speechPlaybackStatusLabel}</dd>
+        </div>
       </dl>
 
       <p className="surface-panel__summary">
@@ -368,6 +444,7 @@ interface DisplaySurfaceStatusPanelProps {
   replyActivityLabel: string | null;
   replyActivityStatus: string | null;
   replyActivityText: string | null;
+  speechPlaybackStatusLabel: string;
 }
 
 function DisplaySurfaceStatusPanel({
@@ -378,7 +455,8 @@ function DisplaySurfaceStatusPanel({
   speechLifecycleMessage,
   replyActivityLabel,
   replyActivityStatus,
-  replyActivityText
+  replyActivityText,
+  speechPlaybackStatusLabel
 }: DisplaySurfaceStatusPanelProps): JSX.Element {
   const speechDeliveryLabel =
     speechLifecycleState.status === "offline"
@@ -414,6 +492,10 @@ function DisplaySurfaceStatusPanel({
         <div>
           <dt>Event count</dt>
           <dd>{speechLifecycleSnapshot ? speechLifecycleSnapshot.eventCount : 0}</dd>
+        </div>
+        <div>
+          <dt>Playback bridge</dt>
+          <dd>{speechPlaybackStatusLabel}</dd>
         </div>
       </dl>
 
@@ -462,6 +544,148 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   });
   const [speechLifecycleRefreshKey, setSpeechLifecycleRefreshKey] = useState(0);
   const [selectedCharacterId, setSelectedCharacterId] = useState<CharacterId | null>(null);
+  const [speechPlaybackStatus, setSpeechPlaybackStatus] = useState<SpeechPlaybackStatus>("idle");
+  const [speechPlaybackBridge] = useState(() => ({
+    activeAudio: null as HTMLAudioElement | null,
+    playbackTimeoutId: null as number | null,
+    handledPlaybackKey: null as string | null
+  }));
+
+  function clearSpeechPlaybackTimeout(): void {
+    if (speechPlaybackBridge.playbackTimeoutId !== null) {
+      window.clearTimeout(speechPlaybackBridge.playbackTimeoutId);
+      speechPlaybackBridge.playbackTimeoutId = null;
+    }
+  }
+
+  function releaseSpeechAudio(): void {
+    const activeAudio = speechPlaybackBridge.activeAudio;
+
+    if (!activeAudio) {
+      return;
+    }
+
+    activeAudio.pause();
+    activeAudio.src = "";
+    speechPlaybackBridge.activeAudio = null;
+  }
+
+  function stopSpeechPlayback(resetHandledKey: boolean): void {
+    clearSpeechPlaybackTimeout();
+    releaseSpeechAudio();
+    runtime.setState("idle");
+    setSpeechPlaybackStatus("idle");
+
+    if (resetHandledKey) {
+      speechPlaybackBridge.handledPlaybackKey = null;
+    }
+  }
+
+  function beginTimingSpeechWindow(durationMs: number, playbackKey: string): void {
+    clearSpeechPlaybackTimeout();
+    releaseSpeechAudio();
+    runtime.setState("speak");
+    setSpeechPlaybackStatus("timing");
+    speechPlaybackBridge.playbackTimeoutId = window.setTimeout(() => {
+      if (speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
+        return;
+      }
+
+      runtime.setState("idle");
+      setSpeechPlaybackStatus("idle");
+      speechPlaybackBridge.playbackTimeoutId = null;
+    }, durationMs);
+  }
+
+  function beginAudioSpeechPlayback(audioSource: string, durationMs: number | null, playbackKey: string): void {
+    clearSpeechPlaybackTimeout();
+    releaseSpeechAudio();
+
+    const playbackAudio = new Audio(audioSource);
+    let settled = false;
+
+    speechPlaybackBridge.activeAudio = playbackAudio;
+
+    const cleanupPlaybackAudio = (): void => {
+      playbackAudio.removeEventListener("playing", handlePlaying);
+      playbackAudio.removeEventListener("ended", handleEnded);
+      playbackAudio.removeEventListener("error", handleError);
+
+      if (speechPlaybackBridge.activeAudio === playbackAudio) {
+        speechPlaybackBridge.activeAudio = null;
+      }
+    };
+
+    const finishPlayback = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanupPlaybackAudio();
+      clearSpeechPlaybackTimeout();
+
+      if (speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
+        return;
+      }
+
+      runtime.setState("idle");
+      setSpeechPlaybackStatus("idle");
+    };
+
+    const fallbackToTiming = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanupPlaybackAudio();
+
+      if (typeof durationMs === "number" && durationMs > 0 && speechPlaybackBridge.handledPlaybackKey === playbackKey) {
+        beginTimingSpeechWindow(durationMs, playbackKey);
+        return;
+      }
+
+      if (speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
+        return;
+      }
+
+      runtime.setState("idle");
+      setSpeechPlaybackStatus("idle");
+    };
+
+    const handlePlaying = (): void => {
+      if (speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
+        return;
+      }
+
+      runtime.setState("speak");
+      setSpeechPlaybackStatus("audio");
+
+      if (typeof durationMs === "number" && durationMs > 0) {
+        clearSpeechPlaybackTimeout();
+        speechPlaybackBridge.playbackTimeoutId = window.setTimeout(() => {
+          finishPlayback();
+        }, durationMs);
+      }
+    };
+
+    const handleEnded = (): void => {
+      finishPlayback();
+    };
+
+    const handleError = (): void => {
+      fallbackToTiming();
+    };
+
+    playbackAudio.addEventListener("playing", handlePlaying);
+    playbackAudio.addEventListener("ended", handleEnded);
+    playbackAudio.addEventListener("error", handleError);
+
+    void playbackAudio.play().catch(() => {
+      fallbackToTiming();
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -509,6 +733,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
 
     return () => {
       cancelled = true;
+      stopSpeechPlayback(true);
       runtime.unmount();
     };
   }, [runtime]);
@@ -618,6 +843,40 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     };
   }, [loadState.status, speechLifecycleRefreshKey]);
 
+  const canonicalSynthesisEvent = speechLifecycleState.snapshot?.canonicalSpeechSynthesisEvent ?? null;
+
+  useEffect(() => {
+    const playbackKey = buildSpeechSynthesisPlaybackKey(canonicalSynthesisEvent);
+
+    if (!playbackKey || !canonicalSynthesisEvent?.synthesis) {
+      stopSpeechPlayback(true);
+      return;
+    }
+
+    if (speechPlaybackBridge.handledPlaybackKey === playbackKey) {
+      return;
+    }
+
+    stopSpeechPlayback(false);
+    speechPlaybackBridge.handledPlaybackKey = playbackKey;
+
+    const audioSource = resolveSpeechSynthesisAudioSource(canonicalSynthesisEvent.synthesis.audio_reference);
+    const durationMs = canonicalSynthesisEvent.synthesis.timing?.utterance_duration_ms ?? null;
+
+    if (audioSource) {
+      beginAudioSpeechPlayback(audioSource, durationMs, playbackKey);
+      return;
+    }
+
+    if (typeof durationMs === "number" && durationMs > 0) {
+      beginTimingSpeechWindow(durationMs, playbackKey);
+      return;
+    }
+
+    runtime.setState("idle");
+    setSpeechPlaybackStatus("idle");
+  }, [canonicalSynthesisEvent, runtime, speechPlaybackBridge]);
+
   function handleSelectCharacter(characterId: CharacterId): void {
     if (characterId === selectedCharacterId) {
       return;
@@ -672,6 +931,12 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   const canonicalTranscription = speechLifecycleSnapshot?.canonicalTranscriptionEvent?.transcription ?? null;
   const canonicalSynthesis = speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.synthesis ?? null;
   const displayReplySnapshot = resolveDisplayReplySnapshot(speechLifecycleSnapshot);
+  const speechPlaybackStatusLabel =
+    speechPlaybackStatus === "audio"
+      ? "audio playback"
+      : speechPlaybackStatus === "timing"
+        ? "timing window"
+        : "idle";
   const speechLifecycleCharacterId =
     speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.character_id ??
     speechLifecycleSnapshot?.canonicalTranscriptionEvent?.character_id ??
@@ -712,6 +977,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
               replyActivityLabel={displayReplySnapshot.label}
               replyActivityStatus={displayReplySnapshot.status}
               replyActivityText={displayReplySnapshot.text}
+              speechPlaybackStatusLabel={speechPlaybackStatusLabel}
             />
           </aside>
         </main>
@@ -766,6 +1032,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
             backendSyncState={backendSyncState}
             speechLifecycleState={speechLifecycleState}
             speechLifecycleSnapshot={speechLifecycleSnapshot}
+            speechPlaybackStatusLabel={speechPlaybackStatusLabel}
           />
         </div>
       </main>

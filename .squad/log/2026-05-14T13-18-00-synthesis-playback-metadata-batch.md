@@ -1,0 +1,5 @@
+# Session Log
+
+- **Timestamp:** 2026-05-14T13:18:00+01:00
+- **Requested by:** Jason Fletcher
+- **Summary:** Scribe recorded the batch that extended canonical backend-owned `speech.synthesis` activity with optional playback-ready `audio_reference` metadata while preserving the existing timing, segment, phoneme, and viseme contract on the same `speech.lifecycle` seam. Continuity now reflects that the frontend display shell consumes that canonical synthesis event for backend-owned playback handoff and a coarse avatar speaking window without introducing a new transport, while full viseme-driven animation remains explicitly out of scope. This batch's validation baseline is the already-green backend turn-pipeline publisher tests, the full backend event-store unittest suite, the frontend build, and the full stability suite rerun after refreshing the four backend speech baselines.

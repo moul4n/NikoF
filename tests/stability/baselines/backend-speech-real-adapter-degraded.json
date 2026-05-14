@@ -93,6 +93,7 @@
           "status": "unavailable",
           "text": "Sure. I can wave once I finish speaking.",
           "locale": "en-US",
+          "audio_reference": null,
           "timing": {
             "utterance_duration_ms": 2120,
             "segment_ranges": [
@@ -212,6 +213,7 @@
                 "status": "unavailable",
                 "text": "Sure. I can wave once I finish speaking.",
                 "locale": "en-US",
+                "audio_reference": null,
                 "timing": {
                   "utterance_duration_ms": 2120,
                   "segment_ranges": [

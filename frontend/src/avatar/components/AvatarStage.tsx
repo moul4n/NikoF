@@ -39,6 +39,8 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
           : snapshot.mounted
             ? "mounted"
             : "pending mount";
+  const runtimeActivityLabel = snapshot.currentState === "speak" ? "speaking" : snapshot.currentState;
+  const headerStatusLabel = snapshot.currentState === "speak" ? `${runtimeStatusLabel} · speaking` : runtimeStatusLabel;
 
   const shellTitle = variant === "display" ? "Dedicated avatar render window" : "Default character shell";
   const shellEyebrow = variant === "display" ? "Display surface" : "Avatar runtime";
@@ -47,7 +49,9 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
       ? "The display surface is ready to mount the backend-confirmed character once one is selected."
       : "Select the default character to mount the runtime.";
   const readyMessage =
-    variant === "display"
+    snapshot.currentState === "speak"
+      ? "Backend synthesis playback is driving a coarse speak window for the mounted avatar."
+      : variant === "display"
       ? "The display surface is rendering the manifest-resolved VRM."
       : "The default shell is now rendering the imported VRM.";
   const displayCharacterLabel = selectedCharacter?.summary.displayName ?? "Waiting for backend-confirmed selection";
@@ -59,7 +63,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
           <p className="eyebrow">{shellEyebrow}</p>
           <h2 id="avatar-stage-title">{shellTitle}</h2>
         </div>
-        <span className="avatar-stage__status">{runtimeStatusLabel}</span>
+        <span className="avatar-stage__status">{headerStatusLabel}</span>
       </div>
 
       <div className={variant === "display" ? "avatar-stage__surface avatar-stage__surface--display" : "avatar-stage__surface"}>
@@ -68,6 +72,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
             <div className="avatar-stage__display-banner" aria-label="Display runtime summary">
               <span className="avatar-stage__display-chip">{displayCharacterLabel}</span>
               <span className="avatar-stage__display-chip">{runtimeStatusLabel}</span>
+              <span className="avatar-stage__display-chip">{runtimeActivityLabel}</span>
             </div>
           ) : null}
           <div id={mountPoints.viewportElementId} className="avatar-stage__viewport" />
@@ -98,6 +103,10 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
                 <div>
                   <dt>Runtime status</dt>
                   <dd>{runtimeStatusLabel}</dd>
+                </div>
+                <div>
+                  <dt>Activity</dt>
+                  <dd>{runtimeActivityLabel}</dd>
                 </div>
                 <div>
                   <dt>Shared animation set</dt>

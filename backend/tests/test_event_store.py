@@ -62,6 +62,16 @@ class StaticSpeechSynthesisService:
         return self._contract
 
 
+class CapturingSpeechTranscriptionService(StubSpeechTranscriptionService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[SpeechTranscriptionRequest] = []
+
+    def transcribe(self, request: SpeechTranscriptionRequest) -> SpeechTranscriptionContract:
+        self.requests.append(request)
+        return super().transcribe(request)
+
+
 class StaticTextGenerationService:
     def __init__(self, contract: AssistantMessageContract) -> None:
         self._contract = contract
@@ -339,12 +349,17 @@ def build_transcription_contract(status: str) -> SpeechTranscriptionContract:
     )
 
 
-def build_synthesis_contract(status: str) -> SpeechSynthesisContract:
+def build_synthesis_contract(
+    status: str,
+    *,
+    audio_reference: str | None = None,
+) -> SpeechSynthesisContract:
     return SpeechSynthesisContract(
         profile_id="tts.gpt-sovits.2026-stable",
         status=status,
         text="Sure. I can wave once I finish speaking.",
         locale="en-US",
+        audio_reference=audio_reference,
     )
 
 
@@ -932,6 +947,75 @@ class DefaultTurnPipelinePublisherTests(unittest.TestCase):
                 for envelope in store.read("speech.lifecycle", session_id=snapshot.session_id)
             ],
         )
+
+    def test_publish_turn_forwards_audio_reference_and_serializes_synthesis_timing(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="session-scaffold-01",
+            active_character_id="test-vrm-01",
+        )
+        store = InMemorySessionEventStore()
+        transcription_service = CapturingSpeechTranscriptionService()
+        publisher = DefaultTurnPipelinePublisher(
+            transcription_service=transcription_service,
+            synthesis_service=StubSpeechSynthesisService(),
+            session_event_factory=DefaultSessionEventFactory(),
+            event_store=store,
+        )
+        turn_request = build_turn_request()
+
+        publication = publisher.publish_turn(snapshot, turn_request)
+
+        self.assertEqual([turn_request.transcription], transcription_service.requests)
+
+        synthesis_payload = cast(
+            dict[str, object],
+            canonicalize_transport_payload(
+                _serialize_dataclass_payload(publication.speech_lifecycle_events[1])
+            ),
+        )
+        synthesis_event = cast(dict[str, object], synthesis_payload["event"])
+        synthesis_contract = cast(dict[str, object], synthesis_event["synthesis"])
+        timing = cast(dict[str, object], synthesis_contract["timing"])
+        audio_format = cast(dict[str, object], timing["audio_format"])
+        phoneme_slots = cast(list[dict[str, object]], timing["phoneme_slots"])
+        viseme_slots = cast(list[dict[str, object]], timing["viseme_slots"])
+
+        self.assertEqual("speech.synthesis", synthesis_event["event_type"])
+        self.assertEqual(2120, timing["utterance_duration_ms"])
+        self.assertEqual(24000, audio_format["sample_rate_hz"])
+        self.assertEqual("S", phoneme_slots[0]["phoneme"])
+        self.assertEqual("smile", viseme_slots[1]["viseme"])
+
+    def test_publish_turn_preserves_synthesis_audio_reference_when_present(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="session-scaffold-01",
+            active_character_id="test-vrm-01",
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            audio_path = Path(temp_dir) / "reply.wav"
+            audio_path.write_bytes(b"RIFF")
+            store = InMemorySessionEventStore()
+            publisher = DefaultTurnPipelinePublisher(
+                transcription_service=cast(
+                    SpeechTranscriptionService,
+                    StaticSpeechTranscriptionService(build_transcription_contract("final")),
+                ),
+                synthesis_service=cast(
+                    SpeechSynthesisService,
+                    StaticSpeechSynthesisService(
+                        build_synthesis_contract("ready", audio_reference=str(audio_path))
+                    ),
+                ),
+                session_event_factory=DefaultSessionEventFactory(),
+                event_store=store,
+            )
+
+            publication = publisher.publish_turn(snapshot, build_turn_request())
+            stored_synthesis_event = store.read("speech.lifecycle", session_id=snapshot.session_id)[1]
+
+        self.assertEqual(str(audio_path), publication.speech_lifecycle_events[1].event.synthesis.audio_reference)
+        self.assertEqual(str(audio_path), stored_synthesis_event.event.synthesis.audio_reference)
 
     def test_publish_turn_keeps_speech_lifecycle_order_deterministic_across_publications(self) -> None:
         snapshot = SessionSnapshot(

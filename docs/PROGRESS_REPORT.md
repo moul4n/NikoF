@@ -11,6 +11,7 @@ Updated: 2026-05-14
 - The backend now exposes live `speech.lifecycle` delivery on the same canonical envelope and cursor contract, and the frontend shells already consume that live path with snapshot fallback.
 - The backend now exposes `POST /session/operator-command` as the narrow operator-command seam for `text_question` and `tts_preview`, publishing canonical session and `speech.lifecycle` events through the existing event store.
 - The backend now routes `text_question` through a real local text-generation adapter, publishes the backend-owned assistant reply state, and mirrors that same reply as canonical synthesis activity on the existing `speech.lifecycle` envelope in the same command flow.
+- The canonical `speech.synthesis` contract now carries a backend-owned `audio_reference` when a synthesis adapter has a playable local audio artifact, while degraded or unavailable synthesis keeps the field absent and preserves the existing timing metadata shape.
 - The backend now persists `text_question` exchanges in a SQLite store under the existing local app root and enriches backend prompts with cheap lexical recall scoped to the current session and active character.
 - The control surface now owns a thin operator-command panel and loader client outside `App.tsx`, and the display surface remains read-only with respect to operator commands.
 - The control surface now shows assistant status and reply text from the backend-owned operator-command response without creating a second reply path or display-side write state.

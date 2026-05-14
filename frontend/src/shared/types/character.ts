@@ -131,6 +131,7 @@ export interface BackendSpeechSynthesisDocument {
   status: string;
   text: string;
   locale: string;
+  audio_reference?: string | null;
   timing?: BackendSpeechTimingMetadataDocument | null;
 }
 

@@ -1,0 +1,7 @@
+# Orchestration Log
+
+- **Timestamp:** 2026-05-14T13:18:00+01:00
+- **Requested by:** Jason Fletcher
+- **Agent:** Scribe
+- **Work:** Merged the pending playback-contract decision into `.squad/decisions.md`, treated the already-landed text-question speech-display decision as a deduplicated inbox entry, removed both processed inbox files, updated `.squad/identity/now.md` to reflect backend-owned playback-ready synthesis metadata plus frontend coarse speaking consumption on the canonical `speech.lifecycle` seam, and wrote the standard session and orchestration records for this batch. Prepared the narrow publish set around `backend/app/schemas/session.py`, `backend/app/services/speech.py`, `backend/tests/test_event_store.py`, `frontend/src/app/App.tsx`, `frontend/src/avatar/components/AvatarStage.tsx`, `frontend/src/shared/types/character.ts`, `docs/PROGRESS_REPORT.md`, `tests/stability/baselines/backend-stage1-contracts.json`, `tests/stability/baselines/backend-speech-contracts.json`, `tests/stability/baselines/backend-speech-event-store.json`, and `tests/stability/baselines/backend-speech-real-adapter-degraded.json` together with the directly related squad continuity files only.
+- **Outcome:** Squad continuity now matches the landed playback-ready synthesis seam: backend-authored canonical `speech.synthesis` events carry optional audio references, the frontend consumes that backend-owned data for coarse speaking playback on the existing lifecycle stream, full viseme-driven animation remains deferred, and the batch is ready for a narrow `main` publish.

@@ -238,6 +238,7 @@
               "status": "unavailable",
               "text": "Sure. I can wave once I finish speaking.",
               "locale": "en-US",
+              "audio_reference": null,
               "timing": {
                 "utterance_duration_ms": 2120,
                 "segment_ranges": [
@@ -358,6 +359,7 @@
                 "status": "unavailable",
                 "text": "Local text generation is unavailable.",
                 "locale": "en-US",
+                "audio_reference": null,
                 "timing": {
                   "utterance_duration_ms": 2120,
                   "segment_ranges": [
@@ -502,6 +504,7 @@
                 "status": "unavailable",
                 "text": "This is a voice preview.",
                 "locale": "en-US",
+                "audio_reference": null,
                 "timing": {
                   "utterance_duration_ms": 2120,
                   "segment_ranges": [

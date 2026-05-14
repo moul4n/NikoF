@@ -340,6 +340,12 @@
 **What:** Keep `POST /session/operator-command` as the only write seam for `text_question`. For `text_question`, the backend remains the owner of reply generation and should publish `assistant.message` as the canonical reply record on `speech.lifecycle`, while successful backend replies also drive canonical `speech.synthesis` publication from the same backend command path rather than from a frontend follow-up call. The display surface may read backend-confirmed character state plus canonical `speech.lifecycle` events only; it must not read or own operator-command write state directly.
 **Why:** The current seam already proves the right boundary: control posts commands, backend authors canonical events, and the display surface is read-only. Extending the same seam to cover spoken assistant replies avoids a second reply transport and keeps display behavior aligned with backend-owned lifecycle events.
 
+### 2026-05-14T12:55:00+01:00: Speech-synthesis playback and viseme contract
+
+**By:** Trinity
+**What:** Upgrade backend-owned `speech.synthesis` activity on the existing `speech.lifecycle` envelope so each synthesis record can carry a backend-authored audio reference plus playback-ready timing metadata. Keep `POST /session/operator-command`, `GET /session/speech-lifecycle`, and the live `speech.lifecycle` stream as the only transport surfaces for this slice. Treat viseme and phoneme slots as optional backend-authored timing data aligned to one synthesis utterance; the frontend may consume them from the canonical synthesis event but must not introduce a second playback or lip-sync transport.
+**Why:** The current seam already routes reply-owned synthesis through the canonical backend lifecycle stream, but the synthesis contract is still text-first even though timing, phoneme, and viseme metadata already exist. Adding an audio reference on the same contract is the smallest shippable step that enables real playback and makes lip-sync integration possible without moving ownership into the frontend or widening the operator path.
+
 ## Governance
 
 - All meaningful changes require team consensus
