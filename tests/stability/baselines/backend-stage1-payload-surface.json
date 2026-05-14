@@ -1,0 +1,96 @@
+{
+  "scenario_id": "backend-stage1-payload-surface",
+  "scenario_name": "Backend Stage 1 payload surface snapshot",
+  "runner": "python",
+  "tracked_inputs": [
+    "backend/app/api/router.py",
+    "backend/app/core/settings.py",
+    "backend/app/schemas/session.py",
+    "backend/app/schemas/character.py",
+    "backend/app/schemas/health.py",
+    "backend/app/services/character.py",
+    "backend/app/services/session.py",
+    "assets/characters/test-vrm-01/manifest.json",
+    "assets/characters/test-vrm-02/manifest.json",
+    "assets/characters/test-vrm-03/manifest.json"
+  ],
+  "response_surface": {
+    "response_keys": [
+      "characters",
+      "get_active_character",
+      "health",
+      "put_active_character",
+      "put_active_character_invalid"
+    ],
+    "health_keys": [
+      "diagnostics",
+      "mode",
+      "status"
+    ],
+    "health_diagnostics_keys": [
+      "character_packages_available",
+      "notes",
+      "storage_probes"
+    ],
+    "health_storage_probe_keys": [
+      "available",
+      "configured_by",
+      "name",
+      "required_for_stage"
+    ],
+    "character_catalog_keys": [
+      "active_character_id",
+      "characters",
+      "schema_version"
+    ],
+    "character_summary_keys": [
+      "character_id",
+      "display_name",
+      "identity_source",
+      "schema_version",
+      "shared_animation_set",
+      "supported_states",
+      "vrm_spec_version"
+    ],
+    "active_character_keys": [
+      "active_character",
+      "lifecycle_state",
+      "schema_version",
+      "selection",
+      "session_event",
+      "session_id"
+    ],
+    "active_selection_keys": [
+      "applied",
+      "message",
+      "requested_character_id"
+    ],
+    "put_active_character_keys": [
+      "request",
+      "response"
+    ],
+    "selection_request_keys": [
+      "character_id",
+      "reason"
+    ],
+    "session_event_keys": [
+      "character_id",
+      "event_type",
+      "schema_version",
+      "session_id",
+      "status",
+      "timestamp"
+    ],
+    "invalid_response_keys": [
+      "http_status",
+      "request",
+      "response"
+    ],
+    "invalid_selection_keys": [
+      "applied",
+      "error_code",
+      "message",
+      "requested_character_id"
+    ]
+  }
+}

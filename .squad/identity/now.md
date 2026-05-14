@@ -1,10 +1,10 @@
 ---
 updated_at: 2026-05-14T08:57:41.6820932+01:00
-focus_area: Stage 1 backend, frontend default-character shell, and stability execution
+focus_area: Stage 1 backend-frontend bridge complete; next batch locked around speech contracts and deterministic integration baselines
 active_issues: []
 ---
 
 # What We're Focused On
 
-Executing the locked Stage 1 batch across backend contracts, the frontend default-character VRM shell, and deterministic stability snapshots. Current emphasis is the provider-agnostic backend surface around health, manifest-summary character data, and active-character control, plus the manifest-first frontend shell loading one real `test-vrm-01` VRM and the PowerShell harness capturing stable normalized snapshots for the new route payloads.
-Updated by Scribe after the Stage 1 execution batch handoff.
+The locked Stage 1 bridge batch is complete: backend character-summary and active-character control now line up with the frontend default-character shell, and the stability harness baselines are normalized for deterministic compare-mode runs across machines. The next active seam is narrow by design: provider-agnostic speech adapter contracts and timing metadata, plus maintaining the frontend-backend bridge without widening into manifest serving, live transport, or provider-specific bootstrapping.
+Updated by Scribe after merging the Stage 1 bridge batch decisions.

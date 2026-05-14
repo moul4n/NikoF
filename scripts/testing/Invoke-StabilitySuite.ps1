@@ -66,7 +66,7 @@ function ConvertTo-StableJson {
         [Parameter(Mandatory)]$InputObject
     )
 
-    return ($InputObject | ConvertTo-Json -Depth 10)
+    return ($InputObject | ConvertTo-Json -Depth 20)
 }
 
 function Normalize-ComparisonText {
@@ -80,6 +80,25 @@ function Normalize-ComparisonText {
     }
 
     return $Text.TrimEnd("`r", "`n")
+}
+
+function ConvertTo-CanonicalComparisonText {
+    param(
+        [AllowNull()]
+        [string]$Text
+    )
+
+    $normalized = Normalize-ComparisonText -Text $Text
+    if ($null -eq $normalized) {
+        return $null
+    }
+
+    try {
+        return (($normalized | ConvertFrom-Json) | ConvertTo-Json -Depth 20 -Compress)
+    }
+    catch {
+        return $normalized
+    }
 }
 
 function Get-LineDiff {
@@ -153,7 +172,6 @@ function Invoke-BootstrapPrerequisiteSnapshot {
     New-DirectoryIfMissing -Path $scenarioTempRoot
 
     $storageLayout = Get-NikoFStorageLayout -RepoRoot $RepoRoot -Config $config -LocalRootOverride $scenarioTempRoot
-    $toolResults = @(Test-NikoFTooling -Config $config)
     $providerResults = @(Get-NikoFProviderStatus -Config $config -StorageLayout $storageLayout)
 
     return [ordered]@{
@@ -161,15 +179,15 @@ function Invoke-BootstrapPrerequisiteSnapshot {
         scenario_name = $Scenario.name
         tracked_inputs = @($Scenario.tracked_inputs)
         local_root = '<scenario-temp>'
-        tooling = @(
-            $toolResults | ForEach-Object {
+        tool_contracts = @(
+            $config.tools | ForEach-Object {
                 [ordered]@{
                     id = $_.id
-                    available = [bool]$_.available
+                    command = $_.command
+                    args = @($_.args)
                 }
             }
         )
-        missing_tools = @($toolResults | Where-Object { -not $_.available } | ForEach-Object { $_.id })
         provider_payloads = @(
             $providerResults | ForEach-Object {
                 [ordered]@{
@@ -180,6 +198,66 @@ function Invoke-BootstrapPrerequisiteSnapshot {
             }
         )
         missing_provider_payloads = @($providerResults | Where-Object { -not $_.present } | ForEach-Object { $_.id })
+    }
+}
+
+function Get-OrderedPropertyNames {
+    param(
+        [Parameter(Mandatory)]$InputObject
+    )
+
+    return @($InputObject.PSObject.Properties | ForEach-Object { $_.Name } | Sort-Object)
+}
+
+function Invoke-BootstrapReportSurfaceSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $helperPath = Join-Path $RepoRoot 'scripts\bootstrap\Test-NikoFPrerequisites.ps1'
+    . $helperPath
+
+    $configPath = Join-Path $RepoRoot 'scripts\bootstrap\bootstrap.targets.json'
+    $config = Get-NikoFBootstrapConfig -ConfigPath $configPath
+    $scenarioTempRoot = Join-Path $RunRoot 'bootstrap-report-sandbox'
+    New-DirectoryIfMissing -Path $scenarioTempRoot
+
+    $storageLayout = Get-NikoFStorageLayout -RepoRoot $RepoRoot -Config $config -LocalRootOverride $scenarioTempRoot
+    $createdPaths = @(Initialize-NikoFStorageLayout -StorageLayout $storageLayout)
+    $toolResults = @(Test-NikoFTooling -Config $config)
+    $providerResults = @(Get-NikoFProviderStatus -Config $config -StorageLayout $storageLayout)
+    $envFilePath = Export-NikoFSessionEnvFile -StorageLayout $storageLayout -Config $config
+    $reportPath = Export-NikoFBootstrapReport -StorageLayout $storageLayout -Config $config -CreatedPaths $createdPaths -ToolResults $toolResults -ProviderResults $providerResults -EnvFilePath $envFilePath
+    $reportPayload = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        tracked_inputs = @($Scenario.tracked_inputs)
+        report_file = 'bootstrap-report.json'
+        report_surface = [ordered]@{
+            top_level_keys = @(Get-OrderedPropertyNames -InputObject $reportPayload)
+            storage_layout_keys = @(Get-OrderedPropertyNames -InputObject $reportPayload.storage_layout)
+            tool_entry_keys = if ($reportPayload.tools.Count -gt 0) {
+                @(Get-OrderedPropertyNames -InputObject $reportPayload.tools[0])
+            }
+            else {
+                @()
+            }
+            provider_entry_keys = if ($reportPayload.providers.Count -gt 0) {
+                @(Get-OrderedPropertyNames -InputObject $reportPayload.providers[0])
+            }
+            else {
+                @()
+            }
+            tool_ids = @($reportPayload.tools | ForEach-Object { $_.id })
+            provider_ids = @($reportPayload.providers | ForEach-Object { $_.id })
+        }
     }
 }
 
@@ -242,6 +320,7 @@ from app.api.router import build_api_contract_snapshot
 snapshot = build_api_contract_snapshot()
 snapshot["responses"]["get_active_character"]["session_event"]["timestamp"] = "<generated-at>"
 snapshot["responses"]["put_active_character"]["response"]["session_event"]["timestamp"] = "<generated-at>"
+snapshot["responses"]["put_active_character_invalid"]["response"]["session_event"]["timestamp"] = "<generated-at>"
 
 json.dump(snapshot, sys.stdout, indent=4)
 sys.stdout.write("\n")
@@ -288,6 +367,88 @@ sys.stdout.write("\n")
     }
 }
 
+function Invoke-BackendStage1PayloadSurfaceSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotObject = Invoke-BackendStage1ContractSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotObject.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotObject.exit_code -ne 0)) {
+        return $snapshotObject
+    }
+
+    $healthResponse = $snapshotObject.responses.health
+    $charactersResponse = $snapshotObject.responses.characters
+    $activeCharacterResponse = $snapshotObject.responses.get_active_character
+    $putActiveCharacterResponse = $snapshotObject.responses.put_active_character
+    $invalidActiveCharacterResponse = if ($snapshotObject.responses.PSObject.Properties.Name -contains 'put_active_character_invalid') {
+        $snapshotObject.responses.put_active_character_invalid
+    }
+    else {
+        $null
+    }
+
+    $characterCatalogKeys = @()
+    $characterSummary = $null
+    if ($charactersResponse.PSObject.Properties.Name -contains 'characters') {
+        $characterCatalogKeys = @(Get-OrderedPropertyNames -InputObject $charactersResponse)
+        if ($charactersResponse.characters.Count -gt 0) {
+            $characterSummary = $charactersResponse.characters[0]
+        }
+    }
+    elseif ($charactersResponse.Count -gt 0) {
+        $characterSummary = $charactersResponse[0]
+    }
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $snapshotObject.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        response_surface = [ordered]@{
+            response_keys = @(Get-OrderedPropertyNames -InputObject $snapshotObject.responses)
+            health_keys = @(Get-OrderedPropertyNames -InputObject $healthResponse)
+            health_diagnostics_keys = @(Get-OrderedPropertyNames -InputObject $healthResponse.diagnostics)
+            health_storage_probe_keys = @(Get-OrderedPropertyNames -InputObject $healthResponse.diagnostics.storage_probes[0])
+            character_catalog_keys = @($characterCatalogKeys)
+            character_summary_keys = if ($null -ne $characterSummary) {
+                @(Get-OrderedPropertyNames -InputObject $characterSummary)
+            }
+            else {
+                @()
+            }
+            active_character_keys = @(Get-OrderedPropertyNames -InputObject $activeCharacterResponse)
+            active_selection_keys = if ($activeCharacterResponse.PSObject.Properties.Name -contains 'selection') {
+                @(Get-OrderedPropertyNames -InputObject $activeCharacterResponse.selection)
+            }
+            else {
+                @()
+            }
+            put_active_character_keys = @(Get-OrderedPropertyNames -InputObject $putActiveCharacterResponse)
+            selection_request_keys = @(Get-OrderedPropertyNames -InputObject $putActiveCharacterResponse.request)
+            session_event_keys = @(Get-OrderedPropertyNames -InputObject $activeCharacterResponse.session_event)
+            invalid_response_keys = if ($null -ne $invalidActiveCharacterResponse) {
+                @(Get-OrderedPropertyNames -InputObject $invalidActiveCharacterResponse)
+            }
+            else {
+                @()
+            }
+            invalid_selection_keys = if (($null -ne $invalidActiveCharacterResponse) -and ($invalidActiveCharacterResponse.PSObject.Properties.Name -contains 'response')) {
+                @(Get-OrderedPropertyNames -InputObject $invalidActiveCharacterResponse.response.selection)
+            }
+            else {
+                @()
+            }
+        }
+    }
+}
+
 function Invoke-ScenarioSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -305,8 +466,14 @@ function Invoke-ScenarioSnapshot {
         'bootstrap-prerequisites' {
             return Invoke-BootstrapPrerequisiteSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
+        'bootstrap-report-surface' {
+            return Invoke-BootstrapReportSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
         'backend-stage1-contracts' {
             return Invoke-BackendStage1ContractSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'backend-stage1-payload-surface' {
+            return Invoke-BackendStage1PayloadSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         default {
             throw "Unsupported harness '$($Scenario.harness)' for scenario '$($Scenario.id)'."
@@ -368,7 +535,9 @@ foreach ($scenarioDefinition in $scenarioList) {
     else {
         $baselineJson = Normalize-ComparisonText -Text (Get-Content -LiteralPath $baselinePath -Raw)
         $currentJson = Normalize-ComparisonText -Text $snapshotJson
-        if ($baselineJson -cne $currentJson) {
+        $baselineCanonical = ConvertTo-CanonicalComparisonText -Text $baselineJson
+        $currentCanonical = ConvertTo-CanonicalComparisonText -Text $currentJson
+        if ($baselineCanonical -cne $currentCanonical) {
             $status = 'diff'
             $diffPreview = @(Get-LineDiff -BaselineText $baselineJson -CurrentText $currentJson)
         }

@@ -38,21 +38,27 @@ powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite
 ## Initial Scenarios
 
 - `contracts-validation`: snapshots the current contract validator command output and exit code.
-- `bootstrap-prerequisites`: snapshots the current bootstrap prerequisite surface, including required tool availability and missing provider payload expectations inside a harness-owned sandbox.
-- `backend-stage1-contracts`: snapshots the locked Stage 1 backend route registrations plus the current normalized outputs for `GET /health`, `GET /characters`, and `GET` plus `PUT /session/active-character`, including the canonical normalized session-event payload embedded in the active-character responses.
+- `bootstrap-prerequisites`: snapshots the declared bootstrap tooling contract from `bootstrap.targets.json` plus missing provider payload expectations inside a harness-owned sandbox. It intentionally excludes live command availability so compare mode tracks prerequisite-contract changes instead of machine-local PATH drift.
+- `bootstrap-report-surface`: snapshots the shape of the generated bootstrap JSON report so added top-level fields or widened tool and provider entries fail deterministically without depending on machine-specific paths or timestamps.
+- `backend-stage1-contracts`: snapshots the locked Stage 1 backend route registrations plus the current normalized outputs for `GET /health`, `GET /characters`, and `GET` plus `PUT /session/active-character`, including the owned invalid active-character rejection payload when the backend slice exposes it.
+- `backend-stage1-payload-surface`: snapshots the allowed key sets for the current backend response envelopes, including selection metadata and the invalid active-character rejection envelope when present, so widened Stage 1 payloads fail even when the existing values still look valid.
 
 ## Diff Behavior
 
 Each scenario writes a current snapshot under `artifacts/current/<run-id>/`. When a baseline exists, the harness compares the serialized JSON snapshot to the checked-in baseline and emits a `.diff.txt` file when lines differ.
 
+JSON-backed scenarios are compared by canonicalized content instead of raw whitespace, so PowerShell JSON formatting differences do not trigger false diffs on their own.
+
 The default mode is comparison only. Baselines are rewritten only when `-RefreshBaselines` is passed intentionally.
 
-For the backend Stage 1 scenario, the harness sets backend local-root environment variables to a harness-owned sandbox before importing the app snapshot helper. That keeps `GET /health` deterministic across machines while still leaving live transport frames, frontend UI text, animation commands, provider diagnostics, and wider failure-path matrices out of scope.
+For the backend Stage 1 scenarios, the harness sets backend local-root environment variables to a harness-owned sandbox before importing the app snapshot helper. That keeps `GET /health` deterministic across machines while still leaving live transport frames, frontend UI text, animation commands, provider diagnostics, and wider failure-path matrices out of scope.
 
-The same scenario also normalizes session-event timestamps to `<generated-at>` so payload shape changes still surface without failing every compare run on wall-clock time alone.
+Those scenarios also normalize session-event timestamps to `<generated-at>` so payload shape changes still surface without failing every compare run on wall-clock time alone.
+
+For the bootstrap JSON surface, the harness now generates the bootstrap report inside a scenario-owned sandbox and snapshots only its stable key surface. That blocks accidental report widening without pinning machine-local paths, created directory lists, or timestamp values.
 
 ## Mouse Owns Next
 
 - Add Stage 1 backend session and manifest-summary scenarios once those outputs stabilize.
-- Add failure-path baselines for missing providers and widened payload regressions.
-- Add bootstrap artifact assertions after the bootstrap report contract is intentionally hardened.
+- Keep widened-payload baselines aligned with the backend-owned Stage 1 envelopes, including the invalid active-character rejection contract when it exists on the current branch, plus the bootstrap report surface.
+- Add bootstrap artifact assertions only after the bootstrap report value contract, not just its key surface, is intentionally hardened.

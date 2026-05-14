@@ -9,6 +9,12 @@ from app.core.settings import get_app_paths
 from app.schemas.character import CharacterManifest, CharacterSummary
 
 
+class UnknownCharacterError(LookupError):
+    def __init__(self, character_id: str) -> None:
+        super().__init__(f"Unknown character package: {character_id}")
+        self.character_id = character_id
+
+
 class CharacterManifestSource(Protocol):
     """Boundary for loading character asset metadata."""
 
@@ -61,7 +67,7 @@ class FileSystemCharacterManifestSource:
         manifest_path = self.characters_root / character_id / "manifest.json"
 
         if not manifest_path.exists():
-            raise FileNotFoundError(f"Unknown character package: {character_id}")
+            raise UnknownCharacterError(character_id)
 
         return manifest_path
 

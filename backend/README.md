@@ -11,11 +11,15 @@ implemented.
 - `app/services/character.py` is the first real service stub and reads character manifests from `assets/characters/`.
 - `app/services/session.py` and `app/services/animation.py` define coherent seams for later orchestration work.
 - `GET /health`, `GET /characters`, and `GET` or `PUT /session/active-character` all stay provider-agnostic and can be inspected without local model installs.
+- `GET /characters` returns a normalized catalog envelope with the current active character id plus summary records only.
+- `PUT /session/active-character` returns the same normalized active-character envelope on success and on invalid selection, using HTTP 400 with a stable rejection payload when the requested character id is unavailable.
 
 ## Later integration points
 
 - Real HTTP handlers belong in `app/api/` once FastAPI is introduced.
 - Local STT, LLM, TTS, and memory providers should sit behind dedicated services, not route modules.
+- Normalized speech adapter contracts live in `app/schemas/session.py`. Later Faster-Whisper and GPT-SoVITS adapters should map provider-specific payloads into those schema types instead of widening route payloads or introducing provider-shaped API responses.
+- Baseline speech profile ids are locked for planning and fixture coverage: `stt.faster-whisper.medium-2026`, `stt.faster-whisper.small-2026`, and `tts.gpt-sovits.2026-stable`.
 - Persistent session state can replace the in-memory session stub without changing route contracts.
 
 ## Quick check

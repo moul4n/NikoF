@@ -136,7 +136,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 ### Mouse Stage 1
 
 - [ ] Add backend contract tests for session start or stop flows, health payloads, and manifest summaries.
-- [ ] Add tests that reject widened provider payloads leaking past normalized backend events.
+- [ ] Add tests that reject widened provider payloads leaking past normalized backend events; current widened-payload baselines cover the locked Stage 1 response envelopes, including invalid active-character rejection when present, and the bootstrap report surface.
 - [ ] Keep schema gates aligned with the Stage 1 service boundaries.
 - [ ] Add checks that missing local providers resolve to actionable bootstrap or manual-install guidance instead of opaque failures.
 
@@ -160,5 +160,5 @@ This is the active scaffold board for the current stages. It assumes the three t
 - Tank can deepen the backend skeleton and provider-agnostic adapter seams now.
 - Switch can keep the frontend focused on the default-character VRM shell and device permission seams now.
 - Link can start STT and TTS adapter contracts now, using the agreed 2026 baseline.
-- Mouse owns the stability harness next: add backend session-event snapshots, bootstrap artifact assertions, and staged failure baselines as Stage 1 contracts firm up.
+- Mouse owns the stability harness next: add backend session-event snapshots, bootstrap artifact assertions, and staged failure baselines as Stage 1 contracts firm up. Widened-payload baselines now cover the current backend Stage 1 response envelopes and bootstrap report surface.
 - Trinity owns the portability, bootstrap, and continuity contract until those rules are reflected in implementation docs and setup validation.

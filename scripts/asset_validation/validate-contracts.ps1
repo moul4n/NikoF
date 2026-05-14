@@ -62,6 +62,40 @@ function Assert-NonEmptyTimestampValue {
     Assert-NonEmptyString -Failures $Failures -Label $Label -Value $Value
 }
 
+function Assert-NonNegativeInteger {
+    param(
+        [System.Collections.Generic.List[string]]$Failures,
+        [string]$Label,
+        $Value
+    )
+
+    if (($Value -isnot [int]) -and ($Value -isnot [long])) {
+        Add-Failure -Failures $Failures -Message "$Label must be an integer."
+        return
+    }
+
+    if ($Value -lt 0) {
+        Add-Failure -Failures $Failures -Message "$Label must be zero or greater."
+    }
+}
+
+function Assert-ProbabilityValue {
+    param(
+        [System.Collections.Generic.List[string]]$Failures,
+        [string]$Label,
+        $Value
+    )
+
+    if (($Value -isnot [double]) -and ($Value -isnot [float]) -and ($Value -isnot [decimal])) {
+        Add-Failure -Failures $Failures -Message "$Label must be numeric."
+        return
+    }
+
+    if ($Value -lt 0 -or $Value -gt 1) {
+        Add-Failure -Failures $Failures -Message "$Label must stay within 0..1."
+    }
+}
+
 function Assert-Property {
     param(
         [System.Collections.Generic.List[string]]$Failures,
@@ -166,6 +200,151 @@ function Assert-AnimationEventShape {
     }
 }
 
+function Assert-AudioFormatShape {
+    param(
+        [System.Collections.Generic.List[string]]$Failures,
+        [string]$Label,
+        $AudioFormat
+    )
+
+    if ($AudioFormat -isnot [pscustomobject]) {
+        Add-Failure -Failures $Failures -Message "$Label must be an object."
+        return
+    }
+
+    foreach ($propertyName in @('container', 'encoding', 'sample_rate_hz', 'channels')) {
+        if (-not (Assert-Property -Failures $Failures -Label $Label -Object $AudioFormat -PropertyName $propertyName)) {
+            return
+        }
+    }
+
+    foreach ($propertyName in @('container', 'encoding')) {
+        Assert-NonEmptyString -Failures $Failures -Label "$Label.$propertyName" -Value $AudioFormat.$propertyName
+    }
+
+    Assert-NonNegativeInteger -Failures $Failures -Label "$Label.sample_rate_hz" -Value $AudioFormat.sample_rate_hz
+    Assert-NonNegativeInteger -Failures $Failures -Label "$Label.channels" -Value $AudioFormat.channels
+}
+
+function Assert-SpeechSegmentShape {
+    param(
+        [System.Collections.Generic.List[string]]$Failures,
+        [string]$Label,
+        $Segment
+    )
+
+    if ($Segment -isnot [pscustomobject]) {
+        Add-Failure -Failures $Failures -Message "$Label must be an object."
+        return
+    }
+
+    foreach ($propertyName in @('start_ms', 'end_ms')) {
+        if (-not (Assert-Property -Failures $Failures -Label $Label -Object $Segment -PropertyName $propertyName)) {
+            return
+        }
+    }
+
+    Assert-NonNegativeInteger -Failures $Failures -Label "$Label.start_ms" -Value $Segment.start_ms
+    Assert-NonNegativeInteger -Failures $Failures -Label "$Label.end_ms" -Value $Segment.end_ms
+
+    if ($Segment.end_ms -lt $Segment.start_ms) {
+        Add-Failure -Failures $Failures -Message "$Label.end_ms must be greater than or equal to start_ms."
+    }
+
+    $hasSegmentText = Test-HasProperty -Object $Segment -Name 'text'
+    if ($hasSegmentText -and $null -ne $Segment.text) {
+        Assert-NonEmptyString -Failures $Failures -Label "$Label.text" -Value $Segment.text
+    }
+}
+
+function Assert-SpeechSlotShape {
+    param(
+        [System.Collections.Generic.List[string]]$Failures,
+        [string]$Label,
+        $Slot,
+        [string]$KeyName
+    )
+
+    if ($Slot -isnot [pscustomobject]) {
+        Add-Failure -Failures $Failures -Message "$Label must be an object."
+        return
+    }
+
+    foreach ($propertyName in @($KeyName, 'start_ms', 'end_ms')) {
+        if (-not (Assert-Property -Failures $Failures -Label $Label -Object $Slot -PropertyName $propertyName)) {
+            return
+        }
+    }
+
+    Assert-NonEmptyString -Failures $Failures -Label "$Label.$KeyName" -Value $Slot.$KeyName
+    Assert-NonNegativeInteger -Failures $Failures -Label "$Label.start_ms" -Value $Slot.start_ms
+    Assert-NonNegativeInteger -Failures $Failures -Label "$Label.end_ms" -Value $Slot.end_ms
+
+    if ($Slot.end_ms -lt $Slot.start_ms) {
+        Add-Failure -Failures $Failures -Message "$Label.end_ms must be greater than or equal to start_ms."
+    }
+}
+
+function Assert-SpeechTimingShape {
+    param(
+        [System.Collections.Generic.List[string]]$Failures,
+        [string]$Label,
+        $Timing
+    )
+
+    if ($Timing -isnot [pscustomobject]) {
+        Add-Failure -Failures $Failures -Message "$Label must be an object."
+        return
+    }
+
+    if (-not (Assert-Property -Failures $Failures -Label $Label -Object $Timing -PropertyName 'utterance_duration_ms')) {
+        return
+    }
+
+    Assert-NonNegativeInteger -Failures $Failures -Label "$Label.utterance_duration_ms" -Value $Timing.utterance_duration_ms
+
+    $hasSegmentRanges = Test-HasProperty -Object $Timing -Name 'segment_ranges'
+    if ($hasSegmentRanges -and $null -ne $Timing.segment_ranges) {
+        if ($Timing.segment_ranges -isnot [System.Array]) {
+            Add-Failure -Failures $Failures -Message "$Label.segment_ranges must be an array when present."
+        }
+        else {
+            foreach ($segment in $Timing.segment_ranges) {
+                Assert-SpeechSegmentShape -Failures $Failures -Label "$Label.segment_ranges[]" -Segment $segment
+            }
+        }
+    }
+
+    $hasAudioFormat = Test-HasProperty -Object $Timing -Name 'audio_format'
+    if ($hasAudioFormat -and $null -ne $Timing.audio_format) {
+        Assert-AudioFormatShape -Failures $Failures -Label "$Label.audio_format" -AudioFormat $Timing.audio_format
+    }
+
+    $hasPhonemeSlots = Test-HasProperty -Object $Timing -Name 'phoneme_slots'
+    if ($hasPhonemeSlots -and $null -ne $Timing.phoneme_slots) {
+        if ($Timing.phoneme_slots -isnot [System.Array]) {
+            Add-Failure -Failures $Failures -Message "$Label.phoneme_slots must be an array when present."
+        }
+        else {
+            foreach ($slot in $Timing.phoneme_slots) {
+                Assert-SpeechSlotShape -Failures $Failures -Label "$Label.phoneme_slots[]" -Slot $slot -KeyName 'phoneme'
+            }
+        }
+    }
+
+    $hasVisemeSlots = Test-HasProperty -Object $Timing -Name 'viseme_slots'
+    if ($hasVisemeSlots -and $null -ne $Timing.viseme_slots) {
+        if ($Timing.viseme_slots -isnot [System.Array]) {
+            Add-Failure -Failures $Failures -Message "$Label.viseme_slots must be an array when present."
+        }
+        else {
+            foreach ($slot in $Timing.viseme_slots) {
+                Assert-SpeechSlotShape -Failures $Failures -Label "$Label.viseme_slots[]" -Slot $slot -KeyName 'viseme'
+            }
+        }
+    }
+}
+
 function Assert-SessionEventShape {
     param(
         [System.Collections.Generic.List[string]]$Failures,
@@ -188,6 +367,86 @@ function Assert-SessionEventShape {
     }
 
     Assert-NonEmptyTimestampValue -Failures $Failures -Label "$Label.timestamp" -Value $Event.timestamp
+
+    $baselineSttProfileIds = @(
+        'stt.faster-whisper.medium-2026',
+        'stt.faster-whisper.small-2026'
+    )
+    $baselineTtsProfileIds = @(
+        'tts.gpt-sovits.2026-stable'
+    )
+
+    $hasTranscription = Test-HasProperty -Object $Event -Name 'transcription'
+    if ($hasTranscription -and $null -ne $Event.transcription) {
+        if ($Event.transcription -isnot [pscustomobject]) {
+            Add-Failure -Failures $Failures -Message "$Label.transcription must be an object when present."
+        }
+        else {
+            foreach ($propertyName in @('profile_id', 'status', 'locale')) {
+                if (-not (Assert-Property -Failures $Failures -Label "$Label.transcription" -Object $Event.transcription -PropertyName $propertyName)) {
+                    return
+                }
+            }
+
+            foreach ($propertyName in @('profile_id', 'status', 'locale')) {
+                Assert-NonEmptyString -Failures $Failures -Label "$Label.transcription.$propertyName" -Value $Event.transcription.$propertyName
+            }
+
+            if ($baselineSttProfileIds -notcontains $Event.transcription.profile_id) {
+                Add-Failure -Failures $Failures -Message "$Label.transcription.profile_id must use a locked Stage 3 baseline id."
+            }
+
+            $hasTranscript = Test-HasProperty -Object $Event.transcription -Name 'transcript'
+            if ($hasTranscript -and $null -ne $Event.transcription.transcript) {
+                Assert-NonEmptyString -Failures $Failures -Label "$Label.transcription.transcript" -Value $Event.transcription.transcript
+            }
+
+            $hasConfidence = Test-HasProperty -Object $Event.transcription -Name 'confidence'
+            if ($hasConfidence -and $null -ne $Event.transcription.confidence) {
+                Assert-ProbabilityValue -Failures $Failures -Label "$Label.transcription.confidence" -Value $Event.transcription.confidence
+            }
+
+            $hasTranscriptionTiming = Test-HasProperty -Object $Event.transcription -Name 'timing'
+            if ($hasTranscriptionTiming -and $null -ne $Event.transcription.timing) {
+                Assert-SpeechTimingShape -Failures $Failures -Label "$Label.transcription.timing" -Timing $Event.transcription.timing
+            }
+        }
+    }
+
+    $hasSynthesis = Test-HasProperty -Object $Event -Name 'synthesis'
+    if ($hasSynthesis -and $null -ne $Event.synthesis) {
+        if ($Event.synthesis -isnot [pscustomobject]) {
+            Add-Failure -Failures $Failures -Message "$Label.synthesis must be an object when present."
+        }
+        else {
+            foreach ($propertyName in @('profile_id', 'status', 'text', 'locale')) {
+                if (-not (Assert-Property -Failures $Failures -Label "$Label.synthesis" -Object $Event.synthesis -PropertyName $propertyName)) {
+                    return
+                }
+            }
+
+            foreach ($propertyName in @('profile_id', 'status', 'text', 'locale')) {
+                Assert-NonEmptyString -Failures $Failures -Label "$Label.synthesis.$propertyName" -Value $Event.synthesis.$propertyName
+            }
+
+            if ($baselineTtsProfileIds -notcontains $Event.synthesis.profile_id) {
+                Add-Failure -Failures $Failures -Message "$Label.synthesis.profile_id must use the locked Stage 3 baseline id."
+            }
+
+            $hasSynthesisTiming = Test-HasProperty -Object $Event.synthesis -Name 'timing'
+            if ($hasSynthesisTiming -and $null -ne $Event.synthesis.timing) {
+                Assert-SpeechTimingShape -Failures $Failures -Label "$Label.synthesis.timing" -Timing $Event.synthesis.timing
+            }
+        }
+    }
+
+    if ($Event.event_type -eq 'transcription.status' -and (-not $hasTranscription -or $null -eq $Event.transcription)) {
+        Add-Failure -Failures $Failures -Message "$Label must include transcription when event_type is transcription.status."
+    }
+
+    if ($Event.event_type -eq 'speech.synthesis' -and (-not $hasSynthesis -or $null -eq $Event.synthesis)) {
+        Add-Failure -Failures $Failures -Message "$Label must include synthesis when event_type is speech.synthesis."
+    }
 }
 
 function Assert-PathExists {
@@ -404,6 +663,12 @@ Assert-AnimationEventShape -Failures $failures -Label 'animation-event.valid.jso
 
 $sessionEventFixture = Read-JsonFile -Path (Join-Path $fixtureRoot 'session-event.valid.json')
 Assert-SessionEventShape -Failures $failures -Label 'session-event.valid.json' -Event $sessionEventFixture
+
+$sessionEventTranscriptionFixture = Read-JsonFile -Path (Join-Path $fixtureRoot 'session-event.transcription.valid.json')
+Assert-SessionEventShape -Failures $failures -Label 'session-event.transcription.valid.json' -Event $sessionEventTranscriptionFixture
+
+$sessionEventSynthesisFixture = Read-JsonFile -Path (Join-Path $fixtureRoot 'session-event.synthesis.valid.json')
+Assert-SessionEventShape -Failures $failures -Label 'session-event.synthesis.valid.json' -Event $sessionEventSynthesisFixture
 
 $manifestSummaryFixture = Read-JsonFile -Path (Join-Path $fixtureRoot 'character-manifest-summary.valid.json')
 Assert-ManifestSummaryShape -Failures $failures -Label 'character-manifest-summary.valid.json' -Summary $manifestSummaryFixture

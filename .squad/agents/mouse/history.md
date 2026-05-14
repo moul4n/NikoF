@@ -16,6 +16,9 @@
 - 2026-05-14: Baseline refresh must stay explicit; the harness should default to diff mode and only rewrite checked-in expectations behind `-RefreshBaselines`.
 - 2026-05-14: The Stage 1 backend stability seam should call the backend-owned `build_api_contract_snapshot()` helper instead of reconstructing route behavior in the harness; that keeps route registration and normalized response payloads aligned with the app module even when FastAPI is absent.
 - 2026-05-14: Stabilize backend snapshots by sandboxing `NIKOF_*` local-root environment variables and normalizing dynamic session-event timestamps to `<generated-at>`; otherwise `GET /health` and active-character event payloads drift per machine and per run.
+- 2026-05-14: When a JSON value contract is not locked yet, snapshot the stable key surface separately instead of inventing provisional error payloads; once the backend owns a rejection contract on the branch, fold that exact response into the widened-payload baseline instead of stubbing it in the harness.
+- 2026-05-14T08:57:41.6820932+01:00: Stability compare mode should canonicalize JSON before diffing; otherwise PowerShell serializer whitespace changes create false failures even when the underlying object graph is unchanged.
+- 2026-05-14T08:57:41.6820932+01:00: `bootstrap-prerequisites` should snapshot declared tool requirements from `bootstrap.targets.json`, not live command availability, because PATH state is machine-local noise while tool ids and commands are the contract worth guarding.
 
 *** Add File: c:\Users\fletc\Sources\NikoF\.squad\decisions\inbox\mouse-stage1-backend-stability.md
 ### 2026-05-14T08:57:41.6820932+01:00: Stage 1 backend stability normalization

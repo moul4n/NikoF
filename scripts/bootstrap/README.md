@@ -60,8 +60,8 @@ After placing the required payloads in local storage, rerun bootstrap and then r
 powershell -ExecutionPolicy Bypass -File .\scripts\asset_validation\validate-contracts.ps1
 ```
 
-The prereq surface is also tracked by the stability harness through a snapshot scenario that compares tool availability and expected provider payload locations against checked-in baselines:
+The prereq surface is also tracked by the stability harness through snapshot scenarios that compare tool availability, expected provider payload locations, and the generated bootstrap report key surface against checked-in baselines:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1 -Scenario bootstrap-prerequisites
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1 -Scenario bootstrap-prerequisites,bootstrap-report-surface
 ```

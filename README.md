@@ -81,7 +81,7 @@ Refresh the stored baselines intentionally after an approved behavior change:
 powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1 -RefreshBaselines
 ```
 
-The initial suite snapshots the contract validator and the bootstrap prerequisite surface. Checked-in baselines live under `tests/stability/baselines/`, while generated run artifacts and JSON reports are written under `tests/stability/artifacts/` and stay Git-ignored.
+The current suite snapshots the contract validator, the bootstrap prerequisite surface, the bootstrap report JSON surface, the Stage 1 backend contract snapshot, and the Stage 1 backend payload-key surface. Checked-in baselines live under `tests/stability/baselines/`, while generated run artifacts and JSON reports are written under `tests/stability/artifacts/` and stay Git-ignored.
 
 ## Fresh-Machine Bootstrap
 

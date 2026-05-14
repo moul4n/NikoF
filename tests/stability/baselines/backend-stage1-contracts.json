@@ -75,50 +75,54 @@
                                                                    ]
                                                      }
                                  },
-                      "characters":  [
-                                         {
-                                             "schema_version":  1,
-                                             "character_id":  "test-vrm-01",
-                                             "display_name":  "Test Character 01",
-                                             "identity_source":  "scaffolded",
-                                             "vrm_spec_version":  "1.0",
-                                             "shared_animation_set":  "core-v1",
-                                             "supported_states":  [
-                                                                      "idle",
-                                                                      "listen",
-                                                                      "speak",
-                                                                      "emote"
-                                                                  ]
-                                         },
-                                         {
-                                             "schema_version":  1,
-                                             "character_id":  "test-vrm-02",
-                                             "display_name":  "Test Character 02",
-                                             "identity_source":  "scaffolded",
-                                             "vrm_spec_version":  "1.0",
-                                             "shared_animation_set":  "core-v1",
-                                             "supported_states":  [
-                                                                      "idle",
-                                                                      "listen",
-                                                                      "speak",
-                                                                      "emote"
-                                                                  ]
-                                         },
-                                         {
-                                             "schema_version":  1,
-                                             "character_id":  "test-vrm-03",
-                                             "display_name":  "Test Character 03",
-                                             "identity_source":  "scaffolded",
-                                             "vrm_spec_version":  "1.0",
-                                             "shared_animation_set":  "core-v1",
-                                             "supported_states":  [
-                                                                      "idle",
-                                                                      "listen",
-                                                                      "speak",
-                                                                      "emote"
-                                                                  ]
-                                         }
-                                     ],
+                      "characters":  {
+                                         "schema_version":  1,
+                                         "active_character_id":  "test-vrm-01",
+                                         "characters":  [
+                                                            {
+                                                                "schema_version":  1,
+                                                                "character_id":  "test-vrm-01",
+                                                                "display_name":  "Test Character 01",
+                                                                "identity_source":  "scaffolded",
+                                                                "vrm_spec_version":  "1.0",
+                                                                "shared_animation_set":  "core-v1",
+                                                                "supported_states":  [
+                                                                                         "idle",
+                                                                                         "listen",
+                                                                                         "speak",
+                                                                                         "emote"
+                                                                                     ]
+                                                            },
+                                                            {
+                                                                "schema_version":  1,
+                                                                "character_id":  "test-vrm-02",
+                                                                "display_name":  "Test Character 02",
+                                                                "identity_source":  "scaffolded",
+                                                                "vrm_spec_version":  "1.0",
+                                                                "shared_animation_set":  "core-v1",
+                                                                "supported_states":  [
+                                                                                         "idle",
+                                                                                         "listen",
+                                                                                         "speak",
+                                                                                         "emote"
+                                                                                     ]
+                                                            },
+                                                            {
+                                                                "schema_version":  1,
+                                                                "character_id":  "test-vrm-03",
+                                                                "display_name":  "Test Character 03",
+                                                                "identity_source":  "scaffolded",
+                                                                "vrm_spec_version":  "1.0",
+                                                                "shared_animation_set":  "core-v1",
+                                                                "supported_states":  [
+                                                                                         "idle",
+                                                                                         "listen",
+                                                                                         "speak",
+                                                                                         "emote"
+                                                                                     ]
+                                                            }
+                                                        ]
+                                     },
                       "get_active_character":  {
                                                    "schema_version":  1,
                                                    "session_id":  "session-scaffold-01",
@@ -137,14 +141,18 @@
                                                                                                      "emote"
                                                                                                  ]
                                                                         },
+                                                   "selection":  {
+                                                                     "requested_character_id":  "test-vrm-01",
+                                                                     "applied":  true,
+                                                                     "message":  "Active character resolved."
+                                                                 },
                                                    "session_event":  {
                                                                          "schema_version":  1,
                                                                          "event_type":  "session.state",
                                                                          "session_id":  "session-scaffold-01",
                                                                          "character_id":  "test-vrm-01",
                                                                          "status":  "idle",
-                                                                         "timestamp":  "\u003cgenerated-at\u003e",
-                                                                         "reason":  null
+                                                                         "timestamp":  "\u003cgenerated-at\u003e"
                                                                      }
                                                },
                       "put_active_character":  {
@@ -170,6 +178,11 @@
                                                                                                                       "emote"
                                                                                                                   ]
                                                                                          },
+                                                                    "selection":  {
+                                                                                      "requested_character_id":  "test-vrm-03",
+                                                                                      "applied":  true,
+                                                                                      "message":  "Active character updated."
+                                                                                  },
                                                                     "session_event":  {
                                                                                           "schema_version":  1,
                                                                                           "event_type":  "session.character.selected",
@@ -180,6 +193,47 @@
                                                                                           "reason":  "user_selected"
                                                                                       }
                                                                 }
-                                               }
+                                               },
+                      "put_active_character_invalid":  {
+                                                           "request":  {
+                                                                           "character_id":  "missing-character",
+                                                                           "reason":  "user_selected"
+                                                                       },
+                                                           "http_status":  400,
+                                                           "response":  {
+                                                                            "schema_version":  1,
+                                                                            "session_id":  "session-scaffold-01",
+                                                                            "lifecycle_state":  "idle",
+                                                                            "active_character":  {
+                                                                                                     "schema_version":  1,
+                                                                                                     "character_id":  "test-vrm-01",
+                                                                                                     "display_name":  "Test Character 01",
+                                                                                                     "identity_source":  "scaffolded",
+                                                                                                     "vrm_spec_version":  "1.0",
+                                                                                                     "shared_animation_set":  "core-v1",
+                                                                                                     "supported_states":  [
+                                                                                                                              "idle",
+                                                                                                                              "listen",
+                                                                                                                              "speak",
+                                                                                                                              "emote"
+                                                                                                                          ]
+                                                                                                 },
+                                                                            "selection":  {
+                                                                                              "requested_character_id":  "missing-character",
+                                                                                              "applied":  false,
+                                                                                              "error_code":  "unknown_character",
+                                                                                              "message":  "Requested character is unavailable."
+                                                                                          },
+                                                                            "session_event":  {
+                                                                                                  "schema_version":  1,
+                                                                                                  "event_type":  "session.character.rejected",
+                                                                                                  "session_id":  "session-scaffold-01",
+                                                                                                  "character_id":  "missing-character",
+                                                                                                  "status":  "rejected",
+                                                                                                  "timestamp":  "\u003cgenerated-at\u003e",
+                                                                                                  "reason":  "user_selected"
+                                                                                              }
+                                                                        }
+                                                       }
                   }
 }

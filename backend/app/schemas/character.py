@@ -33,6 +33,13 @@ class CharacterSummary:
 
 
 @dataclass(slots=True, frozen=True)
+class CharacterCatalogResponse:
+    schema_version: int
+    active_character_id: str
+    characters: list[CharacterSummary]
+
+
+@dataclass(slots=True, frozen=True)
 class ActiveCharacterSelection:
     character_id: str
     reason: str = "user_selected"

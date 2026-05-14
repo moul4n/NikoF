@@ -22,6 +22,7 @@
       "enum": [
         "session.state",
         "session.character.selected",
+        "session.character.rejected",
         "session.started",
         "session.stopped",
         "transcription.status",
@@ -46,9 +47,243 @@
       "type": "string",
       "minLength": 1
     },
+    "transcription": {
+      "$ref": "#/$defs/transcriptionContract"
+    },
+    "synthesis": {
+      "$ref": "#/$defs/synthesisContract"
+    },
     "timestamp": {
       "type": "string",
       "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "transcription.status"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "transcription"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "speech.synthesis"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "synthesis"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "audioFormat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container",
+        "encoding",
+        "sample_rate_hz",
+        "channels"
+      ],
+      "properties": {
+        "container": {
+          "type": "string",
+          "minLength": 1
+        },
+        "encoding": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sample_rate_hz": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "segmentRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_ms",
+        "end_ms"
+      ],
+      "properties": {
+        "start_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "phonemeSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phoneme",
+        "start_ms",
+        "end_ms"
+      ],
+      "properties": {
+        "phoneme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "visemeSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "viseme",
+        "start_ms",
+        "end_ms"
+      ],
+      "properties": {
+        "viseme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "timingMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "utterance_duration_ms"
+      ],
+      "properties": {
+        "utterance_duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "segment_ranges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/segmentRange"
+          }
+        },
+        "audio_format": {
+          "$ref": "#/$defs/audioFormat"
+        },
+        "phoneme_slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/phonemeSlot"
+          }
+        },
+        "viseme_slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/visemeSlot"
+          }
+        }
+      }
+    },
+    "transcriptionContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "status",
+        "locale"
+      ],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transcript": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "timing": {
+          "$ref": "#/$defs/timingMetadata"
+        }
+      }
+    },
+    "synthesisContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "status",
+        "text",
+        "locale"
+      ],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timing": {
+          "$ref": "#/$defs/timingMetadata"
+        }
+      }
     }
   }
 }

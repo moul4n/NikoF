@@ -67,3 +67,31 @@ export interface CharacterCatalog {
   defaultCharacterId: CharacterId | null;
   loadedAt: string;
 }
+
+export interface BackendCharacterSummaryDocument {
+  schema_version: number;
+  character_id: CharacterId;
+  display_name: string;
+  identity_source: string;
+  vrm_spec_version: string;
+  shared_animation_set: string;
+  supported_states: CharacterRuntimeState[];
+}
+
+export interface BackendSessionEventDocument {
+  schema_version: number;
+  event_type: string;
+  session_id: string;
+  character_id: CharacterId;
+  status: string;
+  timestamp: string;
+  reason?: string | null;
+}
+
+export interface BackendActiveCharacterResponseDocument {
+  schema_version: number;
+  session_id: string;
+  lifecycle_state: string;
+  active_character: BackendCharacterSummaryDocument;
+  session_event: BackendSessionEventDocument;
+}

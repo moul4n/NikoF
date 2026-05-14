@@ -5,6 +5,7 @@ interface CharacterCatalogPanelProps {
   catalog: CharacterCatalog | null;
   error: string | null;
   isLoading: boolean;
+  statusMessage: string | null;
   selectedCharacterId: CharacterId | null;
   onSelectCharacter: (characterId: CharacterId) => void;
 }
@@ -13,6 +14,7 @@ export function CharacterCatalogPanel({
   catalog,
   error,
   isLoading,
+  statusMessage,
   selectedCharacterId,
   onSelectCharacter
 }: CharacterCatalogPanelProps): JSX.Element {
@@ -28,6 +30,7 @@ export function CharacterCatalogPanel({
 
       {isLoading ? <p className="catalog-panel__message">Loading placeholder manifest catalog...</p> : null}
       {error ? <p className="catalog-panel__message catalog-panel__message--error">{error}</p> : null}
+      {statusMessage ? <p className="catalog-panel__message">{statusMessage}</p> : null}
 
       {catalog ? (
         <ul className="catalog-panel__list">

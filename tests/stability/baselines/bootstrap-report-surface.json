@@ -1,0 +1,65 @@
+{
+    "scenario_id":  "bootstrap-report-surface",
+    "scenario_name":  "Bootstrap report surface snapshot",
+    "tracked_inputs":  [
+                           "scripts/bootstrap/Test-NikoFPrerequisites.ps1",
+                           "scripts/bootstrap/bootstrap.targets.json",
+                           "scripts/bootstrap/bootstrap.ps1"
+                       ],
+    "report_file":  "bootstrap-report.json",
+    "report_surface":  {
+                           "top_level_keys":  [
+                                                  "created_paths",
+                                                  "env_file",
+                                                  "generated_at",
+                                                  "providers",
+                                                  "storage_layout",
+                                                  "tools"
+                                              ],
+                           "storage_layout_keys":  [
+                                                       "cache_root",
+                                                       "embeddings_root",
+                                                       "llm_models_root",
+                                                       "local_data_root",
+                                                       "models_root",
+                                                       "providers_root",
+                                                       "report_root",
+                                                       "stt_models_root",
+                                                       "tts_models_root"
+                                                   ],
+                           "tool_entry_keys":  [
+                                                   "args",
+                                                   "available",
+                                                   "command",
+                                                   "display_name",
+                                                   "id",
+                                                   "install_url",
+                                                   "manual_install",
+                                                   "output"
+                                               ],
+                           "provider_entry_keys":  [
+                                                       "display_name",
+                                                       "expected_path",
+                                                       "id",
+                                                       "manual_install",
+                                                       "present",
+                                                       "root_key",
+                                                       "upstream"
+                                                   ],
+                           "tool_ids":  [
+                                            "git",
+                                            "python",
+                                            "node",
+                                            "npm"
+                                        ],
+                           "provider_ids":  [
+                                                "llm",
+                                                "stt-medium",
+                                                "stt-small",
+                                                "tts",
+                                                "embeddings-primary",
+                                                "embeddings-fallback",
+                                                "provider-ollama"
+                                            ]
+                       }
+}

@@ -160,6 +160,42 @@
 **What:** Lock the next Stage 1 batch to four provider-agnostic backend contract surfaces only: `GET /health` expands into a stable diagnostics-lite payload, `GET /characters` stays the manifest-summary list contract, active-character selection remains the only writable session control via `GET` and `PUT /session/active-character`, and normalized session-event payloads are introduced as a backend-owned schema for lifecycle reporting without exposing provider-specific detail. Frontend work remains manifest-first and may load one real default VRM from manifest-derived URLs only, while backend session events, bootstrap/provider remediation detail, live audio streaming, and multi-character UI remain out of scope for this batch. Stability work snapshots only the new health, manifest-summary, and session-selection/session-event contracts and does not baseline animation command behavior, provider diagnostics depth, or any transport intended for later streaming phases.
 **Why:** The current scaffold already proves the right seam: the backend router exposes minimal provider-agnostic routes and the frontend catalog resolves runtime asset URLs from manifests only. This batch should deepen that seam without letting Stage 1 broaden into provider integration, transport work, or frontend swap behavior that belongs to later stages.
 
+### 2026-05-14T08:57:41.6820932+01:00: Next batch contract boundary
+
+**By:** Trinity
+**What:** Lock the next batch to three narrow seams. Link may define provider-agnostic STT and TTS adapter contracts, baseline profile identifiers, and speech timing metadata only, without invoking Faster-Whisper or GPT-SoVITS yet and without adding live transport events or provider bootstrapping. Tank and Switch may connect the frontend shell to `GET /characters` and `GET` plus `PUT /session/active-character`, but manifest document loading and asset URL resolution stay frontend-local and derived from `character_id` rather than a new backend asset-serving surface. Mouse may extend stability coverage with normalized failure-path and widened-payload checks for Stage 1 backend and bootstrap payloads only; live streaming, deep provider remediation, and runtime-specific failure matrices stay out of scope.
+**Why:** The repo already has the right contract seam. Tightening the batch around normalized schemas, current HTTP control routes, and deterministic stability snapshots lets the team advance integration without reopening provider choice, transport design, or asset-serving boundaries too early.
+
+### 2026-05-14T08:57:41.6820932+01:00: Stage 3 speech contract envelope
+
+**By:** Link
+**What:** Carry future STT and TTS adapter output in optional normalized `transcription` and `synthesis` objects on the shared session-event contract, and keep timing metadata limited to utterance duration, segment ranges, audio format, and optional phoneme or viseme slots. Publish the baseline profile catalog separately with `stt.faster-whisper.medium-2026`, `stt.faster-whisper.small-2026`, and `tts.gpt-sovits.2026-stable`.
+**Why:** This gives later provider adapters a stable contract target without adding provider-specific transport, API routes, or bootstrap behavior in the current slice.
+
+### 2026-05-14T08:57:41.6820932+01:00: Stage 1 frontend-backend character bridge
+
+**By:** Tank
+**What:** `GET /characters` returns a catalog envelope with `schema_version`, `active_character_id`, and normalized character summaries, and `GET` plus `PUT /session/active-character` now share one response shape that always includes the current active summary and a normalized `selection` result. Invalid active-character writes return HTTP 400 with `error_code="unknown_character"` while leaving the current active character unchanged.
+**Why:** This gives the frontend one stable provider-agnostic contract for summary inventory and active-character control without widening into manifest serving, live transport, or provider diagnostics.
+
+### 2026-05-14T08:57:41.6820932+01:00: Frontend backend-bridge boundary
+
+**By:** Switch
+**What:** Keep the frontend manifest catalog authoritative for asset URL resolution and VRM loading, but overlay backend `GET /characters` summaries and `GET` or `PUT /session/active-character` state onto matching local packages by `character_id`. Frontend characters without a local manifest stay unavailable to the runtime even if the backend knows about them.
+**Why:** This lets the shell start reading backend-owned summary and session state now without violating the contract lock that keeps manifest loading and asset path resolution frontend-local in this slice.
+
+### 2026-05-14T08:57:41.6820932+01:00: Stage 1 failure baseline scope lock
+
+**By:** Mouse
+**What:** Keep the current stability expansion limited to deterministic widened-payload baselines for the backend-owned Stage 1 response envelopes and the generated bootstrap report surface. Include the invalid active-character rejection payload only when it exists in the current backend slice.
+**Why:** The backend and bootstrap JSON surfaces are stable enough for no-widening checks, and the invalid selection payload should be tested only from the real backend contract rather than from a tester-invented stub.
+
+### 2026-05-14T08:57:41.6820932+01:00: Stability comparison normalization
+
+**By:** Mouse
+**What:** The stability harness now compares JSON scenarios by canonicalized content instead of raw serializer whitespace, and the `bootstrap-prerequisites` snapshot records the declared tooling contract from `bootstrap.targets.json` rather than live tool availability on the local machine.
+**Why:** Compare mode should fail on approved contract drift, not on PowerShell JSON formatting differences or transient PATH state such as whether `node` and `npm` happen to be installed on one workstation.
+
 ## Governance
 
 - All meaningful changes require team consensus
