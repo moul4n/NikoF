@@ -1,67 +1,86 @@
 {
-    "scenario_id":  "frontend-speech-lifecycle-runtime",
-    "scenario_name":  "Frontend speech lifecycle runtime snapshot",
-    "runner":  "node",
-    "backend_source_runner":  "python",
-    "tracked_inputs":  [
-                           "scripts/testing/frontendSpeechLifecycle.runtime.ts",
-                           "scripts/testing/Invoke-StabilitySuite.ps1",
-                           "frontend/src/app/App.tsx",
-                           "frontend/src/avatar/loaders/speechLifecycle.ts",
-                           "frontend/src/shared/types/character.ts",
-                           "backend/app/api/router.py",
-                           "backend/app/schemas/session.py",
-                           "backend/app/services/speech.py",
-                           "tests/stability/baselines/backend-speech-contracts.json"
-                       ],
-    "local_root":  "\u003cscenario-temp\u003e",
-    "runtime_proof":  {
-                          "speech_lifecycle_runtime":  {
-                                                           "stream":  "speech.lifecycle",
-                                                           "delivery":  "snapshot",
-                                                           "session_id":  "session-scaffold-01",
-                                                           "event_count":  2,
-                                                           "event_types":  [
-                                                                               "transcription.status",
-                                                                               "speech.synthesis"
-                                                                           ],
-                                                           "cursors":  [
-                                                                           "speech.lifecycle:session-scaffold-01:1",
-                                                                           "speech.lifecycle:session-scaffold-01:2"
-                                                                       ],
-                                                           "next_cursor":  "speech.lifecycle:session-scaffold-01:3",
-                                                           "ordered_envelope_preserved":  true,
-                                                           "next_cursor_advances_past_last_event":  true,
-                                                           "canonical_transcription_event_survived":  true,
-                                                           "canonical_speech_synthesis_event_survived":  true,
-                                                           "transcription_event_type":  "transcription.status",
-                                                           "synthesis_event_type":  "speech.synthesis",
-                                                           "transcription_profile_id":  "stt.faster-whisper.medium-2026",
-                                                           "synthesis_profile_id":  "tts.gpt-sovits.2026-stable"
-                                                       },
-                          "speech_lifecycle_live_runtime":  {
-                                                                "appended_cursor":  "speech.lifecycle:session-scaffold-01:3",
-                                                                "appended_sequence":  3,
-                                                                "event_count":  3,
-                                                                "next_cursor":  "speech.lifecycle:session-scaffold-01:4",
-                                                                "next_cursor_advances_past_last_event":  true,
-                                                                "canonical_speech_synthesis_event_updates":  true,
-                                                                "final_cursor_matches_appended_event":  true
-                                                            },
-                          "live_transport_readiness":  {
-                                                           "seam_status":  "ready",
-                                                           "live_seam_present":  true,
-                                                           "snapshot_fetch_present":  true,
-                                                           "live_consumption_present":  true,
-                                                           "live_transport_markers":  [
-                                                                                          "EventSource",
-                                                                                          "live consumption seam"
-                                                                                      ],
-                                                           "canonical_stream_reference_present":  true,
-                                                           "backend_event_envelope_type_present":  true,
-                                                           "cursor_reference_present":  true,
-                                                           "app_live_message_present":  true,
-                                                           "dependency":  null
-                                                       }
-                      }
+  "scenario_id": "frontend-speech-lifecycle-runtime",
+  "scenario_name": "Frontend speech lifecycle runtime snapshot",
+  "runner": "node",
+  "backend_source_runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/frontendSpeechLifecycle.runtime.ts",
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "frontend/src/app/App.tsx",
+    "frontend/src/avatar/runtime/avatarRuntime.ts",
+    "frontend/src/avatar/loaders/speechLifecycle.ts",
+    "frontend/src/shared/types/character.ts",
+    "backend/app/api/router.py",
+    "backend/app/schemas/session.py",
+    "backend/app/services/speech.py",
+    "tests/stability/baselines/backend-speech-contracts.json"
+  ],
+  "local_root": "<scenario-temp>",
+  "runtime_proof": {
+    "speech_lifecycle_runtime": {
+      "stream": "speech.lifecycle",
+      "delivery": "snapshot",
+      "session_id": "session-scaffold-01",
+      "event_count": 2,
+      "event_types": [
+        "transcription.status",
+        "speech.synthesis"
+      ],
+      "cursors": [
+        "speech.lifecycle:session-scaffold-01:1",
+        "speech.lifecycle:session-scaffold-01:2"
+      ],
+      "next_cursor": "speech.lifecycle:session-scaffold-01:3",
+      "ordered_envelope_preserved": true,
+      "next_cursor_advances_past_last_event": true,
+      "canonical_transcription_event_survived": true,
+      "canonical_speech_synthesis_event_survived": true,
+      "transcription_event_type": "transcription.status",
+      "synthesis_event_type": "speech.synthesis",
+      "transcription_profile_id": "stt.faster-whisper.medium-2026",
+      "synthesis_profile_id": "tts.gpt-sovits.2026-stable"
+    },
+    "speech_lifecycle_live_runtime": {
+      "appended_cursor": "speech.lifecycle:session-scaffold-01:3",
+      "appended_sequence": 3,
+      "event_count": 3,
+      "next_cursor": "speech.lifecycle:session-scaffold-01:4",
+      "next_cursor_advances_past_last_event": true,
+      "canonical_speech_synthesis_event_updates": true,
+      "final_cursor_matches_appended_event": true
+    },
+    "avatar_runtime_speech_reaction": {
+      "speech_reaction_runtime_markers": [
+        "speech overlay channel snapshot",
+        "speech overlay snapshot field",
+        "speech overlay channel factory",
+        "speech overlay snapshot builder",
+        "speech overlay lifecycle source",
+        "speech reaction viseme builder",
+        "speech reaction coarse overlay fallback",
+        "speech reaction viseme overlay activation",
+        "speech reaction idle overlay clear",
+        "runtime begin speech reaction bridge",
+        "runtime clear speech reaction bridge"
+      ],
+      "speech_reaction_runtime_ready": true,
+      "snapshot_mode_present": true,
+      "snapshot_active_viseme_present": true
+    },
+    "live_transport_readiness": {
+      "seam_status": "ready",
+      "live_seam_present": true,
+      "snapshot_fetch_present": true,
+      "live_consumption_present": true,
+      "live_transport_markers": [
+        "EventSource",
+        "live consumption seam"
+      ],
+      "canonical_stream_reference_present": true,
+      "backend_event_envelope_type_present": true,
+      "cursor_reference_present": true,
+      "app_live_message_present": true,
+      "dependency": null
+    }
+  }
 }

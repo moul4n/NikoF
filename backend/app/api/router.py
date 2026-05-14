@@ -5,6 +5,17 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
+try:
+    from fastapi import APIRouter, HTTPException, Request, Response, status
+    from fastapi.responses import StreamingResponse
+except ImportError:
+    APIRouter = None
+    HTTPException = None
+    Request = None
+    Response = None
+    status = None
+    StreamingResponse = None
+
 from app.core.settings import get_app_paths
 from app.schemas.character import ActiveCharacterSelection, CharacterCatalogResponse, CharacterSummary
 from app.schemas.health import DiagnosticProbe, HealthDiagnostics, HealthPayload
@@ -655,14 +666,10 @@ def build_api_router() -> Any:
     memory_service = build_session_memory_service(get_app_paths())
     route_definitions = _route_definitions()
 
-    try:
-        from fastapi import APIRouter
-    except ImportError:
+    if APIRouter is None:
         return RouterShell(routes=route_definitions)
 
     router = APIRouter()
-    from fastapi import HTTPException, Request, Response, status
-    from fastapi.responses import StreamingResponse
 
     @router.get("/health", response_model=HealthPayload)
     def healthcheck() -> HealthPayload:

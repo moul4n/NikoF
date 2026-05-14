@@ -16,6 +16,7 @@ Updated: 2026-05-14
 - The control surface now owns a thin operator-command panel and loader client outside `App.tsx`, and the display surface remains read-only with respect to operator commands.
 - The control surface now shows assistant status and reply text from the backend-owned operator-command response without creating a second reply path or display-side write state.
 - The frontend avatar runtime now consumes backend-owned synthesis timing metadata locally, scheduling viseme reactions from `synthesis.timing.viseme_slots` when present and preserving the existing coarse speak fallback when the timing slice is absent or unusable.
+- The display surface regression is fixed, restoring the current display shell behavior on the existing read-only frontend path.
 - Runtime proof coverage now includes the frontend Stage 1 character-flow path and the frontend speech-lifecycle snapshot consumer.
 - Stability coverage now includes an event-store projection over the canonical speech envelope and a degraded-mode snapshot for the real adapter shells, both baseline-friendly and transport-neutral.
 
@@ -43,3 +44,4 @@ Updated: 2026-05-14
 - The first local LLM slice is intentionally narrow: one backend-owned reply path, backend-local SQLite lexical recall scoped by session and active character, and no new frontend reply transport beyond the current control-surface readout.
 - Additional debug or operator affordances are intentionally deferred to the planning backlog while this backend-owned reply seam is being stabilized.
 - The current speech seam is a deterministic contract and adapter-execution slice, not a live end-to-end speech pipeline.
+- The next handoff step is to apply the base idle animation to the model in the next session.

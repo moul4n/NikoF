@@ -1465,6 +1465,8 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
     )
     $operatorCommandLoaderPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\operatorCommand.ts'
     $sharedTypesPath = Join-Path $RepoRoot 'frontend\src\shared\types\character.ts'
+    $mainEntrypointPath = Join-Path $RepoRoot 'frontend\src\main.tsx'
+    $appSurfacePath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
 
     $entrypointFiles = @(
         Get-ChildItem -LiteralPath $entrypointRoot -File -Filter '*.tsx' |
@@ -1532,6 +1534,8 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
     $entrypointsRouteThroughApp = ($entrypointsWithoutApp.Count -eq 0) -and ($entrypointBackendSyncOwnerFiles.Count -eq 0) -and ($entrypointSpeechLifecycleOwnerFiles.Count -eq 0)
     $operatorCommandLoaderSource = Get-Content -LiteralPath $operatorCommandLoaderPath -Raw
     $sharedTypesSource = Get-Content -LiteralPath $sharedTypesPath -Raw
+    $mainEntrypointSource = Get-Content -LiteralPath $mainEntrypointPath -Raw
+    $appSurfaceSource = Get-Content -LiteralPath $appSurfacePath -Raw
     $operatorCommandRouteMatch = [regex]::Match($operatorCommandLoaderSource, 'buildBackendApiUrl\(\s*["''](?<path>[^"'']+)["'']\s*\)')
     $operatorCommandTypeMatch = [regex]::Match($sharedTypesSource, '(?m)^export\s+type\s+BackendOperatorCommandType\s*=\s*(?<types>.+);\s*$')
     $publishedCommandTypes = if ($operatorCommandTypeMatch.Success) {
@@ -1541,11 +1545,75 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
         @()
     }
     $displayReadOnlyForOperatorCommands = -not (@($surfaceRecords | Where-Object { $_.path -eq 'frontend/src/app/App.tsx' -and $_.owns_operator_command_client }).Count -gt 0)
+    $displayBranchMatch = [regex]::Match($appSurfaceSource, '(?s)if\s*\(\s*surfaceMode\s*===\s*"display"\s*\)\s*\{\s*return\s*\((?<branch>.*?)\);\s*\}')
+    $displayBranchSource = if ($displayBranchMatch.Success) { $displayBranchMatch.Groups['branch'].Value } else { '' }
+    $controlBranchSource = if ($displayBranchMatch.Success) {
+        $appSurfaceSource.Substring($displayBranchMatch.Index + $displayBranchMatch.Length)
+    }
+    else {
+        $appSurfaceSource
+    }
+    $displayPathMapsToDisplay = [regex]::IsMatch($mainEntrypointSource, '(?s)if\s*\(\s*normalizedPath\.endsWith\("/display"\)\s*\)\s*\{\s*return\s*"display";\s*\}')
+    $controlPathMapsToControl = [regex]::IsMatch($mainEntrypointSource, '(?s)if\s*\(\s*normalizedPath\.endsWith\("/control"\)\s*\)\s*\{\s*return\s*"control";\s*\}')
+    $nonSurfacePathsReturnNull = [regex]::IsMatch($mainEntrypointSource, '(?s)return\s*null;\s*\}')
+    $pathSelectionPrecedesBodyDataset = [regex]::IsMatch($mainEntrypointSource, '(?s)const\s+surfaceModeFromPath\s*=\s*resolveSurfaceModeFromPath\(window\.location\.pathname\);\s*if\s*\(\s*surfaceModeFromPath\s*\)\s*\{\s*return\s+surfaceModeFromPath;\s*\}\s*const\s+declaredSurfaceMode\s*=\s*document\.body\.dataset\.surfaceMode;')
+    $bodyDatasetFallbackPresent = [regex]::IsMatch($mainEntrypointSource, '(?s)if\s*\(\s*declaredSurfaceMode\s*===\s*"control"\s*\|\|\s*declaredSurfaceMode\s*===\s*"display"\s*\)\s*\{\s*return\s+declaredSurfaceMode;\s*\}')
+    $defaultSurfaceFallsBackToControl = [regex]::IsMatch($mainEntrypointSource, 'return\s+"control";')
+    $surfaceModeWrittenToBodyDataset = [regex]::IsMatch($mainEntrypointSource, 'document\.body\.dataset\.surfaceMode\s*=\s*surfaceMode;')
+    $surfaceModeWrittenToRootDataset = [regex]::IsMatch($mainEntrypointSource, 'rootElement\.dataset\.surfaceMode\s*=\s*surfaceMode;')
+    $displayBranchPresent = $displayBranchMatch.Success
+    $displayBranchTitlePresent = [regex]::IsMatch($displayBranchSource, 'NikoF avatar display surface')
+    $displayBranchStatusPanelPresent = [regex]::IsMatch($displayBranchSource, '\bDisplaySurfaceStatusPanel\b')
+    $displayBranchUsesDisplayAvatarVariant = [regex]::IsMatch($displayBranchSource, '(?s)<AvatarStage\b.*?\bvariant\s*=\s*"display"')
+    $displayBranchExcludesControlOperatorPanel = -not [regex]::IsMatch($displayBranchSource, '\bControlSurfaceOperatorCommandPanel\b')
+    $displayBranchExcludesCatalogPanel = -not [regex]::IsMatch($displayBranchSource, '\bCharacterCatalogPanel\b')
+    $displayBranchExcludesSpeechLifecyclePanel = -not [regex]::IsMatch($displayBranchSource, '\bSpeechLifecyclePanel\b')
+    $controlBranchPresent = [regex]::IsMatch($controlBranchSource, '(?s)return\s*\(')
+    $controlBranchTitlePresent = [regex]::IsMatch($controlBranchSource, 'NikoF control surface')
+    $controlBranchContainsOperatorPanel = [regex]::IsMatch($controlBranchSource, '\bControlSurfaceOperatorCommandPanel\b')
+    $controlBranchContainsCatalogPanel = [regex]::IsMatch($controlBranchSource, '\bCharacterCatalogPanel\b')
+    $controlBranchContainsSpeechLifecyclePanel = [regex]::IsMatch($controlBranchSource, '\bSpeechLifecyclePanel\b')
+    $controlBranchExcludesDisplayStatusPanel = -not [regex]::IsMatch($controlBranchSource, '\bDisplaySurfaceStatusPanel\b')
+    $surfaceModeResolutionLocked =
+        $displayPathMapsToDisplay -and
+        $controlPathMapsToControl -and
+        $nonSurfacePathsReturnNull -and
+        $pathSelectionPrecedesBodyDataset -and
+        $bodyDatasetFallbackPresent -and
+        $defaultSurfaceFallsBackToControl -and
+        $surfaceModeWrittenToBodyDataset -and
+        $surfaceModeWrittenToRootDataset
+    $surfaceBranchesRenderDistinctShells =
+        $displayBranchPresent -and
+        $displayBranchTitlePresent -and
+        $displayBranchStatusPanelPresent -and
+        $displayBranchUsesDisplayAvatarVariant -and
+        $displayBranchExcludesControlOperatorPanel -and
+        $displayBranchExcludesCatalogPanel -and
+        $displayBranchExcludesSpeechLifecyclePanel -and
+        $controlBranchPresent -and
+        $controlBranchTitlePresent -and
+        $controlBranchContainsOperatorPanel -and
+        $controlBranchContainsCatalogPanel -and
+        $controlBranchContainsSpeechLifecyclePanel -and
+        $controlBranchExcludesDisplayStatusPanel
 
     return [ordered]@{
         scenario_id = $Scenario.id
         scenario_name = $Scenario.name
         tracked_inputs = @($Scenario.tracked_inputs)
+        mode_resolution_state = [ordered]@{
+            owner_file = 'frontend/src/main.tsx'
+            display_path_maps_to_display = $displayPathMapsToDisplay
+            control_path_maps_to_control = $controlPathMapsToControl
+            non_surface_paths_return_null = $nonSurfacePathsReturnNull
+            path_selection_precedes_body_dataset = $pathSelectionPrecedesBodyDataset
+            body_dataset_fallback_present = $bodyDatasetFallbackPresent
+            default_surface_falls_back_to_control = $defaultSurfaceFallsBackToControl
+            surface_mode_written_to_body_dataset = $surfaceModeWrittenToBodyDataset
+            surface_mode_written_to_root_dataset = $surfaceModeWrittenToRootDataset
+            surface_mode_resolution_locked = $surfaceModeResolutionLocked
+        }
         entrypoint_state = [ordered]@{
             entrypoint_files = @($entrypointRecords | ForEach-Object { $_.path })
             total_entrypoint_file_count = $entrypointRecords.Count
@@ -1580,6 +1648,23 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
             published_command_types = $publishedCommandTypes
             published_command_types_locked = Test-StringArrayEquality -Left $publishedCommandTypes -Right @('text_question', 'tts_preview')
         }
+        surface_branch_state = [ordered]@{
+            owner_file = 'frontend/src/app/App.tsx'
+            display_branch_present = $displayBranchPresent
+            display_branch_title_present = $displayBranchTitlePresent
+            display_branch_status_panel_present = $displayBranchStatusPanelPresent
+            display_branch_uses_display_avatar_variant = $displayBranchUsesDisplayAvatarVariant
+            display_branch_excludes_control_operator_panel = $displayBranchExcludesControlOperatorPanel
+            display_branch_excludes_catalog_panel = $displayBranchExcludesCatalogPanel
+            display_branch_excludes_speech_lifecycle_panel = $displayBranchExcludesSpeechLifecyclePanel
+            control_branch_present = $controlBranchPresent
+            control_branch_title_present = $controlBranchTitlePresent
+            control_branch_contains_operator_panel = $controlBranchContainsOperatorPanel
+            control_branch_contains_catalog_panel = $controlBranchContainsCatalogPanel
+            control_branch_contains_speech_lifecycle_panel = $controlBranchContainsSpeechLifecyclePanel
+            control_branch_excludes_display_status_panel = $controlBranchExcludesDisplayStatusPanel
+            surface_branches_render_distinct_shells = $surfaceBranchesRenderDistinctShells
+        }
         entrypoint_files = @($entrypointRecords | ForEach-Object { $_ })
         surface_files = @($surfaceRecords | ForEach-Object { $_ })
         alignment = [ordered]@{
@@ -1592,6 +1677,8 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
             entrypoints_route_through_app = $entrypointsRouteThroughApp
             split_batch_unblocked = $splitEntrypointsPresent -and $entrypointsRouteThroughApp
             entrypoint_split_present = $splitEntrypointsPresent
+            surface_mode_resolution_locked = $surfaceModeResolutionLocked
+            surface_branches_render_distinct_shells = $surfaceBranchesRenderDistinctShells
             display_surface_read_only_for_operator_commands = $displayReadOnlyForOperatorCommands
         }
     }
@@ -1718,6 +1805,7 @@ function Invoke-FrontendSpeechLifecycleRuntimeSnapshot {
     $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendSpeechLifecycle.runtime.ts'
     $runtimeScriptPath = Join-Path $scenarioTempRoot 'scripts\testing\frontendSpeechLifecycle.runtime.js'
     $speechLifecycleLoaderSourcePath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\speechLifecycle.ts'
+    $avatarRuntimeSourcePath = Join-Path $RepoRoot 'frontend\src\avatar\runtime\avatarRuntime.ts'
     $appSourcePath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
     $compileTargets = @(
         $runtimeScriptSourcePath
@@ -1754,7 +1842,7 @@ function Invoke-FrontendSpeechLifecycleRuntimeSnapshot {
     }
 
     $runtimeOutput = @(
-        & $nodeLauncher.executable $runtimeScriptPath $snapshotPath $speechLifecycleLoaderSourcePath $appSourcePath 2>&1 |
+        & $nodeLauncher.executable $runtimeScriptPath $snapshotPath $speechLifecycleLoaderSourcePath $avatarRuntimeSourcePath $appSourcePath 2>&1 |
             ForEach-Object { [string]$_ }
     )
     $runtimeExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pydantic.dataclasses import dataclass as pydantic_dataclass
+
 
 @dataclass(slots=True, frozen=True)
 class CharacterManifest:
@@ -39,7 +41,7 @@ class CharacterCatalogResponse:
     characters: list[CharacterSummary]
 
 
-@dataclass(slots=True, frozen=True)
+@pydantic_dataclass(slots=True, frozen=True)
 class ActiveCharacterSelection:
     character_id: str
     reason: str = "user_selected"

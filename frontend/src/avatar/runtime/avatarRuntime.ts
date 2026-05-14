@@ -12,6 +12,8 @@ import type { AvatarRuntimeMountPoints } from "./mountPoints";
 
 type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
 type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
+type AvatarOverlayChannelId = "speech";
+type AvatarOverlaySource = "backend.speech.lifecycle";
 
 type AvatarRuntimeListener = () => void;
 
@@ -37,6 +39,14 @@ interface AvatarSpeechReactionViseme {
   endMs: number;
 }
 
+export interface AvatarOverlayChannelSnapshot {
+  channelId: AvatarOverlayChannelId;
+  active: boolean;
+  mode: AvatarSpeechReactionMode;
+  source: AvatarOverlaySource | null;
+  label: string | null;
+}
+
 export interface AvatarSpeechReactionInput {
   utteranceDurationMs: number | null;
   visemeSlots?: BackendSpeechVisemeSlotDocument[] | null;
@@ -53,10 +63,12 @@ export interface AvatarRuntimeSnapshot {
   currentState: CharacterRuntimeState;
   mountPoints: AvatarRuntimeMountPoints | null;
   pendingAnimation: SemanticAnimationCommand | null;
+  baseAnimation: SemanticAnimationCommand | null;
   currentModelUrl: string | null;
   loadState: AvatarRuntimeLoadState;
   speechReactionMode: AvatarSpeechReactionMode;
   activeViseme: string | null;
+  overlayChannels: AvatarOverlayChannelSnapshot[];
   error: string | null;
 }
 
@@ -73,16 +85,47 @@ export interface AvatarRuntimeBridge {
 }
 
 export function createAvatarRuntime(): AvatarRuntimeBridge {
+  function createSpeechOverlayChannel(
+    values: Partial<AvatarOverlayChannelSnapshot> = {}
+  ): AvatarOverlayChannelSnapshot {
+    const nextChannel: AvatarOverlayChannelSnapshot = {
+      channelId: "speech",
+      active: false,
+      mode: "idle",
+      source: null,
+      label: null,
+      ...values
+    };
+
+    if (nextChannel.mode === "idle") {
+      return {
+        channelId: "speech",
+        active: false,
+        mode: "idle",
+        source: null,
+        label: null
+      };
+    }
+
+    return {
+      ...nextChannel,
+      active: true,
+      source: nextChannel.source ?? "backend.speech.lifecycle"
+    };
+  }
+
   let snapshot: AvatarRuntimeSnapshot = {
     mounted: false,
     currentCharacterId: null,
     currentState: "idle",
     mountPoints: null,
     pendingAnimation: null,
+    baseAnimation: null,
     currentModelUrl: null,
     loadState: "idle",
     speechReactionMode: "idle",
     activeViseme: null,
+    overlayChannels: [createSpeechOverlayChannel()],
     error: null
   };
   let currentCharacter: CharacterManifestSummary | null = null;
@@ -113,6 +156,28 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     };
 
     emitChange();
+  }
+
+  function getSpeechOverlayChannel(): AvatarOverlayChannelSnapshot {
+    return snapshot.overlayChannels.find((channel) => channel.channelId === "speech") ?? createSpeechOverlayChannel();
+  }
+
+  function buildSpeechOverlaySnapshot(
+    values: Partial<AvatarOverlayChannelSnapshot>
+  ): Pick<AvatarRuntimeSnapshot, "overlayChannels" | "speechReactionMode" | "activeViseme"> {
+    const speechOverlay = createSpeechOverlayChannel({
+      ...getSpeechOverlayChannel(),
+      ...values,
+      channelId: "speech"
+    });
+
+    return {
+      overlayChannels: snapshot.overlayChannels.some((channel) => channel.channelId === "speech")
+        ? snapshot.overlayChannels.map((channel) => (channel.channelId === "speech" ? speechOverlay : channel))
+        : [...snapshot.overlayChannels, speechOverlay],
+      speechReactionMode: speechOverlay.mode,
+      activeViseme: speechOverlay.mode === "viseme" ? speechOverlay.label : null
+    };
   }
 
   function clearSpeechReactionTimers(): void {
@@ -205,8 +270,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     if (!expressionManager) {
       updateSnapshot({
         currentState: "speak",
-        speechReactionMode: "coarse",
-        activeViseme: null
+        ...buildSpeechOverlaySnapshot({
+          mode: "coarse"
+        })
       });
       return;
     }
@@ -220,8 +286,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     updateSnapshot({
       currentState: "speak",
-      speechReactionMode: "viseme",
-      activeViseme: label
+      ...buildSpeechOverlaySnapshot({
+        mode: "viseme",
+        label
+      })
     });
   }
 
@@ -234,16 +302,18 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     if (speechReactionVisemes.length === 0) {
       updateSnapshot({
         currentState: "speak",
-        speechReactionMode: "coarse",
-        activeViseme: null
+        ...buildSpeechOverlaySnapshot({
+          mode: "coarse"
+        })
       });
       return;
     }
 
     updateSnapshot({
       currentState: "speak",
-      speechReactionMode: "viseme",
-      activeViseme: null
+      ...buildSpeechOverlaySnapshot({
+        mode: "viseme"
+      })
     });
 
     speechReactionVisemes.forEach((viseme) => {
@@ -262,8 +332,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
           resetSpeechExpressions();
           updateSnapshot({
             currentState: "speak",
-            speechReactionMode: "viseme",
-            activeViseme: null
+            ...buildSpeechOverlaySnapshot({
+              mode: "viseme"
+            })
           });
         }, viseme.endMs)
       );
@@ -275,8 +346,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     resetSpeechExpressions();
     updateSnapshot({
       currentState: "idle",
-      speechReactionMode: "idle",
-      activeViseme: null
+      ...buildSpeechOverlaySnapshot({
+        mode: "idle"
+      })
     });
   }
 
@@ -508,6 +580,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         mounted: false,
         mountPoints: null,
         pendingAnimation: null,
+        baseAnimation: null,
         loadState: currentCharacter ? "idle" : snapshot.loadState
       });
     },
@@ -539,7 +612,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     play(command) {
       updateSnapshot({
-        pendingAnimation: command
+        pendingAnimation: command,
+        baseAnimation: command
       });
     },
 

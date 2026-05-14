@@ -20,7 +20,8 @@ type BackendSpeechContractsSnapshot = {
 async function main(): Promise<void> {
   const snapshotPath = process.argv[2];
   const loaderSourcePath = process.argv[3];
-  const appSourcePath = process.argv[4];
+  const avatarRuntimeSourcePath = process.argv[4];
+  const appSourcePath = process.argv[5];
 
   if (!snapshotPath) {
     throw new Error("Expected a backend speech snapshot path argument.");
@@ -30,13 +31,18 @@ async function main(): Promise<void> {
     throw new Error("Expected a speech lifecycle loader source path argument.");
   }
 
+  if (!avatarRuntimeSourcePath) {
+    throw new Error("Expected an avatar runtime source path argument.");
+  }
+
   if (!appSourcePath) {
     throw new Error("Expected an App source path argument.");
   }
 
-  const [snapshotText, loaderSourceText, appSourceText] = await Promise.all([
+  const [snapshotText, loaderSourceText, avatarRuntimeSourceText, appSourceText] = await Promise.all([
     readFile(snapshotPath, "utf8"),
     readFile(loaderSourcePath, "utf8"),
+    readFile(avatarRuntimeSourcePath, "utf8"),
     readFile(appSourcePath, "utf8")
   ]);
 
@@ -47,8 +53,11 @@ async function main(): Promise<void> {
   const liveConsumed = consumeSpeechLifecycleSnapshot(appendSpeechLifecycleEnvelope(transportSnapshot, liveEnvelope));
   const liveTransportMarkers = collectLiveTransportMarkers(loaderSourceText);
   const liveSeamPresent = liveTransportMarkers.length > 0;
+  const speechReactionRuntimeMarkers = collectSpeechReactionRuntimeMarkers(avatarRuntimeSourceText);
+  const expectedSpeechReactionRuntimeMarkers = getExpectedSpeechReactionRuntimeMarkers();
 
   assertFirstVisemeSliceSurvived(snapshot, consumed);
+  assertSpeechReactionRuntimeSeam(avatarRuntimeSourceText);
   assertCanonicalSynthesisRuntimeHandoff(appSourceText);
 
   const result = {
@@ -82,6 +91,12 @@ async function main(): Promise<void> {
       canonical_speech_synthesis_event_updates:
         liveConsumed.canonicalSpeechSynthesisEvent?.synthesis?.text === liveEnvelope.event.synthesis?.text,
       final_cursor_matches_appended_event: liveConsumed.cursors.at(-1) === liveEnvelope.cursor
+    },
+    avatar_runtime_speech_reaction: {
+      speech_reaction_runtime_markers: speechReactionRuntimeMarkers,
+      speech_reaction_runtime_ready: speechReactionRuntimeMarkers.length === expectedSpeechReactionRuntimeMarkers.length,
+      snapshot_mode_present: /speechReactionMode:\s*AvatarSpeechReactionMode;/.test(avatarRuntimeSourceText),
+      snapshot_active_viseme_present: /activeViseme:\s*string\s*\|\s*null;/.test(avatarRuntimeSourceText)
     },
     live_transport_readiness: {
       seam_status: liveSeamPresent ? "ready" : "blocked",
@@ -160,6 +175,64 @@ function collectLiveTransportMarkers(sourceText: string): string[] {
   return markers.filter((marker) => marker.pattern.test(sourceText)).map((marker) => marker.name);
 }
 
+function collectSpeechReactionRuntimeMarkers(sourceText: string): string[] {
+  const markers = getExpectedSpeechReactionRuntimeMarkers().map((marker) => ({
+    ...marker,
+    pattern: marker.pattern
+  }));
+
+  return markers.filter((marker) => marker.pattern.test(sourceText)).map((marker) => marker.name);
+}
+
+function getExpectedSpeechReactionRuntimeMarkers(): Array<{ name: string; pattern: RegExp }> {
+  return [
+    {
+      name: "speech overlay channel snapshot",
+      pattern: /export\s+interface\s+AvatarOverlayChannelSnapshot\s*\{/
+    },
+    {
+      name: "speech overlay snapshot field",
+      pattern: /overlayChannels:\s*AvatarOverlayChannelSnapshot\[\];/
+    },
+    {
+      name: "speech overlay channel factory",
+      pattern: /function\s+createSpeechOverlayChannel\s*\(/ 
+    },
+    {
+      name: "speech overlay snapshot builder",
+      pattern: /function\s+buildSpeechOverlaySnapshot\s*\(/ 
+    },
+    {
+      name: "speech overlay lifecycle source",
+      pattern: /source:\s*nextChannel\.source\s*\?\?\s*"backend\.speech\.lifecycle"/
+    },
+    {
+      name: "speech reaction viseme builder",
+      pattern: /function\s+buildSpeechReactionVisemes\s*\(input:\s*AvatarSpeechReactionInput\)/
+    },
+    {
+      name: "speech reaction coarse overlay fallback",
+      pattern: /buildSpeechOverlaySnapshot\s*\(\s*\{\s*mode:\s*"coarse"\s*\}\s*\)/
+    },
+    {
+      name: "speech reaction viseme overlay activation",
+      pattern: /buildSpeechOverlaySnapshot\s*\(\s*\{\s*mode:\s*"viseme",\s*label\s*\}\s*\)/
+    },
+    {
+      name: "speech reaction idle overlay clear",
+      pattern: /buildSpeechOverlaySnapshot\s*\(\s*\{\s*mode:\s*"idle"\s*\}\s*\)/
+    },
+    {
+      name: "runtime begin speech reaction bridge",
+      pattern: /beginSpeechReaction\(input\)\s*\{\s*beginSpeechReaction\(input\);\s*\}/
+    },
+    {
+      name: "runtime clear speech reaction bridge",
+      pattern: /clearSpeechReaction\(\)\s*\{\s*clearSpeechReaction\(\);\s*\}/
+    }
+  ];
+}
+
 function assertFirstVisemeSliceSurvived(
   snapshot: BackendSpeechContractsSnapshot,
   consumed: ReturnType<typeof consumeSpeechLifecycleSnapshot>
@@ -215,6 +288,21 @@ function assertCanonicalSynthesisRuntimeHandoff(appSourceText: string): void {
       `App-to-runtime speech playback handoff no longer preserves the canonical synthesis speech-reaction seam: ${missingMarkers.join(", ")}.`
     );
   }
+}
+
+function assertSpeechReactionRuntimeSeam(avatarRuntimeSourceText: string): void {
+  const runtimeMarkers = collectSpeechReactionRuntimeMarkers(avatarRuntimeSourceText);
+  const expectedMarkers = getExpectedSpeechReactionRuntimeMarkers().map((marker) => marker.name);
+
+  if (runtimeMarkers.length === expectedMarkers.length) {
+    return;
+  }
+
+  const missingMarkers = expectedMarkers.filter((marker) => !runtimeMarkers.includes(marker));
+
+  throw new Error(
+    `Avatar runtime no longer preserves the localized speech-reaction seam Switch is generalizing: ${missingMarkers.join(", ")}.`
+  );
 }
 
 function canonicalizeJsonValue(value: unknown): string {

@@ -36,3 +36,6 @@ __pycache__/
 # Frontend install and build outputs
 frontend/node_modules/
 frontend/dist/
+
+# Raw animation sources are tracked for now; keep JSON/DSL outputs in git as the
+# semantic staging path for provenance and later promotion work.

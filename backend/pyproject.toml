@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Backend scaffold for the NikoF local companion stack."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+	"fastapi>=0.115,<1.0",
+	"uvicorn>=0.34,<1.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

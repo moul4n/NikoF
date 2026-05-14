@@ -9,25 +9,58 @@ if (!rootElement) {
   throw new Error("Root mount element '#root' was not found.");
 }
 
-function resolveSurfaceModeFromPath(pathname: string): SurfaceMode {
+function resolveSurfaceModeFromPath(pathname: string): SurfaceMode | null {
   const normalizedPath = pathname.replace(/\/+$/, "");
 
-  return normalizedPath.endsWith("/display") ? "display" : "control";
+  if (normalizedPath.endsWith("/display")) {
+    return "display";
+  }
+
+  if (normalizedPath.endsWith("/control")) {
+    return "control";
+  }
+
+  return null;
+}
+
+function resolveCanonicalSurfacePath(pathname: string): string | null {
+  const surfaceMode = resolveSurfaceModeFromPath(pathname);
+
+  if (!surfaceMode) {
+    return null;
+  }
+
+  const normalizedPath = pathname.replace(/\/+$/, "");
+  const canonicalPath = `${normalizedPath}/`;
+
+  return pathname === canonicalPath ? null : canonicalPath;
 }
 
 function resolveSurfaceMode(): SurfaceMode {
+  const surfaceModeFromPath = resolveSurfaceModeFromPath(window.location.pathname);
+
+  if (surfaceModeFromPath) {
+    return surfaceModeFromPath;
+  }
+
   const declaredSurfaceMode = document.body.dataset.surfaceMode;
 
   if (declaredSurfaceMode === "control" || declaredSurfaceMode === "display") {
     return declaredSurfaceMode;
   }
 
-  return resolveSurfaceModeFromPath(window.location.pathname);
+  return "control";
 }
 
-const surfaceMode = resolveSurfaceMode();
+const canonicalSurfacePath = resolveCanonicalSurfacePath(window.location.pathname);
 
-document.body.dataset.surfaceMode = surfaceMode;
-rootElement.dataset.surfaceMode = surfaceMode;
+if (canonicalSurfacePath) {
+  window.location.replace(`${canonicalSurfacePath}${window.location.search}${window.location.hash}`);
+} else {
+  const surfaceMode = resolveSurfaceMode();
 
-createRoot(rootElement).render(<App surfaceMode={surfaceMode} />);
+  document.body.dataset.surfaceMode = surfaceMode;
+  rootElement.dataset.surfaceMode = surfaceMode;
+
+  createRoot(rootElement).render(<App surfaceMode={surfaceMode} />);
+}

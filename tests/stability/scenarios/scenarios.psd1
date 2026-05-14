@@ -201,6 +201,7 @@
                 'scripts/testing/frontendSpeechLifecycle.runtime.ts'
                 'scripts/testing/Invoke-StabilitySuite.ps1'
                 'frontend/src/app/App.tsx'
+                'frontend/src/avatar/runtime/avatarRuntime.ts'
                 'frontend/src/avatar/loaders/speechLifecycle.ts'
                 'frontend/src/shared/types/character.ts'
                 'backend/app/api/router.py'

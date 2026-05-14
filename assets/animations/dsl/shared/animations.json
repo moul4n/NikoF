@@ -1,0 +1,11 @@
+{
+  "registry_version": "0.1.0",
+  "shared_set": "dsl-shared-staging-v1",
+  "sidecars": {
+    "idle.default": {
+      "path": "assets/animations/dsl/shared/idle.default.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    }
+  }
+}

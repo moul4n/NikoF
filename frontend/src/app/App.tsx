@@ -80,6 +80,17 @@ function findCharacterEntry(catalog: CharacterCatalog | null, characterId: Chara
   return catalog.entries.find((entry) => entry.summary.characterId === characterId) ?? null;
 }
 
+function resolveRenderableCharacterEntry(
+  catalog: CharacterCatalog | null,
+  preferredCharacterId: CharacterId | null
+): CharacterCatalogEntry | null {
+  if (!catalog) {
+    return null;
+  }
+
+  return findCharacterEntry(catalog, resolveSelectedCharacterId(catalog, preferredCharacterId));
+}
+
 function describeBackendSyncState(syncState: BackendSyncState): string {
   if (syncState.message) {
     return syncState.message;
@@ -185,6 +196,10 @@ function describeSpeechLifecycleStateMessage(state: SpeechLifecycleLoadState): s
   return state.message ?? "The shell is reading the backend-owned snapshot envelope while live delivery is unavailable.";
 }
 
+function resolveSpeechLifecycleCharacterId(snapshot: ConsumedSpeechLifecycleSnapshot | null): CharacterId | null {
+  return snapshot?.canonicalSpeechSynthesisEvent?.character_id ?? snapshot?.canonicalTranscriptionEvent?.character_id ?? null;
+}
+
 function resolveDisplayReplySnapshot(snapshot: ConsumedSpeechLifecycleSnapshot | null): {
   label: string | null;
   status: string | null;
@@ -229,7 +244,7 @@ function resolveDisplayReplySnapshot(snapshot: ConsumedSpeechLifecycleSnapshot |
 
 function buildSurfaceHref(surfaceMode: SurfaceMode): string {
   if (typeof window === "undefined") {
-    return surfaceMode === "display" ? "/display" : "/control";
+    return surfaceMode === "display" ? "/display/" : "/control/";
   }
 
   const url = new URL(window.location.href);
@@ -242,7 +257,7 @@ function buildSurfaceHref(surfaceMode: SurfaceMode): string {
 
   pathSegments.push(surfaceMode);
 
-  return `/${pathSegments.join("/")}${url.search}${url.hash}`;
+  return `/${pathSegments.join("/")}/${url.search}${url.hash}`;
 }
 
 interface SurfaceModeSwitchProps {
@@ -711,32 +726,44 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     let cancelled = false;
 
     void loadCharacterCatalog()
-      .then((catalog) => bridgeCharacterCatalogWithBackend(catalog))
-      .then((bridge) => {
+      .then((catalog) => {
         if (cancelled) {
           return;
         }
 
-        const nextMessages = [...bridge.messages];
-        const nextSelectedCharacterId = resolveSelectedCharacterId(bridge.catalog, bridge.activeCharacterId);
-
-        if (bridge.activeCharacterId && !findCharacterEntry(bridge.catalog, bridge.activeCharacterId)) {
-          nextMessages.push(
-            `Backend selected ${bridge.activeCharacterId}, but this shell only mounts characters with a local manifest package in the repo.`
-          );
-        }
-
         setLoadState({
           status: "ready",
-          catalog: bridge.catalog,
+          catalog,
           error: null
         });
-        setSelectedCharacterId(nextSelectedCharacterId);
-        setBackendSyncState({
-          summariesConnected: bridge.summariesConnected,
-          activeCharacterConnected: bridge.activeCharacterConnected,
-          sessionId: bridge.sessionId,
-          message: nextMessages[0] ?? null
+        setSelectedCharacterId(resolveSelectedCharacterId(catalog, null));
+
+        void bridgeCharacterCatalogWithBackend(catalog).then((bridge) => {
+          if (cancelled) {
+            return;
+          }
+
+          const nextMessages = [...bridge.messages];
+          const nextSelectedCharacterId = resolveSelectedCharacterId(bridge.catalog, bridge.activeCharacterId);
+
+          if (bridge.activeCharacterId && !findCharacterEntry(bridge.catalog, bridge.activeCharacterId)) {
+            nextMessages.push(
+              `Backend selected ${bridge.activeCharacterId}, but this shell only mounts characters with a local manifest package in the repo.`
+            );
+          }
+
+          setLoadState({
+            status: "ready",
+            catalog: bridge.catalog,
+            error: null
+          });
+          setSelectedCharacterId(nextSelectedCharacterId);
+          setBackendSyncState({
+            summariesConnected: bridge.summariesConnected,
+            activeCharacterConnected: bridge.activeCharacterConnected,
+            sessionId: bridge.sessionId,
+            message: nextMessages[0] ?? null
+          });
         });
       })
       .catch((error: unknown) => {
@@ -759,7 +786,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   }, [runtime]);
 
   useEffect(() => {
-    const activeCharacter = findCharacterEntry(loadState.catalog, selectedCharacterId);
+    const activeCharacter = resolveRenderableCharacterEntry(loadState.catalog, selectedCharacterId);
 
     if (!activeCharacter) {
       return;
@@ -863,6 +890,26 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     };
   }, [loadState.status, speechLifecycleRefreshKey]);
 
+  useEffect(() => {
+    if (surfaceMode !== "display" || loadState.status !== "ready") {
+      return;
+    }
+
+    const backendLifecycleCharacterId = resolveSpeechLifecycleCharacterId(speechLifecycleState.snapshot);
+
+    if (!backendLifecycleCharacterId) {
+      return;
+    }
+
+    const reconciledCharacterId = resolveSelectedCharacterId(loadState.catalog, backendLifecycleCharacterId);
+
+    if (!reconciledCharacterId || reconciledCharacterId === selectedCharacterId) {
+      return;
+    }
+
+    setSelectedCharacterId(reconciledCharacterId);
+  }, [loadState, selectedCharacterId, speechLifecycleState.snapshot, surfaceMode]);
+
   const canonicalSynthesisEvent = speechLifecycleState.snapshot?.canonicalSpeechSynthesisEvent ?? null;
 
   useEffect(() => {
@@ -945,7 +992,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
       });
   }
 
-  const selectedCharacter = findCharacterEntry(loadState.catalog, selectedCharacterId);
+  const selectedCharacter = resolveRenderableCharacterEntry(loadState.catalog, selectedCharacterId);
   const backendStatusMessage = describeBackendSyncState(backendSyncState);
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
   const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
@@ -959,10 +1006,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         ? "timing window"
         : "idle";
   const speechLifecycleCharacterId =
-    speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.character_id ??
-    speechLifecycleSnapshot?.canonicalTranscriptionEvent?.character_id ??
-    selectedCharacter?.summary.characterId ??
-    "Unknown";
+    resolveSpeechLifecycleCharacterId(speechLifecycleSnapshot) ?? selectedCharacter?.summary.characterId ?? "Unknown";
   const controlSurfaceHref = buildSurfaceHref("control");
   const displaySurfaceHref = buildSurfaceHref("display");
 

@@ -1,138 +1,153 @@
 {
-    "scenario_id":  "frontend-shell-split-surface",
-    "scenario_name":  "Frontend shell split surface snapshot",
-    "tracked_inputs":  [
-                           "frontend/src/main.tsx",
-                           "frontend/src/app/App.tsx",
-                           "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx",
-                           "frontend/src/avatar/loaders/backendCharacterFlow.ts",
-                           "frontend/src/avatar/loaders/characterCatalog.ts",
-                           "frontend/src/avatar/loaders/operatorCommand.ts",
-                           "frontend/src/avatar/loaders/speechLifecycle.ts",
-                           "frontend/src/shared/types/character.ts"
-                       ],
-    "entrypoint_state":  {
-                             "entrypoint_files":  [
-                                                      "frontend/src/main.tsx"
-                                                  ],
-                             "total_entrypoint_file_count":  1,
-                             "split_entrypoints_present":  false,
-                             "entrypoints_render_app":  true,
-                             "entrypoints_without_app":  [
-
-                                                         ],
-                             "entrypoint_backend_sync_owner_files":  [
-
-                                                                     ],
-                             "entrypoint_speech_lifecycle_owner_files":  [
-
-                                                                         ],
-                             "dependency":  "Switch\u0027s real control/display entrypoint split is still absent under frontend/src/*.tsx, so this guard is prepared but blocked until separate /control and /display surfaces route through the same App-owned backend sync and speech.lifecycle path."
-                         },
-    "app_owner_state":  {
-                            "app_files":  [
-                                              "frontend/src/app/App.tsx",
-                                              "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
-                                          ],
-                            "total_app_surface_file_count":  2,
-                            "backend_sync_owner_files":  [
-                                                             "frontend/src/app/App.tsx"
-                                                         ],
-                            "speech_lifecycle_owner_files":  [
-                                                                 "frontend/src/app/App.tsx"
-                                                             ],
-                            "operator_command_owner_files":  [
-                                                                 "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
-                                                             ],
-                            "secondary_backend_sync_path_present":  false,
-                            "secondary_speech_lifecycle_path_present":  false
-                        },
-    "operator_command_state":  {
-                                   "owner_files":  [
-                                                       "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
-                                                   ],
-                                   "single_operator_command_owner":  true,
-                                   "owner_outside_app":  true,
-                                   "display_surface_read_only":  true,
-                                   "backend_operator_command_path":  "/session/operator-command",
-                                   "backend_operator_command_seam_locked":  true,
-                                   "published_command_types":  [
-                                                                   "text_question",
-                                                                   "tts_preview"
-                                                               ],
-                                   "published_command_types_locked":  true
-                               },
-    "entrypoint_files":  [
-                             {
-                                 "path":  "frontend/src/main.tsx",
-                                 "entrypoint_markers":  [
-                                                            "create-root",
-                                                            "import-app",
-                                                            "render-app"
-                                                        ],
-                                 "backend_sync_markers":  [
-
-                                                          ],
-                                 "speech_lifecycle_markers":  [
-
-                                                              ],
-                                 "renders_app":  true,
-                                 "owns_backend_sync_path":  false,
-                                 "owns_speech_lifecycle_path":  false
-                             }
-                         ],
-    "surface_files":  [
-                          {
-                              "path":  "frontend/src/app/App.tsx",
-                              "backend_sync_markers":  [
-                                                           "active-sync-error",
-                                                           "bridge-character-catalog",
-                                                           "resolve-selected-character",
-                                                           "sync-active-character-selection"
-                                                       ],
-                              "speech_lifecycle_markers":  [
-                                                               "speech-lifecycle-delivery-mode",
-                                                               "speech-lifecycle-snapshot-type",
-                                                               "speech-lifecycle-stream",
-                                                               "start-speech-lifecycle-live-consumption"
-                                                           ],
-                              "operator_command_markers":  [
-
-                                                           ],
-                              "owns_backend_sync_path":  true,
-                              "owns_speech_lifecycle_path":  true,
-                              "owns_operator_command_client":  false,
-                              "presentation_only":  false
-                          },
-                          {
-                              "path":  "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx",
-                              "backend_sync_markers":  [
-
-                                                       ],
-                              "speech_lifecycle_markers":  [
-
-                                                           ],
-                              "operator_command_markers":  [
-                                                               "submit-operator-command",
-                                                               "text-question-command",
-                                                               "tts-preview-command"
-                                                           ],
-                              "owns_backend_sync_path":  false,
-                              "owns_speech_lifecycle_path":  false,
-                              "owns_operator_command_client":  true,
-                              "presentation_only":  false
-                          }
-                      ],
-    "alignment":  {
-                      "single_backend_sync_owner":  true,
-                      "single_speech_lifecycle_owner":  true,
-                      "single_operator_command_owner":  true,
-                      "duplicate_backend_sync_path_blocked":  true,
-                      "duplicate_speech_lifecycle_path_blocked":  true,
-                      "duplicate_operator_command_owner_blocked":  true,
-                      "entrypoints_route_through_app":  true,
-                      "split_batch_unblocked":  false,
-                      "entrypoint_split_present":  false,
-                      "display_surface_read_only_for_operator_commands":  true
-                  }
+    "scenario_id": "frontend-shell-split-surface",
+    "scenario_name": "Frontend shell split surface snapshot",
+    "tracked_inputs": [
+        "frontend/src/main.tsx",
+        "frontend/src/app/App.tsx",
+        "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx",
+        "frontend/src/avatar/loaders/backendCharacterFlow.ts",
+        "frontend/src/avatar/loaders/characterCatalog.ts",
+        "frontend/src/avatar/loaders/operatorCommand.ts",
+        "frontend/src/avatar/loaders/speechLifecycle.ts",
+        "frontend/src/shared/types/character.ts"
+    ],
+    "mode_resolution_state": {
+        "owner_file": "frontend/src/main.tsx",
+        "display_path_maps_to_display": true,
+        "control_path_maps_to_control": true,
+        "non_surface_paths_return_null": true,
+        "path_selection_precedes_body_dataset": true,
+        "body_dataset_fallback_present": true,
+        "default_surface_falls_back_to_control": true,
+        "surface_mode_written_to_body_dataset": true,
+        "surface_mode_written_to_root_dataset": true,
+        "surface_mode_resolution_locked": true
+    },
+    "entrypoint_state": {
+        "entrypoint_files": [
+            "frontend/src/main.tsx"
+        ],
+        "total_entrypoint_file_count": 1,
+        "split_entrypoints_present": false,
+        "entrypoints_render_app": true,
+        "entrypoints_without_app": [],
+        "entrypoint_backend_sync_owner_files": [],
+        "entrypoint_speech_lifecycle_owner_files": [],
+        "dependency": "Switch's real control/display entrypoint split is still absent under frontend/src/*.tsx, so this guard is prepared but blocked until separate /control and /display surfaces route through the same App-owned backend sync and speech.lifecycle path."
+    },
+    "app_owner_state": {
+        "app_files": [
+            "frontend/src/app/App.tsx",
+            "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
+        ],
+        "total_app_surface_file_count": 2,
+        "backend_sync_owner_files": [
+            "frontend/src/app/App.tsx"
+        ],
+        "speech_lifecycle_owner_files": [
+            "frontend/src/app/App.tsx"
+        ],
+        "operator_command_owner_files": [
+            "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
+        ],
+        "secondary_backend_sync_path_present": false,
+        "secondary_speech_lifecycle_path_present": false
+    },
+    "operator_command_state": {
+        "owner_files": [
+            "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
+        ],
+        "single_operator_command_owner": true,
+        "owner_outside_app": true,
+        "display_surface_read_only": true,
+        "backend_operator_command_path": "/session/operator-command",
+        "backend_operator_command_seam_locked": true,
+        "published_command_types": [
+            "text_question",
+            "tts_preview"
+        ],
+        "published_command_types_locked": true
+    },
+    "surface_branch_state": {
+        "owner_file": "frontend/src/app/App.tsx",
+        "display_branch_present": true,
+        "display_branch_title_present": true,
+        "display_branch_status_panel_present": true,
+        "display_branch_uses_display_avatar_variant": true,
+        "display_branch_excludes_control_operator_panel": true,
+        "display_branch_excludes_catalog_panel": true,
+        "display_branch_excludes_speech_lifecycle_panel": true,
+        "control_branch_present": true,
+        "control_branch_title_present": true,
+        "control_branch_contains_operator_panel": true,
+        "control_branch_contains_catalog_panel": true,
+        "control_branch_contains_speech_lifecycle_panel": true,
+        "control_branch_excludes_display_status_panel": true,
+        "surface_branches_render_distinct_shells": true
+    },
+    "entrypoint_files": [
+        {
+            "path": "frontend/src/main.tsx",
+            "entrypoint_markers": [
+                "create-root",
+                "import-app",
+                "render-app"
+            ],
+            "backend_sync_markers": [],
+            "speech_lifecycle_markers": [],
+            "renders_app": true,
+            "owns_backend_sync_path": false,
+            "owns_speech_lifecycle_path": false
+        }
+    ],
+    "surface_files": [
+        {
+            "path": "frontend/src/app/App.tsx",
+            "backend_sync_markers": [
+                "active-sync-error",
+                "bridge-character-catalog",
+                "resolve-selected-character",
+                "sync-active-character-selection"
+            ],
+            "speech_lifecycle_markers": [
+                "speech-lifecycle-delivery-mode",
+                "speech-lifecycle-snapshot-type",
+                "speech-lifecycle-stream",
+                "start-speech-lifecycle-live-consumption"
+            ],
+            "operator_command_markers": [],
+            "owns_backend_sync_path": true,
+            "owns_speech_lifecycle_path": true,
+            "owns_operator_command_client": false,
+            "presentation_only": false
+        },
+        {
+            "path": "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx",
+            "backend_sync_markers": [],
+            "speech_lifecycle_markers": [],
+            "operator_command_markers": [
+                "submit-operator-command",
+                "text-question-command",
+                "tts-preview-command"
+            ],
+            "owns_backend_sync_path": false,
+            "owns_speech_lifecycle_path": false,
+            "owns_operator_command_client": true,
+            "presentation_only": false
+        }
+    ],
+    "alignment": {
+        "single_backend_sync_owner": true,
+        "single_speech_lifecycle_owner": true,
+        "single_operator_command_owner": true,
+        "duplicate_backend_sync_path_blocked": true,
+        "duplicate_speech_lifecycle_path_blocked": true,
+        "duplicate_operator_command_owner_blocked": true,
+        "entrypoints_route_through_app": true,
+        "split_batch_unblocked": false,
+        "entrypoint_split_present": false,
+        "surface_mode_resolution_locked": true,
+        "surface_branches_render_distinct_shells": true,
+        "display_surface_read_only_for_operator_commands": true
+    }
 }

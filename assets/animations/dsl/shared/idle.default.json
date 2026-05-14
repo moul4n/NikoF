@@ -1,0 +1,18 @@
+{
+  "semantic_id": "idle.default",
+  "stage": "staged_raw_unity_source",
+  "approved_for_shared_library": false,
+  "promotion_status": "not_promoted",
+  "source": {
+    "kind": "unity_text_animation_clip",
+    "path": "assets/animations/raw/idle.anim",
+    "provenance": "raw_source_asset"
+  },
+  "unity_clip": {
+    "name": "mixamo.com",
+    "sample_rate": 30,
+    "start_time": 0.0,
+    "stop_time": 8.333334,
+    "loop_time": 0.0
+  }
+}

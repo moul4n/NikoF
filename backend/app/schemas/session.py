@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from pydantic.dataclasses import dataclass as pydantic_dataclass
+
 from app.schemas.character import CharacterSummary
 
 
@@ -177,7 +179,7 @@ class ActiveCharacterResponse:
     session_event: SessionEvent
 
 
-@dataclass(slots=True, frozen=True)
+@pydantic_dataclass(slots=True, frozen=True)
 class OperatorCommandRequest:
     command_type: str
     text: str

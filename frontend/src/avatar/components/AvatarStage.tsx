@@ -9,6 +9,18 @@ interface AvatarStageProps {
   variant?: "embedded" | "display";
 }
 
+function describeOverlayChannel(channel: ReturnType<AvatarRuntimeBridge["snapshot"]>["overlayChannels"][number]): string {
+  if (!channel.active || channel.mode === "idle") {
+    return `${channel.channelId} idle`;
+  }
+
+  if (channel.mode === "viseme") {
+    return channel.label ? `${channel.channelId} ${channel.mode} ${channel.label}` : `${channel.channelId} ${channel.mode}`;
+  }
+
+  return `${channel.channelId} ${channel.mode}`;
+}
+
 export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }: AvatarStageProps): JSX.Element {
   const mountPoints = getAvatarRuntimeMountPoints();
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
@@ -39,15 +51,12 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
           : snapshot.mounted
             ? "mounted"
             : "pending mount";
-  const runtimeActivityLabel =
-    snapshot.currentState === "speak"
-      ? snapshot.speechReactionMode === "viseme"
-        ? snapshot.activeViseme
-          ? `speaking · viseme ${snapshot.activeViseme}`
-          : "speaking · viseme"
-        : "speaking · coarse"
-      : snapshot.currentState;
-  const headerStatusLabel = snapshot.currentState === "speak" ? `${runtimeStatusLabel} · ${runtimeActivityLabel}` : runtimeStatusLabel;
+    const baseLayerLabel = snapshot.baseAnimation?.id ?? snapshot.pendingAnimation?.id ?? snapshot.currentState;
+    const activeOverlayChannels = snapshot.overlayChannels.filter((channel) => channel.active);
+    const overlayActivityLabel =
+      activeOverlayChannels.length > 0 ? activeOverlayChannels.map(describeOverlayChannel).join(" + ") : "overlay idle";
+    const runtimeActivityLabel = `base ${baseLayerLabel} · ${overlayActivityLabel}`;
+    const headerStatusLabel = `${runtimeStatusLabel} · ${runtimeActivityLabel}`;
 
   const shellTitle = variant === "display" ? "Dedicated avatar render window" : "Default character shell";
   const shellEyebrow = variant === "display" ? "Display surface" : "Avatar runtime";
@@ -56,12 +65,8 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
       ? "The display surface is ready to mount the backend-confirmed character once one is selected."
       : "Select the default character to mount the runtime.";
   const readyMessage =
-    snapshot.currentState === "speak"
-      ? snapshot.speechReactionMode === "viseme"
-        ? snapshot.activeViseme
-          ? `Backend synthesis timing is driving a local viseme reaction on ${snapshot.activeViseme}.`
-          : "Backend synthesis timing is driving a local viseme reaction on the mounted avatar."
-        : "Backend synthesis playback is driving the coarse speak fallback for the mounted avatar."
+    activeOverlayChannels.length > 0
+      ? `The mounted avatar is holding ${baseLayerLabel} as the base layer while ${overlayActivityLabel} runs as a live overlay.`
       : variant === "display"
       ? "The display surface is rendering the manifest-resolved VRM."
       : "The default shell is now rendering the imported VRM.";
@@ -83,7 +88,8 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
             <div className="avatar-stage__display-banner" aria-label="Display runtime summary">
               <span className="avatar-stage__display-chip">{displayCharacterLabel}</span>
               <span className="avatar-stage__display-chip">{runtimeStatusLabel}</span>
-              <span className="avatar-stage__display-chip">{runtimeActivityLabel}</span>
+              <span className="avatar-stage__display-chip">base {baseLayerLabel}</span>
+              <span className="avatar-stage__display-chip">{overlayActivityLabel}</span>
             </div>
           ) : null}
           <div id={mountPoints.viewportElementId} className="avatar-stage__viewport" />
@@ -118,6 +124,14 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
                 <div>
                   <dt>Activity</dt>
                   <dd>{runtimeActivityLabel}</dd>
+                </div>
+                <div>
+                  <dt>Base layer</dt>
+                  <dd>{baseLayerLabel}</dd>
+                </div>
+                <div>
+                  <dt>Overlay channels</dt>
+                  <dd>{snapshot.overlayChannels.map(describeOverlayChannel).join(", ")}</dd>
                 </div>
                 <div>
                   <dt>Shared animation set</dt>
