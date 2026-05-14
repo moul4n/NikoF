@@ -177,3 +177,22 @@ export interface BackendActiveCharacterResponseDocument {
   selection: BackendActiveCharacterSelectionDocument;
   session_event: BackendSessionEventDocument;
 }
+
+export type BackendOperatorCommandType = "text_question" | "tts_preview";
+
+export interface BackendOperatorCommandRequestDocument {
+  command_type: BackendOperatorCommandType;
+  text: string;
+  locale: string;
+}
+
+export interface BackendOperatorCommandResponseDocument {
+  schema_version: number;
+  session_id: string;
+  command_type: BackendOperatorCommandType;
+  character_id: CharacterId;
+  status: string;
+  session_event: BackendSessionEventDocument;
+  next_speech_cursor: string;
+  speech_lifecycle_events: BackendSpeechLifecycleEventEnvelopeDocument[];
+}

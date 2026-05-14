@@ -281,6 +281,26 @@ function Get-AsyncFunctionReturnTypeFromSource {
     return ($match.Groups['type'].Value -replace '\s+', ' ').Trim()
 }
 
+function Get-DataclassFieldNamesFromSource {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceText,
+        [Parameter(Mandatory)]
+        [string]$ClassName
+    )
+
+    $classPattern = '(?ms)@dataclass(?:\([^)]*\))?\s*class\s+' + [regex]::Escape($ClassName) + '\s*:\s*(?<body>.*?)(?=^@dataclass|^class\s|\Z)'
+    $match = [regex]::Match($SourceText, $classPattern)
+    if (-not $match.Success) {
+        return @()
+    }
+
+    return @(
+        [regex]::Matches($match.Groups['body'].Value, '(?m)^\s*(?<name>[A-Za-z_][A-Za-z0-9_]*)\s*:') |
+            ForEach-Object { $_.Groups['name'].Value }
+    )
+}
+
 function Test-StringArrayEquality {
     param(
         [string[]]$Left,
@@ -539,6 +559,12 @@ for envelope in snapshot["contracts"].get("speech_lifecycle_transport_snapshot",
     envelope["event"]["timestamp"] = "<generated-at>"
 snapshot["responses"]["get_active_character"]["session_event"]["timestamp"] = "<generated-at>"
 for envelope in snapshot["responses"].get("get_speech_lifecycle", {}).get("events", []):
+    envelope["event"]["timestamp"] = "<generated-at>"
+snapshot["responses"]["post_operator_command_text_question"]["response"]["session_event"]["timestamp"] = "<generated-at>"
+for envelope in snapshot["responses"]["post_operator_command_text_question"]["response"].get("speech_lifecycle_events", []):
+    envelope["event"]["timestamp"] = "<generated-at>"
+snapshot["responses"]["post_operator_command_tts_preview"]["response"]["session_event"]["timestamp"] = "<generated-at>"
+for envelope in snapshot["responses"]["post_operator_command_tts_preview"]["response"].get("speech_lifecycle_events", []):
     envelope["event"]["timestamp"] = "<generated-at>"
 snapshot["responses"]["put_active_character"]["response"]["session_event"]["timestamp"] = "<generated-at>"
 snapshot["responses"]["put_active_character_invalid"]["response"]["session_event"]["timestamp"] = "<generated-at>"
@@ -1155,6 +1181,171 @@ sys.stdout.write("\n")
     }
 }
 
+function Invoke-BackendOperatorCommandSurfaceSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
+    }
+
+    $routerPath = Join-Path $RepoRoot 'backend\app\api\router.py'
+    $sessionSchemaPath = Join-Path $RepoRoot 'backend\app\schemas\session.py'
+    $speechServicePath = Join-Path $RepoRoot 'backend\app\services\speech.py'
+    $routerSource = Get-Content -LiteralPath $routerPath -Raw
+    $sessionSchemaSource = Get-Content -LiteralPath $sessionSchemaPath -Raw
+    $speechServiceSource = Get-Content -LiteralPath $speechServicePath -Raw
+    $responses = $snapshotSource.snapshot.responses
+
+    $routes = @(
+        $snapshotSource.snapshot.routes | ForEach-Object {
+            [ordered]@{
+                method = $_.method
+                path = $_.path
+                name = $_.name
+            }
+        }
+    )
+    $writeRoutes = @(
+        $routes |
+            Where-Object { $_.method -in @('POST', 'PUT', 'PATCH', 'DELETE') }
+    )
+    $nonSelectionWriteRoutes = @(
+        $writeRoutes |
+            Where-Object { $_.path -ne '/session/active-character' }
+    )
+    $operatorSchemaMarkers = @(
+        [regex]::Matches(
+            $sessionSchemaSource,
+            '(?m)^class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*(?:Operator|Command)[A-Za-z0-9_]*)\s*:'
+        ) |
+            ForEach-Object { $_.Groups['name'].Value }
+    )
+    $operatorRouteMarkers = @(
+        [regex]::Matches(
+            $routerSource,
+            '(?m)^\s*@router\.(?:post|put|patch|delete)\(\s*["''](?<path>[^"'']*(?:operator|command)[^"'']*)["'']'
+        ) |
+            ForEach-Object { $_.Groups['path'].Value } |
+            Select-Object -Unique
+    )
+    $backendTurnRequestFields = @(Get-DataclassFieldNamesFromSource -SourceText $speechServiceSource -ClassName 'BackendTurnRequest')
+    $transcriptionRequestFields = @(Get-DataclassFieldNamesFromSource -SourceText $speechServiceSource -ClassName 'SpeechTranscriptionRequest')
+    $synthesisRequestFields = @(Get-DataclassFieldNamesFromSource -SourceText $speechServiceSource -ClassName 'SpeechSynthesisRequest')
+    $turnPipelinePublisherPresent = [regex]::IsMatch(
+        $speechServiceSource,
+        '(?ms)class\s+TurnPipelinePublisher\(Protocol\):.*?def\s+publish_turn\('
+    )
+    $hasTextQuestionExample = $responses.PSObject.Properties.Name -contains 'post_operator_command_text_question'
+    $hasTtsPreviewExample = $responses.PSObject.Properties.Name -contains 'post_operator_command_tts_preview'
+    $textQuestionRequestKeys = @()
+    $textQuestionResponseKeys = @()
+    $textQuestionSessionEventType = $null
+    $textQuestionSpeechEventTypes = @()
+    if ($hasTextQuestionExample) {
+        $textQuestionRequestKeys = @(
+            Get-OrderedPropertyNames -InputObject $responses.post_operator_command_text_question.request
+        )
+        $textQuestionResponseKeys = @(
+            Get-OrderedPropertyNames -InputObject $responses.post_operator_command_text_question.response
+        )
+        $textQuestionSessionEventType = $responses.post_operator_command_text_question.response.session_event.event_type
+        $textQuestionSpeechEventTypes = @(
+            $responses.post_operator_command_text_question.response.speech_lifecycle_events |
+                ForEach-Object { $_.event.event_type }
+        )
+    }
+    $ttsPreviewRequestKeys = @()
+    $ttsPreviewResponseKeys = @()
+    $ttsPreviewSessionEventType = $null
+    $ttsPreviewSpeechEventTypes = @()
+    if ($hasTtsPreviewExample) {
+        $ttsPreviewRequestKeys = @(
+            Get-OrderedPropertyNames -InputObject $responses.post_operator_command_tts_preview.request
+        )
+        $ttsPreviewResponseKeys = @(
+            Get-OrderedPropertyNames -InputObject $responses.post_operator_command_tts_preview.response
+        )
+        $ttsPreviewSessionEventType = $responses.post_operator_command_tts_preview.response.session_event.event_type
+        $ttsPreviewSpeechEventTypes = @(
+            $responses.post_operator_command_tts_preview.response.speech_lifecycle_events |
+                ForEach-Object { $_.event.event_type }
+        )
+    }
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $snapshotSource.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        local_root = $snapshotSource.local_root
+        route_surface = [ordered]@{
+            writable_routes = @($writeRoutes)
+            non_selection_write_routes = @($nonSelectionWriteRoutes)
+            operator_command_route_count = $nonSelectionWriteRoutes.Count
+            operator_command_route_present = $nonSelectionWriteRoutes.Count -gt 0
+            operator_route_markers = @($operatorRouteMarkers)
+            dependency = if ($nonSelectionWriteRoutes.Count -gt 0) {
+                $null
+            }
+            else {
+                'Tank''s backend-authored operator command route is still absent, so this guard is prepared but blocked until one writable non-selection path accepts both text-question submission and TTS preview through the backend-owned command seam.'
+            }
+        }
+        canonical_publication_surface = [ordered]@{
+            turn_pipeline_publisher_present = [bool]$turnPipelinePublisherPresent
+            backend_turn_request_fields = @($backendTurnRequestFields)
+            transcription_request_fields = @($transcriptionRequestFields)
+            synthesis_request_fields = @($synthesisRequestFields)
+            operator_schema_markers = @($operatorSchemaMarkers)
+        }
+        command_examples = [ordered]@{
+            text_question = [ordered]@{
+                present = [bool]$hasTextQuestionExample
+                request_keys = @($textQuestionRequestKeys)
+                response_keys = @($textQuestionResponseKeys)
+                session_event_type = $textQuestionSessionEventType
+                speech_lifecycle_event_types = @($textQuestionSpeechEventTypes)
+            }
+            tts_preview = [ordered]@{
+                present = [bool]$hasTtsPreviewExample
+                request_keys = @($ttsPreviewRequestKeys)
+                response_keys = @($ttsPreviewResponseKeys)
+                session_event_type = $ttsPreviewSessionEventType
+                speech_lifecycle_event_types = @($ttsPreviewSpeechEventTypes)
+            }
+        }
+        alignment = [ordered]@{
+            active_character_is_only_writable_route = ($writeRoutes.Count -eq 1) -and ($writeRoutes[0].path -eq '/session/active-character')
+            single_operator_command_route_present = $nonSelectionWriteRoutes.Count -eq 1
+            canonical_turn_publication_present = [bool]$turnPipelinePublisherPresent -and ($backendTurnRequestFields.Count -gt 0)
+            command_examples_present = [bool]$hasTextQuestionExample -and [bool]$hasTtsPreviewExample
+            shared_command_request_shape = Test-StringArrayEquality -Left $textQuestionRequestKeys -Right $ttsPreviewRequestKeys
+            shared_command_response_shape = Test-StringArrayEquality -Left $textQuestionResponseKeys -Right $ttsPreviewResponseKeys
+            text_question_routes_through_transcription =
+                [bool]$hasTextQuestionExample -and
+                ($textQuestionSessionEventType -ceq 'session.operator.text-question') -and
+                (Test-StringArrayEquality -Left $textQuestionSpeechEventTypes -Right @('transcription.status'))
+            tts_preview_routes_through_synthesis =
+                [bool]$hasTtsPreviewExample -and
+                ($ttsPreviewSessionEventType -ceq 'session.operator.tts-preview') -and
+                (Test-StringArrayEquality -Left $ttsPreviewSpeechEventTypes -Right @('speech.synthesis'))
+            operator_command_batch_unblocked =
+                ($nonSelectionWriteRoutes.Count -eq 1) -and
+                [bool]$hasTextQuestionExample -and
+                [bool]$hasTtsPreviewExample
+        }
+    }
+}
+
 function Invoke-BackendStage1PayloadSurfaceSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -1267,6 +1458,13 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
         [pscustomobject]@{ name = 'speech-lifecycle-delivery-mode'; pattern = '\bSpeechLifecycleDeliveryMode\b' }
         [pscustomobject]@{ name = 'start-speech-lifecycle-live-consumption'; pattern = '\bstartSpeechLifecycleLiveConsumption\b' }
     )
+    $operatorCommandMarkers = @(
+        [pscustomobject]@{ name = 'submit-operator-command'; pattern = '\bsubmitOperatorCommand\b' }
+        [pscustomobject]@{ name = 'text-question-command'; pattern = '"text_question"' }
+        [pscustomobject]@{ name = 'tts-preview-command'; pattern = '"tts_preview"' }
+    )
+    $operatorCommandLoaderPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\operatorCommand.ts'
+    $sharedTypesPath = Join-Path $RepoRoot 'frontend\src\shared\types\character.ts'
 
     $entrypointFiles = @(
         Get-ChildItem -LiteralPath $entrypointRoot -File -Filter '*.tsx' |
@@ -1305,17 +1503,21 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
         $relativePath = Get-RepoRelativePath -Path $surfaceFile.FullName -RepoRoot $RepoRoot
         $matchedBackendSyncMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $backendSyncMarkers)
         $matchedSpeechLifecycleMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $speechLifecycleMarkers)
+        $matchedOperatorCommandMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $operatorCommandMarkers)
         $ownsBackendSyncPath = $matchedBackendSyncMarkers.Count -gt 0
         $ownsSpeechLifecyclePath = $matchedSpeechLifecycleMarkers.Count -gt 0
+        $ownsOperatorCommandClient = $matchedOperatorCommandMarkers.Count -gt 0
 
         $surfaceRecords.Add(
             [pscustomobject][ordered]@{
                 path = $relativePath
                 backend_sync_markers = $matchedBackendSyncMarkers
                 speech_lifecycle_markers = $matchedSpeechLifecycleMarkers
+                operator_command_markers = $matchedOperatorCommandMarkers
                 owns_backend_sync_path = $ownsBackendSyncPath
                 owns_speech_lifecycle_path = $ownsSpeechLifecyclePath
-                presentation_only = (-not $ownsBackendSyncPath) -and (-not $ownsSpeechLifecyclePath)
+                owns_operator_command_client = $ownsOperatorCommandClient
+                presentation_only = (-not $ownsBackendSyncPath) -and (-not $ownsSpeechLifecyclePath) -and (-not $ownsOperatorCommandClient)
             }
         ) | Out-Null
     }
@@ -1325,8 +1527,20 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
     $entrypointsWithoutApp = @($entrypointRecords | Where-Object { -not $_.renders_app } | ForEach-Object { $_.path })
     $backendSyncOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_backend_sync_path } | ForEach-Object { $_.path })
     $speechLifecycleOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_speech_lifecycle_path } | ForEach-Object { $_.path })
+    $operatorCommandOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_operator_command_client } | ForEach-Object { $_.path })
     $splitEntrypointsPresent = $entrypointRecords.Count -gt 1
     $entrypointsRouteThroughApp = ($entrypointsWithoutApp.Count -eq 0) -and ($entrypointBackendSyncOwnerFiles.Count -eq 0) -and ($entrypointSpeechLifecycleOwnerFiles.Count -eq 0)
+    $operatorCommandLoaderSource = Get-Content -LiteralPath $operatorCommandLoaderPath -Raw
+    $sharedTypesSource = Get-Content -LiteralPath $sharedTypesPath -Raw
+    $operatorCommandRouteMatch = [regex]::Match($operatorCommandLoaderSource, 'buildBackendApiUrl\(\s*["''](?<path>[^"'']+)["'']\s*\)')
+    $operatorCommandTypeMatch = [regex]::Match($sharedTypesSource, '(?m)^export\s+type\s+BackendOperatorCommandType\s*=\s*(?<types>.+);\s*$')
+    $publishedCommandTypes = if ($operatorCommandTypeMatch.Success) {
+        @([regex]::Matches($operatorCommandTypeMatch.Groups['types'].Value, '["''](?<type>[^"'']+)["'']') | ForEach-Object { $_.Groups['type'].Value })
+    }
+    else {
+        @()
+    }
+    $displayReadOnlyForOperatorCommands = -not (@($surfaceRecords | Where-Object { $_.path -eq 'frontend/src/app/App.tsx' -and $_.owns_operator_command_client }).Count -gt 0)
 
     return [ordered]@{
         scenario_id = $Scenario.id
@@ -1352,19 +1566,33 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
             total_app_surface_file_count = $surfaceRecords.Count
             backend_sync_owner_files = $backendSyncOwnerFiles
             speech_lifecycle_owner_files = $speechLifecycleOwnerFiles
+            operator_command_owner_files = $operatorCommandOwnerFiles
             secondary_backend_sync_path_present = $backendSyncOwnerFiles.Count -gt 1
             secondary_speech_lifecycle_path_present = $speechLifecycleOwnerFiles.Count -gt 1
+        }
+        operator_command_state = [ordered]@{
+            owner_files = $operatorCommandOwnerFiles
+            single_operator_command_owner = $operatorCommandOwnerFiles.Count -eq 1
+            owner_outside_app = ($operatorCommandOwnerFiles.Count -eq 1) -and ($operatorCommandOwnerFiles[0] -cne 'frontend/src/app/App.tsx')
+            display_surface_read_only = $displayReadOnlyForOperatorCommands
+            backend_operator_command_path = if ($operatorCommandRouteMatch.Success) { $operatorCommandRouteMatch.Groups['path'].Value } else { $null }
+            backend_operator_command_seam_locked = $operatorCommandRouteMatch.Success -and ($operatorCommandRouteMatch.Groups['path'].Value -ceq '/session/operator-command')
+            published_command_types = $publishedCommandTypes
+            published_command_types_locked = Test-StringArrayEquality -Left $publishedCommandTypes -Right @('text_question', 'tts_preview')
         }
         entrypoint_files = @($entrypointRecords | ForEach-Object { $_ })
         surface_files = @($surfaceRecords | ForEach-Object { $_ })
         alignment = [ordered]@{
             single_backend_sync_owner = $backendSyncOwnerFiles.Count -eq 1
             single_speech_lifecycle_owner = $speechLifecycleOwnerFiles.Count -eq 1
+            single_operator_command_owner = $operatorCommandOwnerFiles.Count -eq 1
             duplicate_backend_sync_path_blocked = $backendSyncOwnerFiles.Count -le 1
             duplicate_speech_lifecycle_path_blocked = $speechLifecycleOwnerFiles.Count -le 1
+            duplicate_operator_command_owner_blocked = $operatorCommandOwnerFiles.Count -le 1
             entrypoints_route_through_app = $entrypointsRouteThroughApp
             split_batch_unblocked = $splitEntrypointsPresent -and $entrypointsRouteThroughApp
             entrypoint_split_present = $splitEntrypointsPresent
+            display_surface_read_only_for_operator_commands = $displayReadOnlyForOperatorCommands
         }
     }
 }
@@ -1594,6 +1822,9 @@ function Invoke-ScenarioSnapshot {
         }
         'backend-speech-real-adapter-degraded' {
             return Invoke-BackendSpeechRealAdapterDegradedSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'backend-operator-command-surface' {
+            return Invoke-BackendOperatorCommandSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         'backend-stage1-payload-surface' {
             return Invoke-BackendStage1PayloadSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot

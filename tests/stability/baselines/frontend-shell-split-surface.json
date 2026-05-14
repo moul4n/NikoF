@@ -4,8 +4,10 @@
     "tracked_inputs":  [
                            "frontend/src/main.tsx",
                            "frontend/src/app/App.tsx",
+                           "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx",
                            "frontend/src/avatar/loaders/backendCharacterFlow.ts",
                            "frontend/src/avatar/loaders/characterCatalog.ts",
+                           "frontend/src/avatar/loaders/operatorCommand.ts",
                            "frontend/src/avatar/loaders/speechLifecycle.ts",
                            "frontend/src/shared/types/character.ts"
                        ],
@@ -29,18 +31,37 @@
                          },
     "app_owner_state":  {
                             "app_files":  [
-                                              "frontend/src/app/App.tsx"
+                                              "frontend/src/app/App.tsx",
+                                              "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
                                           ],
-                            "total_app_surface_file_count":  1,
+                            "total_app_surface_file_count":  2,
                             "backend_sync_owner_files":  [
                                                              "frontend/src/app/App.tsx"
                                                          ],
                             "speech_lifecycle_owner_files":  [
                                                                  "frontend/src/app/App.tsx"
                                                              ],
+                            "operator_command_owner_files":  [
+                                                                 "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
+                                                             ],
                             "secondary_backend_sync_path_present":  false,
                             "secondary_speech_lifecycle_path_present":  false
                         },
+    "operator_command_state":  {
+                                   "owner_files":  [
+                                                       "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx"
+                                                   ],
+                                   "single_operator_command_owner":  true,
+                                   "owner_outside_app":  true,
+                                   "display_surface_read_only":  true,
+                                   "backend_operator_command_path":  "/session/operator-command",
+                                   "backend_operator_command_seam_locked":  true,
+                                   "published_command_types":  [
+                                                                   "text_question",
+                                                                   "tts_preview"
+                                                               ],
+                                   "published_command_types_locked":  true
+                               },
     "entrypoint_files":  [
                              {
                                  "path":  "frontend/src/main.tsx",
@@ -75,18 +96,43 @@
                                                                "speech-lifecycle-stream",
                                                                "start-speech-lifecycle-live-consumption"
                                                            ],
+                              "operator_command_markers":  [
+
+                                                           ],
                               "owns_backend_sync_path":  true,
                               "owns_speech_lifecycle_path":  true,
+                              "owns_operator_command_client":  false,
+                              "presentation_only":  false
+                          },
+                          {
+                              "path":  "frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx",
+                              "backend_sync_markers":  [
+
+                                                       ],
+                              "speech_lifecycle_markers":  [
+
+                                                           ],
+                              "operator_command_markers":  [
+                                                               "submit-operator-command",
+                                                               "text-question-command",
+                                                               "tts-preview-command"
+                                                           ],
+                              "owns_backend_sync_path":  false,
+                              "owns_speech_lifecycle_path":  false,
+                              "owns_operator_command_client":  true,
                               "presentation_only":  false
                           }
                       ],
     "alignment":  {
                       "single_backend_sync_owner":  true,
                       "single_speech_lifecycle_owner":  true,
+                      "single_operator_command_owner":  true,
                       "duplicate_backend_sync_path_blocked":  true,
                       "duplicate_speech_lifecycle_path_blocked":  true,
+                      "duplicate_operator_command_owner_blocked":  true,
                       "entrypoints_route_through_app":  true,
                       "split_batch_unblocked":  false,
-                      "entrypoint_split_present":  false
+                      "entrypoint_split_present":  false,
+                      "display_surface_read_only_for_operator_commands":  true
                   }
 }

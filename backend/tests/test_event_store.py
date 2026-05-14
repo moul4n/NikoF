@@ -17,7 +17,12 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.api.router import _build_speech_lifecycle_sse_frame, _serialize_dataclass_payload, build_api_router
-from app.schemas.session import SessionSnapshot, SpeechSynthesisContract, SpeechTranscriptionContract
+from app.schemas.session import (
+    OperatorCommandRequest,
+    SessionSnapshot,
+    SpeechSynthesisContract,
+    SpeechTranscriptionContract,
+)
 from app.services.character import CharacterService, FileSystemCharacterManifestSource
 from app.services.session import InMemorySessionService
 from app.services.session import InMemorySessionEventStore
@@ -146,6 +151,10 @@ class FakeAPIRouter:
         del kwargs
         return self._register(path, "PUT")
 
+    def post(self, path: str, **kwargs):
+        del kwargs
+        return self._register(path, "POST")
+
     def _register(self, path: str, method: str):
         def decorator(endpoint):
             self.routes.append(FakeRoute(path=path, endpoint=endpoint, methods=(method,)))
@@ -220,6 +229,62 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
         if route.path == "/session/speech-lifecycle" and "GET" in route.methods
     )
     return speech_lifecycle_route.endpoint, publication, speech_lifecycle_live_delivery
+
+
+def build_operator_command_route_endpoint() -> tuple[object, InMemorySessionService]:
+    fake_fastapi = types.ModuleType("fastapi")
+    fake_fastapi.APIRouter = FakeAPIRouter
+    fake_fastapi.HTTPException = FakeHTTPException
+    fake_fastapi.Request = FakeRequest
+    fake_fastapi.Response = FakeResponse
+    fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
+    fake_fastapi_responses = types.ModuleType("fastapi.responses")
+    fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+
+    session_service = InMemorySessionService(default_character_id="test-vrm-01")
+    character_service = CharacterService(FileSystemCharacterManifestSource())
+    transcription_service = StubSpeechTranscriptionService()
+    synthesis_service = StubSpeechSynthesisService()
+    session_event_factory = DefaultSessionEventFactory()
+    speech_lifecycle_service = StubSpeechLifecycleSnapshotService(event_store=session_service.event_store)
+    speech_lifecycle_live_delivery = FiniteSpeechLifecycleLiveDeliveryService(
+        snapshot_service=speech_lifecycle_service
+    )
+    turn_pipeline_publisher = DefaultTurnPipelinePublisher(
+        transcription_service=transcription_service,
+        synthesis_service=synthesis_service,
+        session_event_factory=session_event_factory,
+        event_store=session_service.event_store,
+    )
+
+    with patch.dict(
+        sys.modules,
+        {
+            "fastapi": fake_fastapi,
+            "fastapi.responses": fake_fastapi_responses,
+        },
+    ):
+        with patch(
+            "app.api.router._build_services",
+            return_value=(
+                session_service,
+                character_service,
+                transcription_service,
+                synthesis_service,
+                speech_lifecycle_service,
+                speech_lifecycle_live_delivery,
+                session_event_factory,
+                turn_pipeline_publisher,
+            ),
+        ):
+            router = build_api_router()
+
+    operator_command_route = next(
+        route
+        for route in router.routes
+        if route.path == "/session/operator-command" and "POST" in route.methods
+    )
+    return operator_command_route.endpoint, session_service
 
 
 def build_turn_request() -> BackendTurnRequest:
@@ -617,6 +682,93 @@ class SpeechLifecycleRouteTransportTests(unittest.TestCase):
 
         self.assertEqual(400, raised.exception.status_code)
         self.assertIn("does not belong", raised.exception.detail)
+
+
+class OperatorCommandRouteTests(unittest.TestCase):
+    def test_text_question_command_publishes_canonical_transcription_event(self) -> None:
+        endpoint, session_service = build_operator_command_route_endpoint()
+
+        response = endpoint(
+            OperatorCommandRequest(
+                command_type="text_question",
+                text="What should I do next?",
+                locale="en-US",
+            )
+        )
+
+        payload = _serialize_dataclass_payload(response)
+        speech_events = session_service.event_store.read("speech.lifecycle", session_id="session-scaffold-01")
+        session_events = session_service.event_store.read("session", session_id="session-scaffold-01")
+
+        self.assertEqual("text_question", payload["command_type"])
+        self.assertEqual("accepted", payload["status"])
+        self.assertEqual("test-vrm-01", payload["character_id"])
+        self.assertEqual("session.operator.text-question", payload["session_event"]["event_type"])
+        self.assertEqual("transcription.status", payload["speech_lifecycle_events"][0]["event"]["event_type"])
+        self.assertEqual(
+            "What should I do next?",
+            payload["speech_lifecycle_events"][0]["event"]["transcription"]["transcript"],
+        )
+        self.assertEqual(["transcription.status"], [event.event.event_type for event in speech_events])
+        self.assertEqual(["session.operator.text-question"], [event.event.event_type for event in session_events])
+        self.assertEqual("speech.lifecycle:session-scaffold-01:2", payload["next_speech_cursor"])
+
+    def test_tts_preview_command_publishes_canonical_synthesis_event(self) -> None:
+        endpoint, session_service = build_operator_command_route_endpoint()
+
+        response = endpoint(
+            OperatorCommandRequest(
+                command_type="tts_preview",
+                text="This is a voice preview.",
+                locale="en-US",
+            )
+        )
+
+        payload = _serialize_dataclass_payload(response)
+        speech_events = session_service.event_store.read("speech.lifecycle", session_id="session-scaffold-01")
+        session_events = session_service.event_store.read("session", session_id="session-scaffold-01")
+
+        self.assertEqual("tts_preview", payload["command_type"])
+        self.assertEqual("ready", payload["status"])
+        self.assertEqual("session.operator.tts-preview", payload["session_event"]["event_type"])
+        self.assertEqual("speech.synthesis", payload["speech_lifecycle_events"][0]["event"]["event_type"])
+        self.assertEqual(
+            "This is a voice preview.",
+            payload["speech_lifecycle_events"][0]["event"]["synthesis"]["text"],
+        )
+        self.assertEqual(["speech.synthesis"], [event.event.event_type for event in speech_events])
+        self.assertEqual(["session.operator.tts-preview"], [event.event.event_type for event in session_events])
+        self.assertEqual("speech.lifecycle:session-scaffold-01:2", payload["next_speech_cursor"])
+
+    def test_operator_command_route_rejects_unknown_command_type(self) -> None:
+        endpoint, _session_service = build_operator_command_route_endpoint()
+
+        with self.assertRaises(FakeHTTPException) as raised:
+            endpoint(
+                OperatorCommandRequest(
+                    command_type="wave",
+                    text="Wave now.",
+                    locale="en-US",
+                )
+            )
+
+        self.assertEqual(400, raised.exception.status_code)
+        self.assertIn("Unsupported operator command type", raised.exception.detail)
+
+    def test_operator_command_route_rejects_blank_text(self) -> None:
+        endpoint, _session_service = build_operator_command_route_endpoint()
+
+        with self.assertRaises(FakeHTTPException) as raised:
+            endpoint(
+                OperatorCommandRequest(
+                    command_type="tts_preview",
+                    text="   ",
+                    locale="en-US",
+                )
+            )
+
+        self.assertEqual(400, raised.exception.status_code)
+        self.assertIn("must not be blank", raised.exception.detail)
 
 
 class DefaultTurnPipelinePublisherTests(unittest.TestCase):

@@ -238,6 +238,18 @@
 **What:** Detect rejection rollback in the `frontend-stage1-bridge-surface` stability scenario by matching the structured `ActiveCharacterSyncError` catch path in `App.tsx`, including the intermediate reconciled-character variable and the subsequent `setSelectedCharacterId(...)` call, instead of requiring one inline nested call shape.
 **Why:** The frontend still performs the intended rollback to the backend-confirmed active character on rejection, but the earlier assertion only recognized one exact syntax form and produced a false negative baseline.
 
+### 2026-05-14T10:30:00+01:00: Operator command batch scope lock
+
+**By:** Trinity
+**What:** Re-scope the next implementation batch around one backend-authoritative operator command seam. The first command batch should stay limited to text-authored flows that fit the current canonical event model: text-question submission that bypasses STT and TTS preview text. Keep active-character selection as the only selection control in scope, and defer model-profile switching plus animation debug triggers such as `wave` until the backend owns dedicated configuration and animation-command envelopes.
+**Why:** The current backend already owns canonical session and `speech.lifecycle` envelopes plus a turn-publication seam, but it does not yet own a writable operator-command route. Starting with one backend command path lets the control surface drive the immersive display immediately through canonical state without adding frontend-only wiring or widening unrelated contracts.
+
+### 2026-05-14T10:46:00+01:00: Frontend operator command client ownership guard
+
+**By:** Mouse
+**What:** Extract the frontend operator command client from `frontend/src/app/App.tsx` into a control-only component and extend `frontend-shell-split-surface` so it requires one non-`App.tsx` operator-command owner, the backend seam path `/session/operator-command`, and the narrowed `text_question` plus `tts_preview` command types.
+**Why:** The shared App shell was still allocating command draft and submit mutation state before the display-mode early return, which let the display surface own write state even though it is supposed to stay read-only.
+
 ### 2026-05-14T08:57:41.6820932+01:00: Local speech adapter execution contract
 
 **By:** Link

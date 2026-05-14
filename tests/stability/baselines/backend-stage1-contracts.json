@@ -38,6 +38,11 @@
       "name": "get_speech_lifecycle"
     },
     {
+      "method": "POST",
+      "path": "/session/operator-command",
+      "name": "submit_operator_command"
+    },
+    {
       "method": "PUT",
       "path": "/session/active-character",
       "name": "set_active_character"
@@ -280,6 +285,205 @@
           }
         }
       ]
+    },
+    "post_operator_command_text_question": {
+      "request": {
+        "command_type": "text_question",
+        "text": "What should I do next?",
+        "locale": "en-US"
+      },
+      "response": {
+        "schema_version": 1,
+        "session_id": "session-scaffold-01",
+        "command_type": "text_question",
+        "character_id": "test-vrm-01",
+        "status": "accepted",
+        "session_event": {
+          "schema_version": 1,
+          "event_type": "session.operator.text-question",
+          "session_id": "session-scaffold-01",
+          "character_id": "test-vrm-01",
+          "status": "accepted",
+          "timestamp": "<generated-at>",
+          "reason": "operator.text-question",
+          "transcription": {
+            "profile_id": "stt.faster-whisper.medium-2026",
+            "status": "final",
+            "locale": "en-US",
+            "transcript": "What should I do next?",
+            "confidence": 1.0
+          }
+        },
+        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:4",
+        "speech_lifecycle_events": [
+          {
+            "event_id": "speech-lifecycle-0003",
+            "sequence": 3,
+            "cursor": "speech.lifecycle:session-scaffold-01:3",
+            "event": {
+              "schema_version": 1,
+              "event_type": "transcription.status",
+              "session_id": "session-scaffold-01",
+              "character_id": "test-vrm-01",
+              "status": "final",
+              "timestamp": "<generated-at>",
+              "reason": "operator.text-question",
+              "transcription": {
+                "profile_id": "stt.faster-whisper.medium-2026",
+                "status": "final",
+                "locale": "en-US",
+                "transcript": "What should I do next?",
+                "confidence": 1.0,
+                "timing": null
+              },
+              "synthesis": null
+            }
+          }
+        ]
+      }
+    },
+    "post_operator_command_tts_preview": {
+      "request": {
+        "command_type": "tts_preview",
+        "text": "This is a voice preview.",
+        "locale": "en-US"
+      },
+      "response": {
+        "schema_version": 1,
+        "session_id": "session-scaffold-01",
+        "command_type": "tts_preview",
+        "character_id": "test-vrm-01",
+        "status": "unavailable",
+        "session_event": {
+          "schema_version": 1,
+          "event_type": "session.operator.tts-preview",
+          "session_id": "session-scaffold-01",
+          "character_id": "test-vrm-01",
+          "status": "unavailable",
+          "timestamp": "<generated-at>",
+          "reason": "operator.tts-preview",
+          "synthesis": {
+            "profile_id": "tts.gpt-sovits.2026-stable",
+            "status": "unavailable",
+            "text": "This is a voice preview.",
+            "locale": "en-US",
+            "timing": {
+              "utterance_duration_ms": 2120,
+              "segment_ranges": [
+                {
+                  "start_ms": 0,
+                  "end_ms": 880,
+                  "text": "Sure."
+                },
+                {
+                  "start_ms": 880,
+                  "end_ms": 2120,
+                  "text": "I can wave once I finish speaking."
+                }
+              ],
+              "audio_format": {
+                "container": "wav",
+                "encoding": "pcm_s16le",
+                "sample_rate_hz": 24000,
+                "channels": 1
+              },
+              "phoneme_slots": [
+                {
+                  "phoneme": "S",
+                  "start_ms": 0,
+                  "end_ms": 110
+                },
+                {
+                  "phoneme": "UH",
+                  "start_ms": 110,
+                  "end_ms": 260
+                }
+              ],
+              "viseme_slots": [
+                {
+                  "viseme": "sil",
+                  "start_ms": 0,
+                  "end_ms": 45
+                },
+                {
+                  "viseme": "smile",
+                  "start_ms": 45,
+                  "end_ms": 310
+                }
+              ]
+            }
+          }
+        },
+        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:5",
+        "speech_lifecycle_events": [
+          {
+            "event_id": "speech-lifecycle-0004",
+            "sequence": 4,
+            "cursor": "speech.lifecycle:session-scaffold-01:4",
+            "event": {
+              "schema_version": 1,
+              "event_type": "speech.synthesis",
+              "session_id": "session-scaffold-01",
+              "character_id": "test-vrm-01",
+              "status": "unavailable",
+              "timestamp": "<generated-at>",
+              "reason": "operator.tts-preview",
+              "transcription": null,
+              "synthesis": {
+                "profile_id": "tts.gpt-sovits.2026-stable",
+                "status": "unavailable",
+                "text": "This is a voice preview.",
+                "locale": "en-US",
+                "timing": {
+                  "utterance_duration_ms": 2120,
+                  "segment_ranges": [
+                    {
+                      "start_ms": 0,
+                      "end_ms": 880,
+                      "text": "Sure."
+                    },
+                    {
+                      "start_ms": 880,
+                      "end_ms": 2120,
+                      "text": "I can wave once I finish speaking."
+                    }
+                  ],
+                  "audio_format": {
+                    "container": "wav",
+                    "encoding": "pcm_s16le",
+                    "sample_rate_hz": 24000,
+                    "channels": 1
+                  },
+                  "phoneme_slots": [
+                    {
+                      "phoneme": "S",
+                      "start_ms": 0,
+                      "end_ms": 110
+                    },
+                    {
+                      "phoneme": "UH",
+                      "start_ms": 110,
+                      "end_ms": 260
+                    }
+                  ],
+                  "viseme_slots": [
+                    {
+                      "viseme": "sil",
+                      "start_ms": 0,
+                      "end_ms": 45
+                    },
+                    {
+                      "viseme": "smile",
+                      "start_ms": 45,
+                      "end_ms": 310
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
     },
     "put_active_character": {
       "request": {

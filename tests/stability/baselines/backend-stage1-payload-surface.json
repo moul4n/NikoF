@@ -21,6 +21,8 @@
       "get_active_character",
       "get_speech_lifecycle",
       "health",
+      "post_operator_command_text_question",
+      "post_operator_command_tts_preview",
       "put_active_character",
       "put_active_character_invalid"
     ],

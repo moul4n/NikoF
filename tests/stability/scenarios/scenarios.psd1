@@ -107,6 +107,18 @@
             )
         }
         @{
+            id = 'backend-operator-command-surface'
+            name = 'Backend operator command surface snapshot'
+            harness = 'backend-operator-command-surface'
+            baseline = 'baselines/backend-operator-command-surface.json'
+            tracked_inputs = @(
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'backend/app/api/router.py'
+                'backend/app/schemas/session.py'
+                'backend/app/services/speech.py'
+            )
+        }
+        @{
             id = 'backend-stage1-payload-surface'
             name = 'Backend Stage 1 payload surface snapshot'
             harness = 'backend-stage1-payload-surface'
@@ -172,8 +184,10 @@
             tracked_inputs = @(
                 'frontend/src/main.tsx'
                 'frontend/src/app/App.tsx'
+                'frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx'
                 'frontend/src/avatar/loaders/backendCharacterFlow.ts'
                 'frontend/src/avatar/loaders/characterCatalog.ts'
+                'frontend/src/avatar/loaders/operatorCommand.ts'
                 'frontend/src/avatar/loaders/speechLifecycle.ts'
                 'frontend/src/shared/types/character.ts'
             )

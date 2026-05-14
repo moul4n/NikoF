@@ -161,3 +161,22 @@ class ActiveCharacterResponse:
     active_character: CharacterSummary
     selection: ActiveCharacterSelectionResult
     session_event: SessionEvent
+
+
+@dataclass(slots=True, frozen=True)
+class OperatorCommandRequest:
+    command_type: str
+    text: str
+    locale: str = "en-US"
+
+
+@dataclass(slots=True, frozen=True)
+class OperatorCommandResponse:
+    schema_version: int
+    session_id: str
+    command_type: str
+    character_id: str
+    status: str
+    session_event: SessionEvent
+    next_speech_cursor: str
+    speech_lifecycle_events: tuple[SpeechLifecycleEventEnvelope, ...] = field(default_factory=tuple)

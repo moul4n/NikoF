@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { ControlSurfaceOperatorCommandPanel } from "./ControlSurfaceOperatorCommandPanel";
 import { AvatarStage } from "../avatar/components/AvatarStage";
 import { CharacterCatalogPanel } from "../avatar/components/CharacterCatalogPanel";
 import {
@@ -373,6 +374,7 @@ function DisplaySurfaceStatusPanel({
     </section>
   );
 }
+
 interface AppProps {
   surfaceMode: SurfaceMode;
 }
@@ -688,6 +690,10 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
           />
         </div>
         <div className="app-shell__control-rail">
+          <ControlSurfaceOperatorCommandPanel
+            selectedCharacter={selectedCharacter}
+            onCommandPublished={() => setSpeechLifecycleRefreshKey((currentKey) => currentKey + 1)}
+          />
           <ControlSurfaceSummaryPanel
             selectedCharacter={selectedCharacter}
             backendStatusMessage={backendStatusMessage}

@@ -11,9 +11,15 @@ from app.schemas.health import DiagnosticProbe, HealthDiagnostics, HealthPayload
 from app.schemas.session import (
     ActiveCharacterResponse,
     ActiveCharacterSelectionResult,
+    OperatorCommandRequest,
+    OperatorCommandResponse,
     SessionEvent,
     SessionSnapshot,
+    SpeechLifecycleEventEnvelope,
+    SpeechSynthesisContract,
+    SpeechTranscriptionContract,
     SpeechLifecycleTransportSnapshot,
+    STT_BASELINE_PROFILE_IDS,
     build_baseline_speech_adapter_profiles,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource, UnknownCharacterError
@@ -77,6 +83,7 @@ def _route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="GET", path="/characters", name="list_characters"),
         RouteDefinition(method="GET", path="/session/active-character", name="get_active_character"),
         RouteDefinition(method="GET", path="/session/speech-lifecycle", name="get_speech_lifecycle"),
+        RouteDefinition(method="POST", path="/session/operator-command", name="submit_operator_command"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
     ]
 
@@ -227,6 +234,8 @@ def _build_session_event(
     event_type: str,
     status: str,
     reason: str | None = None,
+    transcription: SpeechTranscriptionContract | None = None,
+    synthesis: SpeechSynthesisContract | None = None,
 ) -> SessionEvent:
     return session_event_factory.build_event(
         snapshot,
@@ -234,6 +243,8 @@ def _build_session_event(
         event_type=event_type,
         status=status,
         reason=reason,
+        transcription=transcription,
+        synthesis=synthesis,
     )
 
 
@@ -243,6 +254,143 @@ def _append_session_event(
 ) -> SessionEvent:
     session_service.event_store.append("session", session_event)
     return session_event
+
+
+def _append_speech_lifecycle_event(
+    session_service: SessionService,
+    session_event: SessionEvent,
+) -> SpeechLifecycleEventEnvelope:
+    return session_service.event_store.append(SPEECH_LIFECYCLE_STREAM, session_event)
+
+
+def _normalize_operator_command_text(text: str) -> str:
+    normalized = text.strip()
+    if not normalized:
+        raise ValueError("Operator command text must not be blank.")
+
+    return normalized
+
+
+def _build_operator_command_response(
+    snapshot: SessionSnapshot,
+    *,
+    command_type: str,
+    character_id: str,
+    status: str,
+    session_event: SessionEvent,
+    speech_lifecycle_events: tuple[SpeechLifecycleEventEnvelope, ...],
+    session_service: SessionService,
+) -> OperatorCommandResponse:
+    return OperatorCommandResponse(
+        schema_version=1,
+        session_id=snapshot.session_id,
+        command_type=command_type,
+        character_id=character_id,
+        status=status,
+        session_event=session_event,
+        speech_lifecycle_events=speech_lifecycle_events,
+        next_speech_cursor=session_service.event_store.next_cursor(
+            SPEECH_LIFECYCLE_STREAM,
+            session_id=snapshot.session_id,
+        ),
+    )
+
+
+def _publish_operator_command(
+    session_service: SessionService,
+    session_event_factory: SessionEventFactory,
+    synthesis_service: SpeechSynthesisService,
+    snapshot: SessionSnapshot,
+    *,
+    character_id: str,
+    command: OperatorCommandRequest,
+) -> OperatorCommandResponse:
+    text = _normalize_operator_command_text(command.text)
+
+    if command.command_type == "text_question":
+        transcription = SpeechTranscriptionContract(
+            profile_id=STT_BASELINE_PROFILE_IDS[0],
+            status="final",
+            locale=command.locale,
+            transcript=text,
+            confidence=1.0,
+        )
+        speech_lifecycle_event = _append_speech_lifecycle_event(
+            session_service,
+            _build_session_event(
+                snapshot,
+                session_event_factory,
+                character_id=character_id,
+                event_type="transcription.status",
+                status=transcription.status,
+                reason="operator.text-question",
+                transcription=transcription,
+            ),
+        )
+        session_event = _append_session_event(
+            session_service,
+            _build_session_event(
+                snapshot,
+                session_event_factory,
+                character_id=character_id,
+                event_type="session.operator.text-question",
+                status="accepted",
+                reason="operator.text-question",
+                transcription=transcription,
+            ),
+        )
+        return _build_operator_command_response(
+            snapshot,
+            command_type=command.command_type,
+            character_id=character_id,
+            status=session_event.status,
+            session_event=session_event,
+            speech_lifecycle_events=(speech_lifecycle_event,),
+            session_service=session_service,
+        )
+
+    if command.command_type == "tts_preview":
+        synthesis = synthesis_service.synthesize(
+            SpeechSynthesisRequest(
+                text=text,
+                locale=command.locale,
+            )
+        )
+        speech_lifecycle_event = _append_speech_lifecycle_event(
+            session_service,
+            _build_session_event(
+                snapshot,
+                session_event_factory,
+                character_id=character_id,
+                event_type="speech.synthesis",
+                status=synthesis.status,
+                reason="operator.tts-preview",
+                synthesis=synthesis,
+            ),
+        )
+        session_event = _append_session_event(
+            session_service,
+            _build_session_event(
+                snapshot,
+                session_event_factory,
+                character_id=character_id,
+                event_type="session.operator.tts-preview",
+                status=synthesis.status,
+                reason="operator.tts-preview",
+                synthesis=synthesis,
+            ),
+        )
+        return _build_operator_command_response(
+            snapshot,
+            command_type=command.command_type,
+            character_id=character_id,
+            status=session_event.status,
+            session_event=session_event,
+            speech_lifecycle_events=(speech_lifecycle_event,),
+            session_service=session_service,
+        )
+
+    raise ValueError(f"Unsupported operator command type: {command.command_type}")
 
 
 def build_api_contract_snapshot() -> dict[str, Any]:
@@ -279,6 +427,16 @@ def build_api_contract_snapshot() -> dict[str, Any]:
         current_snapshot,
         character_id=current_character.character_id,
     )
+    operator_text_question = OperatorCommandRequest(
+        command_type="text_question",
+        text="What should I do next?",
+        locale="en-US",
+    )
+    operator_tts_preview = OperatorCommandRequest(
+        command_type="tts_preview",
+        text="This is a voice preview.",
+        locale="en-US",
+    )
     invalid_selection = ActiveCharacterSelection(
         character_id="missing-character",
         reason="user_selected",
@@ -313,6 +471,32 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                 )
             ),
             "get_speech_lifecycle": _serialize_dataclass_payload(speech_lifecycle_snapshot),
+            "post_operator_command_text_question": {
+                "request": asdict(operator_text_question),
+                "response": _serialize_dataclass_payload(
+                    _publish_operator_command(
+                        session_service,
+                        session_event_factory,
+                        synthesis_service,
+                        current_snapshot,
+                        character_id=current_character.character_id,
+                        command=operator_text_question,
+                    )
+                ),
+            },
+            "post_operator_command_tts_preview": {
+                "request": asdict(operator_tts_preview),
+                "response": _serialize_dataclass_payload(
+                    _publish_operator_command(
+                        session_service,
+                        session_event_factory,
+                        synthesis_service,
+                        current_snapshot,
+                        character_id=current_character.character_id,
+                        command=operator_tts_preview,
+                    )
+                ),
+            },
             "put_active_character": {
                 "request": asdict(selection),
                 "response": _serialize_dataclass_payload(
@@ -370,7 +554,7 @@ def build_api_router() -> Any:
         session_service,
         character_service,
         _transcription_service,
-        _synthesis_service,
+        synthesis_service,
         speech_lifecycle_service,
         speech_lifecycle_live_delivery,
         session_event_factory,
@@ -460,6 +644,27 @@ def build_api_router() -> Any:
                 live_events.close()
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    @router.post(
+        "/session/operator-command",
+        response_model=OperatorCommandResponse,
+        response_model_exclude_none=True,
+    )
+    def submit_operator_command(command: OperatorCommandRequest) -> OperatorCommandResponse:
+        snapshot = session_service.get_snapshot()
+        active_character = character_service.get_character_summary(snapshot.active_character_id)
+
+        try:
+            return _publish_operator_command(
+                session_service,
+                session_event_factory,
+                synthesis_service,
+                snapshot,
+                character_id=active_character.character_id,
+                command=command,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
     @router.put(
         "/session/active-character",

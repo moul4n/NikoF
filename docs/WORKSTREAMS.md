@@ -1,6 +1,6 @@
 # Squad Workstreams
 
-Updated at: 2026-05-14T10:23:00+01:00
+Updated at: 2026-05-14T10:56:00+01:00
 
 This is the active scaffold board for the current stages. It assumes the three test avatar package ids are fixed as `test-vrm-01`, `test-vrm-02`, and `test-vrm-03` until real identity review says otherwise.
 
@@ -22,12 +22,13 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Review the session event contract so voice and optional vision telemetry stay normalized before integration work spreads.
 - [ ] Review backend character-service schemas before Tank exposes any asset APIs.
 - [ ] Review backend configuration contracts for local model-path resolution and machine-specific provider discovery.
+- [x] Review the first backend-authored operator command envelope so text-question submission and TTS preview publish only canonical session or `speech.lifecycle` events and do not smuggle in frontend-only state.
 
 ### Trinity Stage 2
 
 - [ ] Review the frontend avatar runtime and catalog contract before Switch broadens beyond the default-character shell.
 - [x] Review the real `/control` and `/display` entrypoint batch so App stays the only backend-sync and `speech.lifecycle` owner.
-- [ ] Review any follow-on display-only composition extraction so real entrypoints remain thin launch surfaces and `App.tsx` stays the only backend-sync and `speech.lifecycle` owner.
+- [x] Review the control-surface operator panel wiring so it remains a thin backend command publisher and does not create local-only display state or side channels.
 - [ ] Keep camera and microphone UX bounded to the frontend shell without letting provider logic leak into components.
 
 ### Trinity Stages 3 Through 7
@@ -53,7 +54,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [x] Replace the query-parameter split with real `/control` and `/display` entrypoints that both mount the same App-owned backend-sync shell.
 - [x] Keep the display entrypoint minimal-chrome, fullscreen-capable, and presentation-first while the control entrypoint retains configuration and status panels.
 - [x] Avoid router-level information architecture in this batch; prefer entrypoint-level bootstraps or multi-page Vite wiring that do not duplicate backend state ownership.
-- [ ] If the split needs cleanup, extract display-only presentation structure behind the real entrypoints without duplicating backend state ownership or reopening routing.
+- [x] Add control-surface operator forms for text-question submission and TTS preview, but keep them as thin clients of one backend-authored command route.
+- [x] Keep the display surface read-only with respect to operator commands; it should react only to canonical backend session or `speech.lifecycle` envelopes.
 - [ ] Reserve UI seams for microphone and camera permissions without coupling to provider runtime code.
 
 ### Switch Stage 5
@@ -81,6 +83,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Add service stubs for STT, TTS, LLM, memory, embeddings, vision, character, and animation.
 - [ ] Add settings-driven local storage roots for models, provider binaries, and caches instead of hardcoded machine paths.
 - [ ] Scaffold bootstrap-facing diagnostics that report missing local prerequisites with actionable remediation text.
+- [x] Add one backend-owned operator command route that accepts text-question submission and TTS preview requests, validates them, and publishes canonical session or `speech.lifecycle` envelopes through the existing event store.
+- [x] Keep active-character selection as the only in-scope selection control for this batch; do not add provider-profile switching or animation debug commands yet.
 
 ### Tank Stage 3
 
@@ -112,6 +116,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [x] Wire GPT-SoVITS latest stable 2026 fork behind the normalized TTS contract.
 - [ ] Publish the timing or phoneme metadata shape needed for speech-aligned avatar playback.
 - [ ] Define bootstrap download steps, checksum or version expectations, and manual install notes for STT and TTS providers.
+- [ ] Stay consult-only for the next live-delivery seam unless Tank needs timing, provider-status, or other speech-envelope normalization changes beyond the current operator-command contract.
 
 ### Link Stage 4
 
@@ -149,7 +154,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Add checks that missing local providers resolve to actionable bootstrap or manual-install guidance instead of opaque failures.
 - [x] Add a narrow frontend shell-structure check that proves backend-confirmed active-character and `speech.lifecycle` state still feed the same envelope-owning loader path after the control and display split lands.
 - [x] Retarget that shell-structure guard to the real `/control` and `/display` entrypoints so top-level bootstraps must still route through one App-owned backend-sync and `speech.lifecycle` path.
-- [ ] Extend that shell-structure guard only if display-only composition extracts more presentation files under `frontend/src/app/`.
+- [x] Add backend and frontend stability coverage for the operator command batch: request or response envelopes, command rejection paths, and proof that the display still updates only from canonical backend state.
 
 ### Mouse Stages 3 And 4
 
@@ -168,8 +173,9 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ## Immediate Handoff
 
-- Switch owns the next frontend seam only if cleanup is needed: extract display-only presentation structure behind the landed `/control` and `/display` entrypoints while keeping `App.tsx` as the single owner of backend sync and `speech.lifecycle` consumption.
-- Trinity reviews that cleanup for boundary discipline: no backend transport changes, no new asset-serving contract, and no duplication of App-owned session state across entrypoints or presentation helpers.
-- Mouse is back on the critical path only if that presentation split widens `frontend/src/app/`; the guard should continue proving that every real entrypoint still routes through one App-owned backend-sync and `speech.lifecycle` path.
-- Tank and Link are not on the critical path for this seam unless Switch finds a real contract gap; keep the backend `speech.lifecycle` and active-character surfaces unchanged.
+- Tank now owns the next seam: publish the existing canonical `speech.lifecycle` stream as backend live delivery on top of the ordered store, preserving the current envelope and cursor model.
+- Switch follows with display-surface consumption of that live delivery path while keeping operator commands on the existing control-only client and avoiding local display-side write state.
+- Mouse is back on the critical path for this seam: add backend and frontend regression coverage for cursor resume, ordered live updates, and transport failures without widening the canonical event contract.
+- Trinity reviews the live-delivery seam for boundary discipline: keep `POST /session/operator-command` and its command types unchanged, preserve active-character selection as the only selection control, and do not widen into provider-profile switching, LLM reply generation, or animation debug actions such as `wave` yet.
+- Link stays consult-only unless live delivery requires small timing or speech-envelope normalization changes; do not let this seam widen into full LLM orchestration or provider-profile selection.
 - Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.

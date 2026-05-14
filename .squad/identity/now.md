@@ -1,9 +1,14 @@
-updated_at: 2026-05-14T10:23:00+01:00
-focus_area: The real `/control` and `/display` frontend entrypoints are now landed. The next frontend seam, if cleanup is needed, is display-only composition behind those entrypoints while keeping `App.tsx` as the only owner of backend sync, active-character confirmation, and live `speech.lifecycle` state without widening backend contracts
+Current Focus
+=============
+
+updated_at: 2026-05-14T10:56:00+01:00
+focus_area: The backend-authoritative operator command seam is now landed. The next seam is live delivery of canonical `speech.lifecycle` updates so accepted operator commands drive the immersive display through backend-owned streams rather than polling or frontend side channels
 active_issues: []
 ---
 
-# What We're Focused On
+What We're Focused On
+---------------------
 
-The current repo state now has the intended launch surface: `/control` and `/display` are real frontend entrypoints, the display surface is directly launchable as the presentation-first window, and backend-owned session plus `speech.lifecycle` envelopes still flow through one App-owned shell. The next seam should stay narrow. If the landed entrypoints need cleanup, extract only display-focused presentation structure under `frontend/src/app/` while keeping `App.tsx` as the sole owner of backend sync, active-character confirmation, and live `speech.lifecycle` consumption. Do not widen backend contracts, reintroduce a query-parameter surface toggle, or duplicate entrypoint-owned state just to reorganize presentation code.
-Updated by Scribe after the real `/control` and `/display` entrypoint split landed and the next frontend seam narrowed to optional display-only composition cleanup.
+The backend now owns `POST /session/operator-command` for `text_question` and `tts_preview`, and the control surface publishes through a thin control-only client while the display stays read-only and reacts only to canonical backend state. The next batch should reuse the existing ordered event store plus the `next_speech_cursor` handoff to add backend live delivery for canonical `speech.lifecycle` updates, then have the immersive display consume that stream without polling hacks, a second command path, or local display-side write state.
+
+Keep the follow-on seam narrow. Preserve the existing operator-command path and command types, keep active-character selection as the only selection control, and do not widen into provider-profile switching, animation debug actions such as `wave`, or a new LLM reply contract until the live-delivery seam is stable. Updated by Scribe after the operator-command batch landed.
