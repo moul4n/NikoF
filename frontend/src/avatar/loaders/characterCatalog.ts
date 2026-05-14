@@ -1,6 +1,6 @@
 import type {
   BackendActiveCharacterResponseDocument,
-  BackendCharacterSummaryDocument,
+  BackendCharacterCatalogResponseDocument,
   CharacterAssetUrlOverrides,
   CharacterCatalog,
   CharacterCatalogEntry,
@@ -11,14 +11,21 @@ import type {
 } from "../../shared/types/character";
 import defaultCharacterManifest from "../../../../assets/characters/test-vrm-01/manifest.json";
 import defaultCharacterModelUrl from "../../../../assets/characters/test-vrm-01/model.vrm?url";
+import {
+  createBackendCharacterCatalogBridge,
+  type BackendCharacterCatalogBridge
+} from "./backendCharacterFlow";
 
-export interface BackendCharacterCatalogBridge {
-  catalog: CharacterCatalog;
-  activeCharacterId: CharacterId | null;
-  summariesConnected: boolean;
-  activeCharacterConnected: boolean;
-  sessionId: string | null;
-  messages: string[];
+export class ActiveCharacterSyncError extends Error {
+  readonly response: BackendActiveCharacterResponseDocument;
+  readonly status: number;
+
+  constructor(response: BackendActiveCharacterResponseDocument, status: number) {
+    super(response.selection.message ?? `Backend active-character update failed with status ${status}.`);
+    this.name = "ActiveCharacterSyncError";
+    this.response = response;
+    this.status = status;
+  }
 }
 
 const backendApiBaseUrl = resolveBackendApiBaseUrl();
@@ -62,37 +69,11 @@ export async function bridgeCharacterCatalogWithBackend(
     fetchBackendCharacterSummaries(fetcher),
     fetchBackendActiveCharacter(fetcher)
   ]);
-  const messages: string[] = [];
-
-  let nextCatalog = catalog;
-  let summariesConnected = false;
-  let activeCharacterConnected = false;
-  let activeCharacterId: CharacterId | null = null;
-  let sessionId: string | null = null;
-
-  if (summariesResult.status === "fulfilled") {
-    summariesConnected = true;
-    nextCatalog = mergeCatalogSummaries(catalog, summariesResult.value);
-  } else {
-    messages.push("Backend character summaries unavailable; using local manifest summaries.");
-  }
-
-  if (activeCharacterResult.status === "fulfilled") {
-    activeCharacterConnected = true;
-    activeCharacterId = activeCharacterResult.value.active_character.character_id;
-    sessionId = activeCharacterResult.value.session_id;
-  } else {
-    messages.push("Backend active-character state unavailable; using local default selection.");
-  }
-
-  return {
-    catalog: nextCatalog,
-    activeCharacterId,
-    summariesConnected,
-    activeCharacterConnected,
-    sessionId,
-    messages
-  };
+  return createBackendCharacterCatalogBridge(
+    catalog,
+    summariesResult.status === "fulfilled" ? summariesResult.value : null,
+    activeCharacterResult.status === "fulfilled" ? activeCharacterResult.value : null
+  );
 }
 
 export async function syncActiveCharacterSelection(
@@ -110,11 +91,13 @@ export async function syncActiveCharacterSelection(
     })
   });
 
+  const document = (await response.json()) as BackendActiveCharacterResponseDocument;
+
   if (!response.ok) {
-    throw new Error(`Backend active-character update failed with status ${response.status}.`);
+    throw new ActiveCharacterSyncError(document, response.status);
   }
 
-  return (await response.json()) as BackendActiveCharacterResponseDocument;
+  return document;
 }
 
 async function loadCharacterCatalogEntry(seed: CharacterCatalogSeed, fetcher: typeof fetch): Promise<CharacterCatalogEntry> {
@@ -191,14 +174,14 @@ function resolveManifestAssetUrl(
   return new URL(relativePath, baseUrl).toString();
 }
 
-async function fetchBackendCharacterSummaries(fetcher: typeof fetch): Promise<BackendCharacterSummaryDocument[]> {
+async function fetchBackendCharacterSummaries(fetcher: typeof fetch): Promise<BackendCharacterCatalogResponseDocument> {
   const response = await fetcher(buildBackendApiUrl("/characters"));
 
   if (!response.ok) {
     throw new Error(`Backend character-summary request failed with status ${response.status}.`);
   }
 
-  return (await response.json()) as BackendCharacterSummaryDocument[];
+  return (await response.json()) as BackendCharacterCatalogResponseDocument;
 }
 
 async function fetchBackendActiveCharacter(fetcher: typeof fetch): Promise<BackendActiveCharacterResponseDocument> {
@@ -209,37 +192,6 @@ async function fetchBackendActiveCharacter(fetcher: typeof fetch): Promise<Backe
   }
 
   return (await response.json()) as BackendActiveCharacterResponseDocument;
-}
-
-function mergeCatalogSummaries(
-  catalog: CharacterCatalog,
-  backendSummaries: readonly BackendCharacterSummaryDocument[]
-): CharacterCatalog {
-  const summariesById = new Map(backendSummaries.map((summary) => [summary.character_id, summary]));
-
-  return {
-    ...catalog,
-    entries: catalog.entries.map((entry) => {
-      const backendSummary = summariesById.get(entry.summary.characterId);
-
-      if (!backendSummary) {
-        return entry;
-      }
-
-      return {
-        ...entry,
-        summary: {
-          ...entry.summary,
-          schemaVersion: backendSummary.schema_version,
-          displayName: backendSummary.display_name,
-          identitySource: backendSummary.identity_source,
-          vrmSpecVersion: backendSummary.vrm_spec_version,
-          sharedAnimationSet: backendSummary.shared_animation_set,
-          supportedStates: [...backendSummary.supported_states]
-        }
-      };
-    })
-  };
 }
 
 function resolveBackendApiBaseUrl(): string {

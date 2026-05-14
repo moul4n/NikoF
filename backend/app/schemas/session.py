@@ -128,6 +128,24 @@ class SessionEvent:
 
 
 @dataclass(slots=True, frozen=True)
+class SpeechLifecycleEventEnvelope:
+    event_id: str
+    sequence: int
+    cursor: str
+    event: SessionEvent
+
+
+@dataclass(slots=True, frozen=True)
+class SpeechLifecycleTransportSnapshot:
+    schema_version: int
+    stream: str
+    delivery: str
+    session_id: str
+    next_cursor: str
+    events: tuple[SpeechLifecycleEventEnvelope, ...] = field(default_factory=tuple)
+
+
+@dataclass(slots=True, frozen=True)
 class ActiveCharacterSelectionResult:
     requested_character_id: str
     applied: bool

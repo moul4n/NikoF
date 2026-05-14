@@ -1,0 +1,42 @@
+{
+  "scenario_id": "frontend-speech-lifecycle-runtime",
+  "scenario_name": "Frontend speech lifecycle runtime snapshot",
+  "runner": "node",
+  "backend_source_runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/frontendSpeechLifecycle.runtime.ts",
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "frontend/src/avatar/loaders/speechLifecycle.ts",
+    "frontend/src/shared/types/character.ts",
+    "backend/app/api/router.py",
+    "backend/app/schemas/session.py",
+    "backend/app/services/speech.py",
+    "tests/stability/baselines/backend-speech-contracts.json"
+  ],
+  "local_root": "<scenario-temp>",
+  "runtime_proof": {
+    "speech_lifecycle_runtime": {
+      "stream": "speech.lifecycle",
+      "delivery": "snapshot",
+      "session_id": "session-scaffold-01",
+      "event_count": 2,
+      "event_types": [
+        "transcription.status",
+        "speech.synthesis"
+      ],
+      "cursors": [
+        "speech.lifecycle:session-scaffold-01:1",
+        "speech.lifecycle:session-scaffold-01:2"
+      ],
+      "next_cursor": "speech.lifecycle:session-scaffold-01:3",
+      "ordered_envelope_preserved": true,
+      "next_cursor_advances_past_last_event": true,
+      "canonical_transcription_event_survived": true,
+      "canonical_speech_synthesis_event_survived": true,
+      "transcription_event_type": "transcription.status",
+      "synthesis_event_type": "speech.synthesis",
+      "transcription_profile_id": "stt.faster-whisper.medium-2026",
+      "synthesis_profile_id": "tts.gpt-sovits.2026-stable"
+    }
+  }
+}

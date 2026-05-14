@@ -1,0 +1,78 @@
+{
+  "scenario_id": "frontend-stage1-bridge-surface",
+  "scenario_name": "Frontend Stage 1 bridge surface snapshot",
+  "tracked_inputs": [
+    "frontend/src/app/App.tsx",
+    "frontend/src/avatar/loaders/characterCatalog.ts",
+    "frontend/src/shared/types/character.ts",
+    "tests/stability/baselines/backend-stage1-contracts.json",
+    "tests/stability/baselines/backend-stage1-payload-surface.json"
+  ],
+  "backend_contract_surface": {
+    "character_catalog_keys": [
+      "active_character_id",
+      "characters",
+      "schema_version"
+    ],
+    "active_character_keys": [
+      "active_character",
+      "lifecycle_state",
+      "schema_version",
+      "selection",
+      "session_event",
+      "session_id"
+    ],
+    "rejection_active_character_keys": [
+      "active_character",
+      "lifecycle_state",
+      "schema_version",
+      "selection",
+      "session_event",
+      "session_id"
+    ],
+    "rejection_selection_keys": [
+      "applied",
+      "error_code",
+      "message",
+      "requested_character_id"
+    ]
+  },
+  "frontend_bridge_surface": {
+    "catalog_response_interface": "BackendCharacterCatalogResponseDocument",
+    "catalog_response_keys": [
+      "active_character_id",
+      "characters",
+      "schema_version"
+    ],
+    "fetch_summaries_return_type": "Promise<BackendCharacterCatalogResponseDocument>",
+    "catalog_consumes_envelope_characters": true,
+    "catalog_reads_active_character_id": true,
+    "active_response_interface": "BackendActiveCharacterResponseDocument",
+    "active_response_keys": [
+      "active_character",
+      "lifecycle_state",
+      "schema_version",
+      "selection",
+      "session_event",
+      "session_id"
+    ],
+    "sync_error_class": "ActiveCharacterSyncError",
+    "sync_error_preserves_rejection_document": true,
+    "app_handles_structured_rejection": true,
+    "app_uses_rejection_selection_message": true,
+    "app_reconciles_rejected_selection": true
+  },
+  "alignment": {
+    "catalog_response_keys_match": true,
+    "fetch_summaries_return_type_matches": true,
+    "catalog_consumes_envelope_characters": true,
+    "catalog_reads_active_character_id": true,
+    "active_response_keys_match": true,
+    "rejection_active_response_keys_match": true,
+    "rejection_selection_keys_match": true,
+    "sync_error_preserves_rejection_document": true,
+    "app_handles_structured_rejection": true,
+    "app_uses_rejection_selection_message": true,
+    "app_reconciles_rejected_selection": true
+  }
+}

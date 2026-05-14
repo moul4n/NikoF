@@ -78,6 +78,62 @@ export interface BackendCharacterSummaryDocument {
   supported_states: CharacterRuntimeState[];
 }
 
+export interface BackendCharacterCatalogResponseDocument {
+  schema_version: number;
+  active_character_id: CharacterId;
+  characters: BackendCharacterSummaryDocument[];
+}
+
+export interface BackendAudioFormatMetadataDocument {
+  container: string;
+  encoding: string;
+  sample_rate_hz: number;
+  channels: number;
+}
+
+export interface BackendSpeechSegmentRangeDocument {
+  start_ms: number;
+  end_ms: number;
+  text?: string | null;
+}
+
+export interface BackendSpeechPhonemeSlotDocument {
+  phoneme: string;
+  start_ms: number;
+  end_ms: number;
+}
+
+export interface BackendSpeechVisemeSlotDocument {
+  viseme: string;
+  start_ms: number;
+  end_ms: number;
+}
+
+export interface BackendSpeechTimingMetadataDocument {
+  utterance_duration_ms: number;
+  segment_ranges: BackendSpeechSegmentRangeDocument[];
+  audio_format?: BackendAudioFormatMetadataDocument | null;
+  phoneme_slots: BackendSpeechPhonemeSlotDocument[];
+  viseme_slots: BackendSpeechVisemeSlotDocument[];
+}
+
+export interface BackendSpeechTranscriptionDocument {
+  profile_id: string;
+  status: string;
+  locale: string;
+  transcript?: string | null;
+  confidence?: number | null;
+  timing?: BackendSpeechTimingMetadataDocument | null;
+}
+
+export interface BackendSpeechSynthesisDocument {
+  profile_id: string;
+  status: string;
+  text: string;
+  locale: string;
+  timing?: BackendSpeechTimingMetadataDocument | null;
+}
+
 export interface BackendSessionEventDocument {
   schema_version: number;
   event_type: string;
@@ -86,6 +142,31 @@ export interface BackendSessionEventDocument {
   status: string;
   timestamp: string;
   reason?: string | null;
+  transcription?: BackendSpeechTranscriptionDocument | null;
+  synthesis?: BackendSpeechSynthesisDocument | null;
+}
+
+export interface BackendSpeechLifecycleEventEnvelopeDocument {
+  event_id: string;
+  sequence: number;
+  cursor: string;
+  event: BackendSessionEventDocument;
+}
+
+export interface BackendSpeechLifecycleTransportSnapshotDocument {
+  schema_version: number;
+  stream: string;
+  delivery: string;
+  session_id: string;
+  next_cursor: string;
+  events: BackendSpeechLifecycleEventEnvelopeDocument[];
+}
+
+export interface BackendActiveCharacterSelectionDocument {
+  requested_character_id: CharacterId;
+  applied: boolean;
+  error_code?: string | null;
+  message?: string | null;
 }
 
 export interface BackendActiveCharacterResponseDocument {
@@ -93,5 +174,6 @@ export interface BackendActiveCharacterResponseDocument {
   session_id: string;
   lifecycle_state: string;
   active_character: BackendCharacterSummaryDocument;
+  selection: BackendActiveCharacterSelectionDocument;
   session_event: BackendSessionEventDocument;
 }

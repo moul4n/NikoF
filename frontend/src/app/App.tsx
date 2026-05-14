@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { AvatarStage } from "../avatar/components/AvatarStage";
 import { CharacterCatalogPanel } from "../avatar/components/CharacterCatalogPanel";
-import { bridgeCharacterCatalogWithBackend, loadCharacterCatalog, syncActiveCharacterSelection } from "../avatar/loaders/characterCatalog";
+import {
+  ActiveCharacterSyncError,
+  bridgeCharacterCatalogWithBackend,
+  loadCharacterCatalog,
+  syncActiveCharacterSelection
+} from "../avatar/loaders/characterCatalog";
+import {
+  createRejectedActiveCharacterSyncState,
+  createSuccessfulActiveCharacterSyncState,
+  resolveSelectedCharacterId
+} from "../avatar/loaders/backendCharacterFlow";
 import { createAvatarRuntime, type AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
 import type { CharacterCatalog, CharacterCatalogEntry, CharacterId } from "../shared/types/character";
 
@@ -35,14 +45,6 @@ function findCharacterEntry(catalog: CharacterCatalog | null, characterId: Chara
   }
 
   return catalog.entries.find((entry) => entry.summary.characterId === characterId) ?? null;
-}
-
-function resolveSelectedCharacterId(catalog: CharacterCatalog, preferredCharacterId: CharacterId | null): CharacterId | null {
-  if (preferredCharacterId && findCharacterEntry(catalog, preferredCharacterId)) {
-    return preferredCharacterId;
-  }
-
-  return catalog.defaultCharacterId;
 }
 
 function describeBackendSyncState(syncState: BackendSyncState): string {
@@ -155,14 +157,26 @@ export function App(): JSX.Element {
 
     void syncActiveCharacterSelection(characterId)
       .then((response) => {
+        const nextSyncState = createSuccessfulActiveCharacterSyncState(loadState.catalog, response);
+
+        setSelectedCharacterId(nextSyncState.selectedCharacterId);
         setBackendSyncState((currentState) => ({
           ...currentState,
-          activeCharacterConnected: true,
-          sessionId: response.session_id,
-          message: `Backend active character synced to ${response.active_character.display_name}.`
+          ...nextSyncState
         }));
       })
       .catch((error: unknown) => {
+        if (error instanceof ActiveCharacterSyncError) {
+          const nextSyncState = createRejectedActiveCharacterSyncState(loadState.catalog, error.response);
+
+          setSelectedCharacterId(nextSyncState.selectedCharacterId);
+          setBackendSyncState((currentState) => ({
+            ...currentState,
+            ...nextSyncState
+          }));
+          return;
+        }
+
         setBackendSyncState((currentState) => ({
           ...currentState,
           message: error instanceof Error ? error.message : "Backend active-character sync failed; shell remains local."

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 from app.core.settings import get_app_paths
@@ -10,19 +9,22 @@ from app.schemas.health import DiagnosticProbe, HealthDiagnostics, HealthPayload
 from app.schemas.session import (
     ActiveCharacterResponse,
     ActiveCharacterSelectionResult,
-    AudioFormatMetadata,
-    SessionEvent,
     SessionSnapshot,
-    SpeechPhonemeSlot,
-    SpeechSegmentRange,
-    SpeechSynthesisContract,
-    SpeechTimingMetadata,
-    SpeechTranscriptionContract,
-    SpeechVisemeSlot,
+    SpeechLifecycleTransportSnapshot,
     build_baseline_speech_adapter_profiles,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource, UnknownCharacterError
 from app.services.session import InMemorySessionService, SessionService
+from app.services.speech import (
+    DefaultSessionEventFactory,
+    SessionEventFactory,
+    SpeechLifecycleSnapshotService,
+    SpeechSynthesisService,
+    SpeechTranscriptionService,
+    StubSpeechLifecycleSnapshotService,
+    StubSpeechSynthesisService,
+    StubSpeechTranscriptionService,
+)
 
 
 @dataclass(slots=True, frozen=True)
@@ -60,18 +62,37 @@ def _route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="GET", path="/health", name="healthcheck"),
         RouteDefinition(method="GET", path="/characters", name="list_characters"),
         RouteDefinition(method="GET", path="/session/active-character", name="get_active_character"),
+        RouteDefinition(method="GET", path="/session/speech-lifecycle", name="get_speech_lifecycle"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
     ]
 
 
-def _build_services() -> tuple[SessionService, CharacterService]:
+def _build_services() -> tuple[
+    SessionService,
+    CharacterService,
+    SpeechTranscriptionService,
+    SpeechSynthesisService,
+    SpeechLifecycleSnapshotService,
+    SessionEventFactory,
+]:
     character_service = CharacterService(FileSystemCharacterManifestSource())
     session_service = InMemorySessionService(default_character_id="test-vrm-01")
-    return session_service, character_service
-
-
-def _timestamp_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    transcription_service = StubSpeechTranscriptionService()
+    synthesis_service = StubSpeechSynthesisService()
+    session_event_factory = DefaultSessionEventFactory()
+    speech_lifecycle_service = StubSpeechLifecycleSnapshotService(
+        transcription_service=transcription_service,
+        synthesis_service=synthesis_service,
+        session_event_factory=session_event_factory,
+    )
+    return (
+        session_service,
+        character_service,
+        transcription_service,
+        synthesis_service,
+        speech_lifecycle_service,
+        session_event_factory,
+    )
 
 
 def _build_health_payload(character_service: CharacterService) -> HealthPayload:
@@ -114,109 +135,20 @@ def _build_health_payload(character_service: CharacterService) -> HealthPayload:
     return HealthPayload(status="ok", mode="scaffold", diagnostics=diagnostics)
 
 
-def _build_session_event(
-    snapshot: SessionSnapshot,
-    *,
-    character_id: str,
-    event_type: str,
-    status: str,
-    reason: str | None = None,
-    transcription: SpeechTranscriptionContract | None = None,
-    synthesis: SpeechSynthesisContract | None = None,
-) -> SessionEvent:
-    return SessionEvent(
-        schema_version=1,
-        event_type=event_type,
-        session_id=snapshot.session_id,
-        character_id=character_id,
-        status=status,
-        timestamp=_timestamp_now(),
-        reason=reason,
-        transcription=transcription,
-        synthesis=synthesis,
-    )
-
-
-def _build_sample_transcription_contract() -> SpeechTranscriptionContract:
-    return SpeechTranscriptionContract(
-        profile_id="stt.faster-whisper.medium-2026",
-        status="final",
-        locale="en-US",
-        transcript="Hey Niko, can you wave after you answer?",
-        confidence=0.98,
-        timing=SpeechTimingMetadata(
-            utterance_duration_ms=1890,
-            segment_ranges=(
-                SpeechSegmentRange(start_ms=0, end_ms=640, text="Hey Niko,"),
-                SpeechSegmentRange(start_ms=640, end_ms=1890, text="can you wave after you answer?"),
-            ),
-            audio_format=AudioFormatMetadata(
-                container="wav",
-                encoding="pcm_s16le",
-                sample_rate_hz=16000,
-                channels=1,
-            ),
-        ),
-    )
-
-
-def _build_sample_synthesis_contract() -> SpeechSynthesisContract:
-    return SpeechSynthesisContract(
-        profile_id="tts.gpt-sovits.2026-stable",
-        status="ready",
-        text="Sure. I can wave once I finish speaking.",
-        locale="en-US",
-        timing=SpeechTimingMetadata(
-            utterance_duration_ms=2120,
-            segment_ranges=(
-                SpeechSegmentRange(start_ms=0, end_ms=880, text="Sure."),
-                SpeechSegmentRange(
-                    start_ms=880,
-                    end_ms=2120,
-                    text="I can wave once I finish speaking.",
-                ),
-            ),
-            audio_format=AudioFormatMetadata(
-                container="wav",
-                encoding="pcm_s16le",
-                sample_rate_hz=24000,
-                channels=1,
-            ),
-            phoneme_slots=(
-                SpeechPhonemeSlot(phoneme="S", start_ms=0, end_ms=110),
-                SpeechPhonemeSlot(phoneme="UH", start_ms=110, end_ms=260),
-            ),
-            viseme_slots=(
-                SpeechVisemeSlot(viseme="sil", start_ms=0, end_ms=45),
-                SpeechVisemeSlot(viseme="smile", start_ms=45, end_ms=310),
-            ),
-        ),
-    )
-
-
-def _build_speech_contract_examples(snapshot: SessionSnapshot, character_id: str) -> dict[str, Any]:
+def _build_speech_contract_examples(
+    speech_lifecycle_snapshot: SpeechLifecycleTransportSnapshot,
+) -> dict[str, Any]:
     return {
         "speech_adapter_profiles": [
             asdict(profile) for profile in build_baseline_speech_adapter_profiles()
         ],
-        "canonical_transcription_event": asdict(
-            _build_session_event(
-                snapshot,
-                character_id=character_id,
-                event_type="transcription.status",
-                status="final",
-                transcription=_build_sample_transcription_contract(),
-            )
+        "canonical_transcription_event": _serialize_dataclass_payload(
+            speech_lifecycle_snapshot.events[0].event
         ),
-        "canonical_speech_synthesis_event": asdict(
-            _build_session_event(
-                snapshot,
-                character_id=character_id,
-                event_type="speech.synthesis",
-                status="ready",
-                synthesis=_build_sample_synthesis_contract(),
-            )
+        "canonical_speech_synthesis_event": _serialize_dataclass_payload(
+            speech_lifecycle_snapshot.events[1].event
         ),
+        "speech_lifecycle_transport_snapshot": _serialize_dataclass_payload(speech_lifecycle_snapshot),
     }
 
 
@@ -234,6 +166,7 @@ def _build_character_catalog_response(
 def _build_active_character_response(
     snapshot: SessionSnapshot,
     active_character: CharacterSummary,
+    session_event_factory: SessionEventFactory,
     *,
     requested_character_id: str,
     selection_applied: bool,
@@ -255,7 +188,7 @@ def _build_active_character_response(
             error_code=error_code,
             message=message,
         ),
-        session_event=_build_session_event(
+        session_event=session_event_factory.build_event(
             snapshot,
             character_id=event_character_id or active_character.character_id,
             event_type=event_type,
@@ -266,10 +199,21 @@ def _build_active_character_response(
 
 
 def build_api_contract_snapshot() -> dict[str, Any]:
-    session_service, character_service = _build_services()
+    (
+        session_service,
+        character_service,
+        transcription_service,
+        synthesis_service,
+        speech_lifecycle_service,
+        session_event_factory,
+    ) = _build_services()
     characters = character_service.list_character_summaries()
     current_snapshot = session_service.get_snapshot()
     current_character = character_service.get_character_summary(current_snapshot.active_character_id)
+    speech_lifecycle_snapshot = speech_lifecycle_service.get_snapshot(
+        current_snapshot,
+        character_id=current_character.character_id,
+    )
     invalid_selection = ActiveCharacterSelection(
         character_id="missing-character",
         reason="user_selected",
@@ -283,10 +227,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
 
     return {
         "routes": [asdict(route) for route in _route_definitions()],
-        "contracts": _build_speech_contract_examples(
-            current_snapshot,
-            current_character.character_id,
-        ),
+        "contracts": _build_speech_contract_examples(speech_lifecycle_snapshot),
         "responses": {
             "health": asdict(_build_health_payload(character_service)),
             "characters": asdict(_build_character_catalog_response(current_snapshot, characters)),
@@ -294,6 +235,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                 _build_active_character_response(
                     current_snapshot,
                     current_character,
+                    session_event_factory,
                     requested_character_id=current_character.character_id,
                     selection_applied=True,
                     event_type="session.state",
@@ -301,12 +243,14 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                     message="Active character resolved.",
                 )
             ),
+            "get_speech_lifecycle": _serialize_dataclass_payload(speech_lifecycle_snapshot),
             "put_active_character": {
                 "request": asdict(selection),
                 "response": _serialize_dataclass_payload(
                     _build_active_character_response(
                         updated_snapshot,
                         selected_character,
+                        session_event_factory,
                         requested_character_id=selection.character_id,
                         selection_applied=True,
                         event_type="session.character.selected",
@@ -323,6 +267,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                     _build_active_character_response(
                         current_snapshot,
                         current_character,
+                        session_event_factory,
                         requested_character_id=invalid_selection.character_id,
                         selection_applied=False,
                         event_type="session.character.rejected",
@@ -339,7 +284,14 @@ def build_api_contract_snapshot() -> dict[str, Any]:
 
 
 def build_api_router() -> Any:
-    session_service, character_service = _build_services()
+    (
+        session_service,
+        character_service,
+        _transcription_service,
+        _synthesis_service,
+        speech_lifecycle_service,
+        session_event_factory,
+    ) = _build_services()
     route_definitions = _route_definitions()
 
     try:
@@ -370,11 +322,25 @@ def build_api_router() -> Any:
         return _build_active_character_response(
             snapshot,
             active_character,
+            session_event_factory,
             requested_character_id=active_character.character_id,
             selection_applied=True,
             event_type="session.state",
             status=snapshot.lifecycle_state,
             message="Active character resolved.",
+        )
+
+    @router.get(
+        "/session/speech-lifecycle",
+        response_model=SpeechLifecycleTransportSnapshot,
+        response_model_exclude_none=True,
+    )
+    def get_speech_lifecycle() -> SpeechLifecycleTransportSnapshot:
+        snapshot = session_service.get_snapshot()
+        active_character = character_service.get_character_summary(snapshot.active_character_id)
+        return speech_lifecycle_service.get_snapshot(
+            snapshot,
+            character_id=active_character.character_id,
         )
 
     @router.put(
@@ -393,6 +359,7 @@ def build_api_router() -> Any:
             return _build_active_character_response(
                 current_snapshot,
                 current_character,
+                session_event_factory,
                 requested_character_id=selection.character_id,
                 selection_applied=False,
                 event_type="session.character.rejected",
@@ -407,6 +374,7 @@ def build_api_router() -> Any:
         return _build_active_character_response(
             snapshot,
             active_character,
+            session_event_factory,
             requested_character_id=selection.character_id,
             selection_applied=True,
             event_type="session.character.selected",

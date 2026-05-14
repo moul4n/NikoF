@@ -76,8 +76,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Tank Stage 3
 
-- [ ] Expose the audio turn lifecycle needed for Faster-Whisper and GPT-SoVITS without leaking provider-specific events.
-- [ ] Stream transcription, synthesis, and speaking-state updates to the frontend.
+- [ ] Expose the audio turn lifecycle through the backend-owned `speech.lifecycle` envelope without leaking provider-specific events.
+- [ ] Stream transcription, synthesis, and speaking-state updates by reusing the ordered `speech.lifecycle` event envelope rather than transport-specific payload shapes.
 
 ### Tank Stage 4
 

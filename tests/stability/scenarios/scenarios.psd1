@@ -47,10 +47,26 @@
                 'backend/app/schemas/character.py'
                 'backend/app/schemas/health.py'
                 'backend/app/services/character.py'
+                'backend/app/services/speech.py'
                 'backend/app/services/session.py'
                 'assets/characters/test-vrm-01/manifest.json'
                 'assets/characters/test-vrm-02/manifest.json'
                 'assets/characters/test-vrm-03/manifest.json'
+            )
+        }
+        @{
+            id = 'backend-speech-contracts'
+            name = 'Backend speech contract snapshot'
+            harness = 'backend-speech-contracts'
+            baseline = 'baselines/backend-speech-contracts.json'
+            tracked_inputs = @(
+                'backend/app/api/router.py'
+                'backend/app/schemas/session.py'
+                'backend/app/schemas/character.py'
+                'backend/app/services/character.py'
+                'backend/app/services/speech.py'
+                'backend/app/services/session.py'
+                'assets/characters/test-vrm-01/manifest.json'
             )
         }
         @{
@@ -65,10 +81,65 @@
                 'backend/app/schemas/character.py'
                 'backend/app/schemas/health.py'
                 'backend/app/services/character.py'
+                'backend/app/services/speech.py'
                 'backend/app/services/session.py'
                 'assets/characters/test-vrm-01/manifest.json'
                 'assets/characters/test-vrm-02/manifest.json'
                 'assets/characters/test-vrm-03/manifest.json'
+            )
+        }
+        @{
+            id = 'frontend-stage1-bridge-surface'
+            name = 'Frontend Stage 1 bridge surface snapshot'
+            harness = 'frontend-stage1-bridge-surface'
+            baseline = 'baselines/frontend-stage1-bridge-surface.json'
+            tracked_inputs = @(
+                'frontend/src/app/App.tsx'
+                'frontend/src/avatar/loaders/characterCatalog.ts'
+                'frontend/src/shared/types/character.ts'
+                'tests/stability/baselines/backend-stage1-contracts.json'
+                'tests/stability/baselines/backend-stage1-payload-surface.json'
+            )
+        }
+        @{
+            id = 'frontend-stage1-character-flow-runtime'
+            name = 'Frontend Stage 1 character flow runtime snapshot'
+            harness = 'frontend-stage1-character-flow-runtime'
+            baseline = 'baselines/frontend-stage1-character-flow-runtime.json'
+            tracked_inputs = @(
+                'scripts/testing/frontendStage1CharacterFlow.runtime.ts'
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'frontend/src/app/App.tsx'
+                'frontend/src/avatar/loaders/backendCharacterFlow.ts'
+                'frontend/src/avatar/loaders/characterCatalog.ts'
+                'frontend/src/shared/types/character.ts'
+                'backend/app/api/router.py'
+                'backend/app/core/settings.py'
+                'backend/app/schemas/session.py'
+                'backend/app/schemas/character.py'
+                'backend/app/schemas/health.py'
+                'backend/app/services/character.py'
+                'backend/app/services/speech.py'
+                'backend/app/services/session.py'
+                'assets/characters/test-vrm-01/manifest.json'
+                'assets/characters/test-vrm-02/manifest.json'
+                'assets/characters/test-vrm-03/manifest.json'
+            )
+        }
+        @{
+            id = 'frontend-speech-lifecycle-runtime'
+            name = 'Frontend speech lifecycle runtime snapshot'
+            harness = 'frontend-speech-lifecycle-runtime'
+            baseline = 'baselines/frontend-speech-lifecycle-runtime.json'
+            tracked_inputs = @(
+                'scripts/testing/frontendSpeechLifecycle.runtime.ts'
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'frontend/src/avatar/loaders/speechLifecycle.ts'
+                'frontend/src/shared/types/character.ts'
+                'backend/app/api/router.py'
+                'backend/app/schemas/session.py'
+                'backend/app/services/speech.py'
+                'tests/stability/baselines/backend-speech-contracts.json'
             )
         }
     )

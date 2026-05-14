@@ -209,6 +209,71 @@ function Get-OrderedPropertyNames {
     return @($InputObject.PSObject.Properties | ForEach-Object { $_.Name } | Sort-Object)
 }
 
+function Get-InterfacePropertyNamesFromSource {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceText,
+        [Parameter(Mandatory)]
+        [string]$InterfaceName
+    )
+
+    $interfacePattern = '(?ms)export interface\s+' + [regex]::Escape($InterfaceName) + '\s*\{(?<body>.*?)^\}'
+    $match = [regex]::Match($SourceText, $interfacePattern)
+    if (-not $match.Success) {
+        return @()
+    }
+
+    return @(
+        [regex]::Matches($match.Groups['body'].Value, '(?m)^\s*(?<name>[A-Za-z_][A-Za-z0-9_]*)\??\s*:') |
+            ForEach-Object { $_.Groups['name'].Value } |
+            Sort-Object
+    )
+}
+
+function Get-AsyncFunctionReturnTypeFromSource {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceText,
+        [Parameter(Mandatory)]
+        [string]$FunctionName
+    )
+
+    $functionPattern = '(?ms)async function\s+' + [regex]::Escape($FunctionName) + '\s*\([^)]*\)\s*:\s*(?<type>.*?)\s*\{'
+    $match = [regex]::Match($SourceText, $functionPattern)
+    if (-not $match.Success) {
+        return $null
+    }
+
+    return ($match.Groups['type'].Value -replace '\s+', ' ').Trim()
+}
+
+function Test-StringArrayEquality {
+    param(
+        [string[]]$Left,
+        [string[]]$Right
+    )
+
+    if ($null -eq $Left) {
+        $Left = @()
+    }
+
+    if ($null -eq $Right) {
+        $Right = @()
+    }
+
+    if ($Left.Count -ne $Right.Count) {
+        return $false
+    }
+
+    for ($index = 0; $index -lt $Left.Count; $index++) {
+        if ($Left[$index] -cne $Right[$index]) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
 function Invoke-BootstrapReportSurfaceSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -261,6 +326,92 @@ function Invoke-BootstrapReportSurfaceSnapshot {
     }
 }
 
+function Invoke-FrontendStage1BridgeSurfaceSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $backendSurfacePath = Join-Path $RepoRoot 'tests\stability\baselines\backend-stage1-payload-surface.json'
+    $backendSurface = Get-Content -LiteralPath $backendSurfacePath -Raw | ConvertFrom-Json
+    $backendContractsPath = Join-Path $RepoRoot 'tests\stability\baselines\backend-stage1-contracts.json'
+    $backendContracts = Get-Content -LiteralPath $backendContractsPath -Raw | ConvertFrom-Json
+    $appPath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
+    $characterTypesPath = Join-Path $RepoRoot 'frontend\src\shared\types\character.ts'
+    $catalogLoaderPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\characterCatalog.ts'
+    $appSource = Get-Content -LiteralPath $appPath -Raw
+    $characterTypesSource = Get-Content -LiteralPath $characterTypesPath -Raw
+    $catalogLoaderSource = Get-Content -LiteralPath $catalogLoaderPath -Raw
+
+    $expectedCatalogKeys = @($backendSurface.response_surface.character_catalog_keys)
+    $expectedActiveKeys = @($backendSurface.response_surface.active_character_keys)
+    $expectedInvalidSelectionKeys = @($backendSurface.response_surface.invalid_selection_keys)
+    $invalidActiveCharacterResponse = $backendContracts.responses.put_active_character_invalid.response
+    $invalidActiveCharacterKeys = @(Get-OrderedPropertyNames -InputObject $invalidActiveCharacterResponse)
+    $invalidSelectionKeys = @(Get-OrderedPropertyNames -InputObject $invalidActiveCharacterResponse.selection)
+    $catalogInterfaceName = 'BackendCharacterCatalogResponseDocument'
+    $catalogFetchReturnType = "Promise<$catalogInterfaceName>"
+    $catalogInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName $catalogInterfaceName)
+    $activeInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName 'BackendActiveCharacterResponseDocument')
+    $fetchSummariesReturnType = Get-AsyncFunctionReturnTypeFromSource -SourceText $catalogLoaderSource -FunctionName 'fetchBackendCharacterSummaries'
+    $usesCatalogEnvelopeCharacters = [regex]::IsMatch($catalogLoaderSource, '\.characters\b')
+    $readsCatalogActiveCharacterId = [regex]::IsMatch($catalogLoaderSource, '\.active_character_id\b')
+    $loaderExportsStructuredSyncError = [regex]::IsMatch($catalogLoaderSource, '(?ms)export class\s+ActiveCharacterSyncError\s+extends\s+Error')
+    $loaderPreservesRejectionDocument = [regex]::IsMatch(
+        $catalogLoaderSource,
+        '(?ms)readonly response:\s*BackendActiveCharacterResponseDocument\s*;.*?throw new ActiveCharacterSyncError\(document,\s*response\.status\)'
+    )
+    $appHandlesStructuredSyncError = [regex]::IsMatch($appSource, 'error\s+instanceof\s+ActiveCharacterSyncError')
+    $appUsesRejectedSelectionMessage = [regex]::IsMatch($appSource, 'error\.response\.selection\.message')
+    $appReconcilesRejectedSelection = [regex]::IsMatch(
+        $appSource,
+        '(?ms)if\s*\(error\s+instanceof\s+ActiveCharacterSyncError\)\s*\{.*?const\s+(?<reconciledId>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*loadState\.catalog\s*\?\s*resolveSelectedCharacterId\(\s*loadState\.catalog\s*,\s*error\.response\.active_character\.character_id\s*\)\s*:\s*selectedCharacterId\s*;.*?setSelectedCharacterId\(\s*\k<reconciledId>\s*\);.*?error\.response\.selection\.message'
+    )
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        tracked_inputs = @($Scenario.tracked_inputs)
+        backend_contract_surface = [ordered]@{
+            character_catalog_keys = @($expectedCatalogKeys)
+            active_character_keys = @($expectedActiveKeys)
+            rejection_active_character_keys = @($invalidActiveCharacterKeys)
+            rejection_selection_keys = @($invalidSelectionKeys)
+        }
+        frontend_bridge_surface = [ordered]@{
+            catalog_response_interface = if ($catalogInterfaceKeys.Count -gt 0) { $catalogInterfaceName } else { '<missing>' }
+            catalog_response_keys = @($catalogInterfaceKeys)
+            fetch_summaries_return_type = $fetchSummariesReturnType
+            catalog_consumes_envelope_characters = [bool]$usesCatalogEnvelopeCharacters
+            catalog_reads_active_character_id = [bool]$readsCatalogActiveCharacterId
+            active_response_interface = 'BackendActiveCharacterResponseDocument'
+            active_response_keys = @($activeInterfaceKeys)
+            sync_error_class = if ($loaderExportsStructuredSyncError) { 'ActiveCharacterSyncError' } else { '<missing>' }
+            sync_error_preserves_rejection_document = [bool]$loaderPreservesRejectionDocument
+            app_handles_structured_rejection = [bool]$appHandlesStructuredSyncError
+            app_uses_rejection_selection_message = [bool]$appUsesRejectedSelectionMessage
+            app_reconciles_rejected_selection = [bool]$appReconcilesRejectedSelection
+        }
+        alignment = [ordered]@{
+            catalog_response_keys_match = Test-StringArrayEquality -Left $catalogInterfaceKeys -Right $expectedCatalogKeys
+            fetch_summaries_return_type_matches = $fetchSummariesReturnType -ceq $catalogFetchReturnType
+            catalog_consumes_envelope_characters = [bool]$usesCatalogEnvelopeCharacters
+            catalog_reads_active_character_id = [bool]$readsCatalogActiveCharacterId
+            active_response_keys_match = Test-StringArrayEquality -Left $activeInterfaceKeys -Right $expectedActiveKeys
+            rejection_active_response_keys_match = Test-StringArrayEquality -Left $invalidActiveCharacterKeys -Right $expectedActiveKeys
+            rejection_selection_keys_match = Test-StringArrayEquality -Left $invalidSelectionKeys -Right $expectedInvalidSelectionKeys
+            sync_error_preserves_rejection_document = [bool]$loaderPreservesRejectionDocument
+            app_handles_structured_rejection = [bool]$appHandlesStructuredSyncError
+            app_uses_rejection_selection_message = [bool]$appUsesRejectedSelectionMessage
+            app_reconciles_rejected_selection = [bool]$appReconcilesRejectedSelection
+        }
+    }
+}
+
 function Get-PythonLauncher {
     $pythonCommand = Get-Command -Name python -ErrorAction SilentlyContinue
     if ($pythonCommand) {
@@ -283,7 +434,19 @@ function Get-PythonLauncher {
     throw 'Python launcher not found. Install Python or add it to PATH before running backend stability scenarios.'
 }
 
-function Invoke-BackendStage1ContractSnapshot {
+function Get-NodeLauncher {
+    $nodeCommand = Get-Command -Name node -ErrorAction SilentlyContinue
+    if ($nodeCommand) {
+        return [pscustomobject]@{
+            executable = $nodeCommand.Source
+            runner = 'node'
+        }
+    }
+
+    throw 'Node.js launcher not found. Install Node.js or add it to PATH before running frontend runtime stability scenarios.'
+}
+
+function Invoke-BackendStage1SnapshotSource {
     param(
         [Parameter(Mandatory)]
         [string]$RepoRoot,
@@ -318,7 +481,13 @@ from app.api.router import build_api_contract_snapshot
 
 
 snapshot = build_api_contract_snapshot()
+snapshot["contracts"]["canonical_transcription_event"]["timestamp"] = "<generated-at>"
+snapshot["contracts"]["canonical_speech_synthesis_event"]["timestamp"] = "<generated-at>"
+for envelope in snapshot["contracts"].get("speech_lifecycle_transport_snapshot", {}).get("events", []):
+    envelope["event"]["timestamp"] = "<generated-at>"
 snapshot["responses"]["get_active_character"]["session_event"]["timestamp"] = "<generated-at>"
+for envelope in snapshot["responses"].get("get_speech_lifecycle", {}).get("events", []):
+    envelope["event"]["timestamp"] = "<generated-at>"
 snapshot["responses"]["put_active_character"]["response"]["session_event"]["timestamp"] = "<generated-at>"
 snapshot["responses"]["put_active_character_invalid"]["response"]["session_event"]["timestamp"] = "<generated-at>"
 
@@ -348,12 +517,37 @@ sys.stdout.write("\n")
     $snapshotPayload = $outputLines -join [Environment]::NewLine
     $snapshotObject = $snapshotPayload | ConvertFrom-Json
 
+    return [pscustomobject][ordered]@{
+        runner = $pythonLauncher.runner
+        local_root = '<scenario-temp>'
+        snapshot = $snapshotObject
+    }
+}
+
+function Invoke-BackendStage1ContractSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
+    }
+
+    $snapshotObject = $snapshotSource.snapshot
+
     return [ordered]@{
         scenario_id = $Scenario.id
         scenario_name = $Scenario.name
-        runner = $pythonLauncher.runner
+        runner = $snapshotSource.runner
         tracked_inputs = @($Scenario.tracked_inputs)
-        local_root = '<scenario-temp>'
+        local_root = $snapshotSource.local_root
         routes = @(
             $snapshotObject.routes | ForEach-Object {
                 [ordered]@{
@@ -367,6 +561,32 @@ sys.stdout.write("\n")
     }
 }
 
+function Invoke-BackendSpeechContractSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
+    }
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $snapshotSource.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        local_root = $snapshotSource.local_root
+        contracts = $snapshotSource.snapshot.contracts
+    }
+}
+
 function Invoke-BackendStage1PayloadSurfaceSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -377,12 +597,13 @@ function Invoke-BackendStage1PayloadSurfaceSnapshot {
         [string]$RunRoot
     )
 
-    $snapshotObject = Invoke-BackendStage1ContractSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
 
-    if (($snapshotObject.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotObject.exit_code -ne 0)) {
-        return $snapshotObject
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
     }
 
+    $snapshotObject = $snapshotSource.snapshot
     $healthResponse = $snapshotObject.responses.health
     $charactersResponse = $snapshotObject.responses.characters
     $activeCharacterResponse = $snapshotObject.responses.get_active_character
@@ -409,7 +630,7 @@ function Invoke-BackendStage1PayloadSurfaceSnapshot {
     return [ordered]@{
         scenario_id = $Scenario.id
         scenario_name = $Scenario.name
-        runner = $snapshotObject.runner
+        runner = $snapshotSource.runner
         tracked_inputs = @($Scenario.tracked_inputs)
         response_surface = [ordered]@{
             response_keys = @(Get-OrderedPropertyNames -InputObject $snapshotObject.responses)
@@ -449,6 +670,195 @@ function Invoke-BackendStage1PayloadSurfaceSnapshot {
     }
 }
 
+function Invoke-FrontendStage1CharacterFlowRuntimeSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
+    }
+
+    $nodeLauncher = Get-NodeLauncher
+    $tscPath = Join-Path $RepoRoot 'frontend\node_modules\typescript\bin\tsc'
+    if (-not (Test-Path -LiteralPath $tscPath)) {
+        throw 'Local TypeScript compiler not found at frontend/node_modules/typescript/bin/tsc. Run npm install in frontend before running frontend runtime stability scenarios.'
+    }
+
+    $scenarioTempRoot = Join-Path $RunRoot 'frontend-stage1-character-flow-runtime'
+    $typeRootsPath = Join-Path $RepoRoot 'frontend\node_modules\@types'
+    $snapshotPath = Join-Path $scenarioTempRoot 'backend-stage1-contracts.json'
+    $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendStage1CharacterFlow.runtime.ts'
+    $runtimeScriptPath = Join-Path $scenarioTempRoot 'scripts\testing\frontendStage1CharacterFlow.runtime.js'
+    $compileTargets = @(
+        $runtimeScriptSourcePath
+        (Join-Path $RepoRoot 'frontend\src\avatar\loaders\backendCharacterFlow.ts')
+        (Join-Path $RepoRoot 'frontend\src\shared\types\character.ts')
+    )
+
+    New-DirectoryIfMissing -Path $scenarioTempRoot
+    Set-Content -LiteralPath $snapshotPath -Value (ConvertTo-StableJson -InputObject $snapshotSource.snapshot) -Encoding Ascii
+
+    $compileOutput = @(
+        & $nodeLauncher.executable $tscPath --target ES2020 --module NodeNext --moduleResolution NodeNext --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $scenarioTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $compileExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($compileExitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $nodeLauncher.runner
+            phase = 'compile'
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $compileExitCode
+            error_lines = @(
+                $compileOutput | ForEach-Object {
+                    Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                }
+            )
+        }
+    }
+
+    $runtimeOutput = @(
+        & $nodeLauncher.executable $runtimeScriptPath $snapshotPath 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $runtimeExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($runtimeExitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $nodeLauncher.runner
+            phase = 'runtime'
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $runtimeExitCode
+            error_lines = @(
+                $runtimeOutput | ForEach-Object {
+                    Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                }
+            )
+        }
+    }
+
+    $runtimeProof = ($runtimeOutput -join [Environment]::NewLine) | ConvertFrom-Json
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $nodeLauncher.runner
+        backend_source_runner = $snapshotSource.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        local_root = $snapshotSource.local_root
+        runtime_proof = $runtimeProof
+    }
+}
+
+function Invoke-FrontendSpeechLifecycleRuntimeSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
+    }
+
+    $nodeLauncher = Get-NodeLauncher
+    $tscPath = Join-Path $RepoRoot 'frontend\node_modules\typescript\bin\tsc'
+    if (-not (Test-Path -LiteralPath $tscPath)) {
+        throw 'Local TypeScript compiler not found at frontend/node_modules/typescript/bin/tsc. Run npm install in frontend before running frontend runtime stability scenarios.'
+    }
+
+    $scenarioTempRoot = Join-Path $RunRoot 'frontend-speech-lifecycle-runtime'
+    $typeRootsPath = Join-Path $RepoRoot 'frontend\node_modules\@types'
+    $snapshotPath = Join-Path $scenarioTempRoot 'backend-speech-contracts.json'
+    $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendSpeechLifecycle.runtime.ts'
+    $runtimeScriptPath = Join-Path $scenarioTempRoot 'scripts\testing\frontendSpeechLifecycle.runtime.js'
+    $compileTargets = @(
+        $runtimeScriptSourcePath
+        (Join-Path $RepoRoot 'frontend\src\avatar\loaders\speechLifecycle.ts')
+        (Join-Path $RepoRoot 'frontend\src\shared\types\character.ts')
+    )
+
+    New-DirectoryIfMissing -Path $scenarioTempRoot
+    $speechContractsSnapshot = [ordered]@{
+        contracts = $snapshotSource.snapshot.contracts
+    }
+    Set-Content -LiteralPath $snapshotPath -Value (ConvertTo-StableJson -InputObject $speechContractsSnapshot) -Encoding Ascii
+
+    $compileOutput = @(
+        & $nodeLauncher.executable $tscPath --target ES2020 --module NodeNext --moduleResolution NodeNext --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $scenarioTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $compileExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($compileExitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $nodeLauncher.runner
+            phase = 'compile'
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $compileExitCode
+            error_lines = @(
+                $compileOutput | ForEach-Object {
+                    Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                }
+            )
+        }
+    }
+
+    $runtimeOutput = @(
+        & $nodeLauncher.executable $runtimeScriptPath $snapshotPath 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $runtimeExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($runtimeExitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $nodeLauncher.runner
+            phase = 'runtime'
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $runtimeExitCode
+            error_lines = @(
+                $runtimeOutput | ForEach-Object {
+                    Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                }
+            )
+        }
+    }
+
+    $runtimeProof = ($runtimeOutput -join [Environment]::NewLine) | ConvertFrom-Json
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $nodeLauncher.runner
+        backend_source_runner = $snapshotSource.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        local_root = $snapshotSource.local_root
+        runtime_proof = $runtimeProof
+    }
+}
+
 function Invoke-ScenarioSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -472,8 +882,20 @@ function Invoke-ScenarioSnapshot {
         'backend-stage1-contracts' {
             return Invoke-BackendStage1ContractSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
+        'backend-speech-contracts' {
+            return Invoke-BackendSpeechContractSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
         'backend-stage1-payload-surface' {
             return Invoke-BackendStage1PayloadSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'frontend-stage1-bridge-surface' {
+            return Invoke-FrontendStage1BridgeSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'frontend-stage1-character-flow-runtime' {
+            return Invoke-FrontendStage1CharacterFlowRuntimeSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'frontend-speech-lifecycle-runtime' {
+            return Invoke-FrontendSpeechLifecycleRuntimeSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         default {
             throw "Unsupported harness '$($Scenario.harness)' for scenario '$($Scenario.id)'."

@@ -9,6 +9,7 @@
     "backend/app/schemas/character.py",
     "backend/app/schemas/health.py",
     "backend/app/services/character.py",
+    "backend/app/services/speech.py",
     "backend/app/services/session.py",
     "assets/characters/test-vrm-01/manifest.json",
     "assets/characters/test-vrm-02/manifest.json",
@@ -18,6 +19,7 @@
     "response_keys": [
       "characters",
       "get_active_character",
+      "get_speech_lifecycle",
       "health",
       "put_active_character",
       "put_active_character_invalid"

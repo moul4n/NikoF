@@ -1,0 +1,257 @@
+{
+  "scenario_id": "backend-speech-contracts",
+  "scenario_name": "Backend speech contract snapshot",
+  "runner": "python",
+  "tracked_inputs": [
+    "backend/app/api/router.py",
+    "backend/app/schemas/session.py",
+    "backend/app/schemas/character.py",
+    "backend/app/services/character.py",
+    "backend/app/services/speech.py",
+    "backend/app/services/session.py",
+    "assets/characters/test-vrm-01/manifest.json"
+  ],
+  "local_root": "<scenario-temp>",
+  "contracts": {
+    "speech_adapter_profiles": [
+      {
+        "profile_id": "stt.faster-whisper.medium-2026",
+        "modality": "stt",
+        "family": "faster-whisper",
+        "revision": "2026",
+        "quality_tier": "default"
+      },
+      {
+        "profile_id": "stt.faster-whisper.small-2026",
+        "modality": "stt",
+        "family": "faster-whisper",
+        "revision": "2026",
+        "quality_tier": "fallback"
+      },
+      {
+        "profile_id": "tts.gpt-sovits.2026-stable",
+        "modality": "tts",
+        "family": "gpt-sovits",
+        "revision": "2026-stable",
+        "quality_tier": "default"
+      }
+    ],
+    "canonical_transcription_event": {
+      "schema_version": 1,
+      "event_type": "transcription.status",
+      "session_id": "session-scaffold-01",
+      "character_id": "test-vrm-01",
+      "status": "final",
+      "timestamp": "<generated-at>",
+      "transcription": {
+        "profile_id": "stt.faster-whisper.medium-2026",
+        "status": "final",
+        "locale": "en-US",
+        "transcript": "Hey Niko, can you wave after you answer?",
+        "confidence": 0.98,
+        "timing": {
+          "utterance_duration_ms": 1890,
+          "segment_ranges": [
+            {
+              "start_ms": 0,
+              "end_ms": 640,
+              "text": "Hey Niko,"
+            },
+            {
+              "start_ms": 640,
+              "end_ms": 1890,
+              "text": "can you wave after you answer?"
+            }
+          ],
+          "audio_format": {
+            "container": "wav",
+            "encoding": "pcm_s16le",
+            "sample_rate_hz": 16000,
+            "channels": 1
+          },
+          "phoneme_slots": [],
+          "viseme_slots": []
+        }
+      }
+    },
+    "canonical_speech_synthesis_event": {
+      "schema_version": 1,
+      "event_type": "speech.synthesis",
+      "session_id": "session-scaffold-01",
+      "character_id": "test-vrm-01",
+      "status": "ready",
+      "timestamp": "<generated-at>",
+      "synthesis": {
+        "profile_id": "tts.gpt-sovits.2026-stable",
+        "status": "ready",
+        "text": "Sure. I can wave once I finish speaking.",
+        "locale": "en-US",
+        "timing": {
+          "utterance_duration_ms": 2120,
+          "segment_ranges": [
+            {
+              "start_ms": 0,
+              "end_ms": 880,
+              "text": "Sure."
+            },
+            {
+              "start_ms": 880,
+              "end_ms": 2120,
+              "text": "I can wave once I finish speaking."
+            }
+          ],
+          "audio_format": {
+            "container": "wav",
+            "encoding": "pcm_s16le",
+            "sample_rate_hz": 24000,
+            "channels": 1
+          },
+          "phoneme_slots": [
+            {
+              "phoneme": "S",
+              "start_ms": 0,
+              "end_ms": 110
+            },
+            {
+              "phoneme": "UH",
+              "start_ms": 110,
+              "end_ms": 260
+            }
+          ],
+          "viseme_slots": [
+            {
+              "viseme": "sil",
+              "start_ms": 0,
+              "end_ms": 45
+            },
+            {
+              "viseme": "smile",
+              "start_ms": 45,
+              "end_ms": 310
+            }
+          ]
+        }
+      }
+    },
+    "speech_lifecycle_transport_snapshot": {
+      "schema_version": 1,
+      "stream": "speech.lifecycle",
+      "delivery": "snapshot",
+      "session_id": "session-scaffold-01",
+      "next_cursor": "speech.lifecycle:session-scaffold-01:3",
+      "events": [
+        {
+          "event_id": "speech-lifecycle-0001",
+          "sequence": 1,
+          "cursor": "speech.lifecycle:session-scaffold-01:1",
+          "event": {
+            "schema_version": 1,
+            "event_type": "transcription.status",
+            "session_id": "session-scaffold-01",
+            "character_id": "test-vrm-01",
+            "status": "final",
+            "timestamp": "<generated-at>",
+            "reason": null,
+            "transcription": {
+              "profile_id": "stt.faster-whisper.medium-2026",
+              "status": "final",
+              "locale": "en-US",
+              "transcript": "Hey Niko, can you wave after you answer?",
+              "confidence": 0.98,
+              "timing": {
+                "utterance_duration_ms": 1890,
+                "segment_ranges": [
+                  {
+                    "start_ms": 0,
+                    "end_ms": 640,
+                    "text": "Hey Niko,"
+                  },
+                  {
+                    "start_ms": 640,
+                    "end_ms": 1890,
+                    "text": "can you wave after you answer?"
+                  }
+                ],
+                "audio_format": {
+                  "container": "wav",
+                  "encoding": "pcm_s16le",
+                  "sample_rate_hz": 16000,
+                  "channels": 1
+                },
+                "phoneme_slots": [],
+                "viseme_slots": []
+              }
+            },
+            "synthesis": null
+          }
+        },
+        {
+          "event_id": "speech-lifecycle-0002",
+          "sequence": 2,
+          "cursor": "speech.lifecycle:session-scaffold-01:2",
+          "event": {
+            "schema_version": 1,
+            "event_type": "speech.synthesis",
+            "session_id": "session-scaffold-01",
+            "character_id": "test-vrm-01",
+            "status": "ready",
+            "timestamp": "<generated-at>",
+            "reason": null,
+            "transcription": null,
+            "synthesis": {
+              "profile_id": "tts.gpt-sovits.2026-stable",
+              "status": "ready",
+              "text": "Sure. I can wave once I finish speaking.",
+              "locale": "en-US",
+              "timing": {
+                "utterance_duration_ms": 2120,
+                "segment_ranges": [
+                  {
+                    "start_ms": 0,
+                    "end_ms": 880,
+                    "text": "Sure."
+                  },
+                  {
+                    "start_ms": 880,
+                    "end_ms": 2120,
+                    "text": "I can wave once I finish speaking."
+                  }
+                ],
+                "audio_format": {
+                  "container": "wav",
+                  "encoding": "pcm_s16le",
+                  "sample_rate_hz": 24000,
+                  "channels": 1
+                },
+                "phoneme_slots": [
+                  {
+                    "phoneme": "S",
+                    "start_ms": 0,
+                    "end_ms": 110
+                  },
+                  {
+                    "phoneme": "UH",
+                    "start_ms": 110,
+                    "end_ms": 260
+                  }
+                ],
+                "viseme_slots": [
+                  {
+                    "viseme": "sil",
+                    "start_ms": 0,
+                    "end_ms": 45
+                  },
+                  {
+                    "viseme": "smile",
+                    "start_ms": 45,
+                    "end_ms": 310
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

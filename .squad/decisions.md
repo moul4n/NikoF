@@ -196,6 +196,36 @@
 **What:** The stability harness now compares JSON scenarios by canonicalized content instead of raw serializer whitespace, and the `bootstrap-prerequisites` snapshot records the declared tooling contract from `bootstrap.targets.json` rather than live tool availability on the local machine.
 **Why:** Compare mode should fail on approved contract drift, not on PowerShell JSON formatting differences or transient PATH state such as whether `node` and `npm` happen to be installed on one workstation.
 
+### 2026-05-14: Squad state continuity repair
+
+**By:** Scribe
+**What:** Restore the standard append-only squad directories `.squad/log/` and `.squad/orchestration-log/` when they are missing, keep them empty until real session or orchestration entries exist, restore the `.squad/decisions/inbox/` drop-box required for decision writes, and remove accidental tool or patch paste artifacts from agent history files instead of treating them as valid history.
+**Why:** The squad conventions and Scribe workflow depend on these paths existing and on history files remaining trustworthy. Restoring the expected structure without fabricating old logs improves continuity for future sessions and prevents malformed content from being read as project memory.
+
+### 2026-05-14: Support-role charter alignment
+
+**By:** Scribe
+**What:** Align the support-role charter metadata to the active squad roster by documenting Scribe as the Session Logger and continuity maintainer, and Ralph as the Work Monitor.
+**Why:** The roster in `.squad/team.md` already reflects these support roles. Keeping the agent charters consistent with that roster reduces identity drift and prevents future sessions from inheriting inaccurate support-role behavior.
+
+### 2026-05-14: Frontend Stage 1 bridge surface rejection guard
+
+**By:** Mouse
+**What:** Add a `frontend-stage1-bridge-surface` scenario to the PowerShell stability suite that snapshots the frontend bridge's declared `/characters` envelope keys, active-character response keys, and rejection-path handoff against the locked backend Stage 1 payload-surface baseline.
+**Why:** The backend payload baselines already guard the owned Stage 1 envelope, but the frontend bridge also needs a deterministic seam so catalog-envelope drift or loss of rejection-path alignment fails before UI wiring is treated as done.
+
+### 2026-05-14: Stage 1 frontend rejection rollback uses backend envelope
+
+**By:** Switch
+**What:** Keep the Stage 1 active-character `PUT` contract unchanged, but preserve the normalized backend response on rejection so the frontend shell can roll local selection back to `response.active_character.character_id` and surface `selection.message` when the backend rejects a requested character.
+**Why:** The shell was updating local selection optimistically and could drift from backend-confirmed active state after a rejected selection, which breaks the current bridge contract even without widening the API surface.
+
+### 2026-05-14: Frontend Stage 1 rollback assertion matches structured catch path
+
+**By:** Mouse
+**What:** Detect rejection rollback in the `frontend-stage1-bridge-surface` stability scenario by matching the structured `ActiveCharacterSyncError` catch path in `App.tsx`, including the intermediate reconciled-character variable and the subsequent `setSelectedCharacterId(...)` call, instead of requiring one inline nested call shape.
+**Why:** The frontend still performs the intended rollback to the backend-confirmed active character on rejection, but the earlier assertion only recognized one exact syntax form and produced a false negative baseline.
+
 ## Governance
 
 - All meaningful changes require team consensus

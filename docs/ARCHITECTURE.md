@@ -240,6 +240,8 @@ The repository structure above intentionally omits committed model payload direc
 
 Transport: HTTP for control and setup, WebSocket or SSE for live conversation events.
 
+Before live transport is introduced, the backend owns a provider-agnostic `speech.lifecycle` delivery contract that wraps normalized `session_event` payloads in an ordered envelope with stable `event_id`, `sequence`, and `cursor` fields. That snapshot surface is the reuse target for later SSE and WebSocket work so transport delivery can evolve without changing speech payload semantics.
+
 The frontend sends:
 
 - session start or stop commands
@@ -250,14 +252,19 @@ The frontend sends:
 
 The backend returns or streams:
 
-- transcription status events
+- transcription status events carried inside the backend-owned `speech.lifecycle` event envelope
 - assistant message chunks or final reply
-- speech synthesis status and audio metadata
+- speech synthesis status and audio metadata carried inside the backend-owned `speech.lifecycle` event envelope
 - animation events with normalized names and parameters
 - optional vision-state acknowledgements or bounded context summaries when intentionally surfaced
 - memory or context summaries only when intentionally surfaced to the UI
 
 Frontend contract rule: the frontend never talks directly to STT, TTS, LLM, or memory providers.
+
+Current backend-owned speech seam:
+
+- `backend/app/schemas/session.py` defines provider-agnostic speech profile, transcription, synthesis, and timing shapes without committing to a live provider adapter.
+- `build_api_contract_snapshot()` publishes the current baseline speech profile ids plus canonical `transcription.status` and `speech.synthesis` session-event examples so the seam is inspectable and baselineable before streaming transport or provider invocation lands.
 
 ### Orchestrator To STT
 
