@@ -12,12 +12,15 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [x] Document the minimum manifest and fallback identity metadata.
 - [x] Publish squad workstreams and the immediate handoff contract.
 - [x] Publish the 2026 local baseline for STT, TTS, LLM, embeddings, and optional vision.
+- [ ] Lock the portability rule that heavyweight prerequisites stay out of Git and are recovered through bootstrap plus install documentation.
+- [ ] Review the setup and continuity guide whenever storage roots, provider expectations, or onboarding steps change.
 
 ### Trinity Stage 1
 
 - [ ] Review backend adapter seams for STT, TTS, LLM, embeddings, memory, and optional vision before Tank deepens the skeleton.
 - [ ] Review the session event contract so voice and optional vision telemetry stay normalized before integration work spreads.
 - [ ] Review backend character-service schemas before Tank exposes any asset APIs.
+- [ ] Review backend configuration contracts for local model-path resolution and machine-specific provider discovery.
 
 ### Trinity Stage 2
 
@@ -67,6 +70,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Scaffold the Python backend and the character, animation, and session service boundaries.
 - [ ] Define the backend schema for manifest summaries, active character selection, and animation commands.
 - [ ] Add service stubs for STT, TTS, LLM, memory, embeddings, vision, character, and animation.
+- [ ] Add settings-driven local storage roots for models, provider binaries, and caches instead of hardcoded machine paths.
+- [ ] Scaffold bootstrap-facing diagnostics that report missing local prerequisites with actionable remediation text.
 
 ### Tank Stage 3
 
@@ -97,12 +102,14 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Wire Faster-Whisper Medium as the default STT path with Small as the fallback profile.
 - [ ] Wire GPT-SoVITS latest stable 2026 fork behind the normalized TTS contract.
 - [ ] Publish the timing or phoneme metadata shape needed for speech-aligned avatar playback.
+- [ ] Define bootstrap download steps, checksum or version expectations, and manual install notes for STT and TTS providers.
 
 ### Link Stage 4
 
 - [ ] Integrate the LLaMA 3.1 8B Q4_K_M baseline through llama.cpp or Ollama without leaking runtime choice past the adapter boundary.
 - [ ] Define the embedding baseline as `bge-small-en` first and `MiniLM-L6-v2` second.
 - [ ] Keep SQLite plus ChromaDB or FAISS retrieval hidden behind a normalized memory contract.
+- [ ] Document expected local model placement and provider-specific environment settings so fresh-machine setup stays deterministic.
 
 ### Link Stage 5
 
@@ -121,12 +128,16 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [x] Scaffold contract tests for manifest shape, identity scaffolding presence, and animation event schemas.
 - [x] Add JSON fixture validation for the placeholder character packages.
 - [x] Define a validation command the rest of the squad can run locally.
+- [x] Add a PowerShell-first stability harness that snapshots the contract validator and bootstrap prerequisite surface with explicit baseline refresh.
+- [ ] Add validation checks for bootstrap prerequisites and documentable failure states once the setup scripts exist.
+- [ ] Expand the stability suite with backend contract snapshots, bootstrap artifact assertions, and change-impact checks as Stage 1 surfaces settle.
 
 ### Mouse Stage 1
 
 - [ ] Add backend contract tests for session start or stop flows, health payloads, and manifest summaries.
 - [ ] Add tests that reject widened provider payloads leaking past normalized backend events.
 - [ ] Keep schema gates aligned with the Stage 1 service boundaries.
+- [ ] Add checks that missing local providers resolve to actionable bootstrap or manual-install guidance instead of opaque failures.
 
 ### Mouse Stages 3 And 4
 
@@ -148,4 +159,5 @@ This is the active scaffold board for the current stages. It assumes the three t
 - Tank can deepen the backend skeleton and provider-agnostic adapter seams now.
 - Switch can keep the frontend focused on the default-character VRM shell and device permission seams now.
 - Link can start STT and TTS adapter contracts now, using the agreed 2026 baseline.
-- Mouse can extend contract coverage around backend session events and the staged voice pipeline now.
+- Mouse owns the stability harness next: add backend session-event snapshots, bootstrap artifact assertions, and staged failure baselines as Stage 1 contracts firm up.
+- Trinity owns the portability, bootstrap, and continuity contract until those rules are reflected in implementation docs and setup validation.

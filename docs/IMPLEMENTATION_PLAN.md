@@ -23,6 +23,8 @@ Goal
 
 Create the project skeleton, Windows-first bootstrap, and the shared contracts that all later stages depend on.
 
+Stage 0 also locks the repo portability rule: heavyweight prerequisites are acquired outside Git, bootstrap scripts own automated setup where possible, and documentation plus squad state must support fresh-machine recovery without tribal knowledge.
+
 Dependencies
 
 - Approved architecture and repo structure
@@ -34,20 +36,25 @@ Work
 - Scaffold `frontend/` and `backend/` projects.
 - Define shared API schemas for session events, character manifests, animation events, and optional vision telemetry.
 - Add local bootstrap scripts for Windows-first development.
+- Define the local model and provider storage policy, including environment-variable or settings-driven path resolution.
+- Publish manual fallback install instructions for providers that cannot be redistributed or reliably automated.
 - Add placeholder asset folders and validation entry points.
 - Scaffold the three test character packages under `assets/characters/test-vrm-01..03/` with placeholder manifests and identity metadata.
 - Scaffold the shared, generated, and per-character animation directories under `assets/animations/`.
 - Publish the squad execution board in `docs/WORKSTREAMS.md` so each specialist can start from explicit contracts.
+- Publish a setup and continuity guide that covers fresh-machine bootstrap, local storage roots, and squad handoff expectations.
 
 Exit Criteria
 
 - Repo boots with separate frontend and backend dev commands.
 - Shared schema types exist for character selection, chat events, animation events, and optional vision context.
 - Developers can run a local empty shell without provider integrations.
+- The bootstrap flow, manual install fallbacks, and local-only storage roots are documented well enough for a second machine to reproduce the environment.
 
 Acceptance Criteria
 
 - A new developer can clone the repo and start both apps from documented commands.
+- A new Windows machine can identify which prerequisites are downloaded by script, which require manual install, and where local model payloads belong without asking the original author.
 - The repo layout matches the structure defined in the architecture doc.
 - CI or local validation can check formatting, type health, and backend startup.
 - The repo already contains the three agreed test character drop locations and animation storage roots, even before real asset files are imported.
@@ -74,12 +81,14 @@ Exit Criteria
 - The backend boots locally with stub adapters and clear configuration boundaries.
 - Route handlers depend on service interfaces rather than provider-specific code.
 - Session, character, and animation contracts are available for frontend integration.
+- Backend settings can point at documented local model or provider roots without source edits.
 
 Acceptance Criteria
 
 - Developers can run the backend with no local models installed and still inspect contract responses.
 - Provider selection lives in settings and service layers, not in route handlers.
 - Optional vision support is visible in the API model without forcing camera support to be enabled.
+- Missing provider installs fail with actionable guidance that points back to the documented bootstrap or manual fallback path.
 
 ## Stage 2: Frontend VRM Rendering
 

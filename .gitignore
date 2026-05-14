@@ -6,3 +6,29 @@
 .squad/.scratch/
 # Squad: SubSquad activation file (local to this machine)
 .squad-workstream
+
+# Local-only bootstrap outputs and repo-adjacent fallback roots
+.local/
+/.cache/
+/cache/
+/models/
+/providers/
+
+# Stability harness run artifacts
+tests/stability/artifacts/current/*
+!tests/stability/artifacts/current/.gitkeep
+tests/stability/artifacts/reports/*
+!tests/stability/artifacts/reports/.gitkeep
+
+# Machine-local env files
+.env.local
+.env.*.local
+
+# Common local Python envs for bootstrap or backend work
+backend/.venv/
+.venv/
+
+# Python cache artifacts
+__pycache__/
+*.pyc
+*.pyo

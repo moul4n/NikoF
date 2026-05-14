@@ -8,6 +8,12 @@ Run the validator locally from the repo root:
 powershell -ExecutionPolicy Bypass -File .\scripts\asset_validation\validate-contracts.ps1
 ```
 
+For regression tracking, the broader PowerShell stability harness wraps this validator as a baseline-backed scenario:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1
+```
+
 What it checks now:
 
 - the scaffold manifest shape for `test-vrm-01`, `test-vrm-02`, and `test-vrm-03`

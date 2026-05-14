@@ -1,0 +1,22 @@
+{
+    "scenario_id":  "contracts-validation",
+    "scenario_name":  "Contract validation snapshot",
+    "runner":  "powershell.exe",
+    "script":  "scripts/asset_validation/validate-contracts.ps1",
+    "tracked_inputs":  [
+                           "assets/characters/test-vrm-01/manifest.json",
+                           "assets/characters/test-vrm-02/manifest.json",
+                           "assets/characters/test-vrm-03/manifest.json",
+                           "tests/contracts/fixtures/",
+                           "tests/contracts/schemas/",
+                           "scripts/asset_validation/validate-contracts.ps1"
+                       ],
+    "exit_code":  0,
+    "output_lines":  [
+                         "Contract validation summary:",
+                         "- Schemas checked: 5",
+                         "- Character packages checked: 3",
+                         "- Fixture payloads checked: 3",
+                         "Contract validation passed."
+                     ]
+}

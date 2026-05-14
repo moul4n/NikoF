@@ -12,3 +12,5 @@
 - Real VRM intake should stay anchored to `model.vrm` at each package root; changing file names or adding extra nesting would break the manifest contract before runtime code exists.
 - Animation policy is easier to enforce when each storage root carries its own README describing promotion versus override rules, instead of relying on one top-level note.
 - When a vendor VRM arrives with an arbitrary export filename, normalize the package root back to `model.vrm` immediately; under the current scaffold schema, keep the runtime filename in `source_vrm.file_name` and stash the dropped vendor filename as explicit intake provenance in `source_vrm.embedded_identifier` until reviewed identity metadata replaces the scaffold.
+- 2026-05-14: The low-friction regression seam is a PowerShell harness that snapshots existing repo scripts into checked-in JSON baselines and leaves run artifacts untracked under `tests/stability/artifacts/`.
+- 2026-05-14: Baseline refresh must stay explicit; the harness should default to diff mode and only rewrite checked-in expectations behind `-RefreshBaselines`.

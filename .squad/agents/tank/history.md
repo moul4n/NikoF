@@ -11,3 +11,5 @@
 - Character and animation behavior should be loaded from config files, not baked into service logic.
 - Phase 0 backend work should stay framework-light: keep route shape coherent for FastAPI, but let service contracts and filesystem-backed character loading land before provider integrations.
 - Character package access belongs behind a manifest source boundary so route handlers never need to know about `assets/characters/{character_id}/manifest.json` layout details.
+- Bootstrap and backend settings should share one local-path contract: `NIKOF_LOCAL_ROOT`, `NIKOF_MODELS_ROOT`, `NIKOF_LLM_MODELS_ROOT`, `NIKOF_STT_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, `NIKOF_EMBEDDINGS_ROOT`, `NIKOF_PROVIDERS_ROOT`, and `NIKOF_CACHE_ROOT`.
+- Machine-local bootstrap reports and session env helpers belong under `.local/bootstrap/` so they stay disposable and Git-ignored, while heavyweight provider payloads still default to `%LOCALAPPDATA%\NikoF`.

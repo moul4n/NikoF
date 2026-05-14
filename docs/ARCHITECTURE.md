@@ -16,6 +16,19 @@ NikoF is a local-only anime companion stack optimized for low-latency interactio
 
 The baseline above is a planning contract, not a hard lock on one specific runtime implementation. Backend adapters must keep provider choice behind stable internal interfaces so later experiments do not leak into the frontend or asset pipeline.
 
+## Portability, Bootstrap, And Storage Policy
+
+- Git stores source, contracts, manifests, scripts, and documentation. Git does not store LLM weights, speech model payloads, vector indexes generated from local data, vendor runtime installers, or other heavyweight prerequisites.
+- Bootstrap scripts are the first-class path for preparing a new Windows machine. They should download or provision prerequisites when licensing, redistribution, and installer behavior make automation viable.
+- When a provider cannot be installed safely through automation, the repo must still carry precise manual fallback instructions, expected install locations, validation checks, and the next step needed to rejoin the standard bootstrap flow.
+- Cross-machine continuity is a design requirement, not a convenience item. The checked-in docs plus `.squad/` state must be sufficient for Jason or another developer to recover the architecture, current work plan, and local setup expectations on a fresh machine.
+
+Local storage rule:
+
+- Keep local model weights, provider runtimes, caches, and other heavyweight machine-specific prerequisites outside the normal source tree when possible, such as under `%LOCALAPPDATA%\NikoF\models`, `%LOCALAPPDATA%\NikoF\providers`, or another documented local root.
+- If a development workflow needs a repo-adjacent cache or pointer directory, it must be explicitly local-only, documented, and ignored by Git.
+- Backend configuration should resolve these locations through settings or environment variables instead of hardcoded absolute paths.
+
 ## Primary Runtime Workflows
 
 ### Voice Workflow
@@ -129,10 +142,6 @@ NikoF/
       overrides/
         {character_id}/
       retargeting/
-  models/
-    llm/
-    stt/
-    tts/
   scripts/
     bootstrap/
     asset_validation/
@@ -142,6 +151,8 @@ NikoF/
     contracts/
     latency/
 ```
+
+The repository structure above intentionally omits committed model payload directories. Model assets belong in documented local storage roots, while the repo carries adapters, manifests, bootstrap scripts, and validation logic only.
 
 ## Subsystem Responsibilities
 
@@ -168,6 +179,7 @@ NikoF/
 - Provides the only public service boundary to the frontend.
 - Normalizes provider-specific behavior from STT, LLM, and TTS adapters into stable internal contracts.
 - Manages latency budgets and fallbacks, including partial results and degraded local-only modes.
+- Resolves local provider and model paths through configuration so a new machine can reproduce the environment without editing source.
 
 ### STT Service
 
@@ -208,6 +220,13 @@ NikoF/
 - Validates character manifests, file layout, and required UniVRM 1.0 metadata.
 - Resolves the active character's model path, expression presets, voice profile, prompt profile, and animation override map.
 - Shields the rest of the backend from raw filesystem conventions.
+
+## Bootstrap And Continuity Responsibilities
+
+- `scripts/bootstrap/` owns machine preparation steps, prerequisite detection, download orchestration where allowed, and post-install validation entry points.
+- Documentation must describe the supported bootstrap flow for a fresh Windows machine, including which prerequisites are automated, which remain manual, and how to validate the finished environment before starting frontend or backend services.
+- Squad continuity files under `.squad/` are part of the operational architecture. They preserve active decisions, work ownership, and durable project knowledge so another machine or developer can resume with minimal rediscovery.
+- Architecture changes that affect local storage, install flow, or provider expectations must update both the implementation docs and the setup-and-continuity guide in the same change.
 
 ### Animation Runtime Service
 

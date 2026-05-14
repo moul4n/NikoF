@@ -1,0 +1,110 @@
+{
+  "storage": {
+    "defaultWindowsLocalRoot": "%LOCALAPPDATA%\\NikoF",
+    "repoLocalFallbackRoot": ".local\\nikof",
+    "reportRoot": ".local\\bootstrap",
+    "envFileName": "session-env.ps1",
+    "reportFileName": "bootstrap-report.json"
+  },
+  "tools": [
+    {
+      "id": "git",
+      "displayName": "Git",
+      "command": "git",
+      "args": [
+        "--version"
+      ],
+      "installUrl": "https://git-scm.com/download/win",
+      "manualInstall": "Install Git for Windows and ensure `git` is available on PATH."
+    },
+    {
+      "id": "python",
+      "displayName": "Python 3.10+ via the py launcher",
+      "command": "py",
+      "args": [
+        "-3",
+        "--version"
+      ],
+      "installUrl": "https://www.python.org/downloads/windows/",
+      "manualInstall": "Install Python 3.10 or newer and include the Python launcher."
+    },
+    {
+      "id": "node",
+      "displayName": "Node.js LTS",
+      "command": "node",
+      "args": [
+        "--version"
+      ],
+      "installUrl": "https://nodejs.org/",
+      "manualInstall": "Install the current Node.js LTS release."
+    },
+    {
+      "id": "npm",
+      "displayName": "npm",
+      "command": "npm",
+      "args": [
+        "--version"
+      ],
+      "installUrl": "https://nodejs.org/",
+      "manualInstall": "npm is expected to ship with the supported Node.js install."
+    }
+  ],
+  "providers": [
+    {
+      "id": "llm",
+      "displayName": "LLaMA 3.1 8B Q4_K_M baseline",
+      "rootKey": "llm_models_root",
+      "expectedRelativePath": "llama-3.1-8b-q4_k_m",
+      "upstream": "Operator-selected local runtime source such as Ollama or llama.cpp using the documented LLaMA 3.1 8B Q4_K_M baseline.",
+      "manualInstall": "Place the approved local LLM payload under the expected LLM models root or configure the runtime to point there. Capture the exact runtime choice in later provider settings instead of committing the payload."
+    },
+    {
+      "id": "stt-medium",
+      "displayName": "Faster-Whisper Medium",
+      "rootKey": "stt_models_root",
+      "expectedRelativePath": "faster-whisper-medium",
+      "upstream": "https://huggingface.co/Systran/faster-whisper-medium",
+      "manualInstall": "Download the Faster-Whisper Medium files from the upstream release page and extract them under the STT models root using the expected folder name."
+    },
+    {
+      "id": "stt-small",
+      "displayName": "Faster-Whisper Small fallback",
+      "rootKey": "stt_models_root",
+      "expectedRelativePath": "faster-whisper-small",
+      "upstream": "https://huggingface.co/Systran/faster-whisper-small",
+      "manualInstall": "Download the Faster-Whisper Small files only if you want the lower-VRAM fallback available on the machine."
+    },
+    {
+      "id": "tts",
+      "displayName": "GPT-SoVITS runtime payloads",
+      "rootKey": "tts_models_root",
+      "expectedRelativePath": "gpt-sovits",
+      "upstream": "Use the project-approved GPT-SoVITS upstream release or fork selected for the environment; do not commit vendor payloads.",
+      "manualInstall": "Install or extract the selected GPT-SoVITS runtime under the TTS models root and keep any voice-specific weights alongside that runtime in local storage only."
+    },
+    {
+      "id": "embeddings-primary",
+      "displayName": "bge-small-en baseline embeddings",
+      "rootKey": "embeddings_root",
+      "expectedRelativePath": "bge-small-en",
+      "upstream": "https://huggingface.co/BAAI/bge-small-en-v1.5",
+      "manualInstall": "Download the embedding model files into the embeddings root using the expected folder name."
+    },
+    {
+      "id": "embeddings-fallback",
+      "displayName": "MiniLM-L6-v2 fallback embeddings",
+      "rootKey": "embeddings_root",
+      "expectedRelativePath": "MiniLM-L6-v2",
+      "upstream": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+      "manualInstall": "Add the MiniLM-L6-v2 payload only if you need the lighter fallback path available on the machine."
+    },
+    {
+      "id": "provider-ollama",
+      "displayName": "Ollama for Windows",
+      "rootKey": "providers_root",
+      "expectedRelativePath": "ollama",
+      "upstream": "https://ollama.com/download/windows",
+      "manualInstall": "Install Ollama if you plan to run the LLM baseline through it, then place any machine-local shim or notes under the providers root instead of committing them."
+    }
+  ]
+}

@@ -19,6 +19,14 @@ NikoF is a Windows 10/11-first, local-only anime companion that combines a web U
 
 The vision loop is additive. It should enrich character reactions and scene awareness without becoming a hard dependency for the core voice turn.
 
+## Portability And Continuity Rules
+
+- Do not commit LLMs, model weights, provider runtimes, or other heavyweight prerequisites to GitHub.
+- Keep bootstrap and setup scripts responsible for acquiring prerequisites when automation is viable, and document manual download or install fallbacks when a provider cannot be redistributed or scripted safely.
+- Treat repo documentation and squad state as part of the product surface: a fresh Windows machine should be able to recover the intended stack, storage layout, and execution plan from the checked-in docs plus `.squad/` context.
+
+Local models and heavyweight runtimes should live outside the normal source tree or in explicitly local-only storage roots that are ignored by Git. The repository stores contracts, manifests, adapters, scripts, and instructions, not redistributable model payloads.
+
 ## Core Architecture
 
 - `frontend/`: React + TypeScript application for chat UI, device controls, microphone and camera permissions, session state, and avatar presentation.
@@ -59,4 +67,31 @@ powershell -ExecutionPolicy Bypass -File .\scripts\asset_validation\validate-con
 
 This validates scaffold character manifests, fallback identity metadata, and the local manifest-summary plus animation and session fixture payloads.
 
+## Stability Regression Harness
+
+Run the PowerShell-first stability harness from the repo root when you want regression or change-impact checks with tracked snapshots:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1
+```
+
+Refresh the stored baselines intentionally after an approved behavior change:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1 -RefreshBaselines
+```
+
+The initial suite snapshots the contract validator and the bootstrap prerequisite surface. Checked-in baselines live under `tests/stability/baselines/`, while generated run artifacts and JSON reports are written under `tests/stability/artifacts/` and stay Git-ignored.
+
+## Fresh-Machine Bootstrap
+
+On a new Windows machine, run the bootstrap scaffold first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\bootstrap.ps1
+```
+
+It creates the documented local storage roots, checks the base toolchain, writes a machine-local bootstrap report under `.local/bootstrap/`, and prints the manual next steps for heavyweight providers and models that stay outside Git.
+
 Detailed structure and contracts live in [docs/ARCHITECTURE.md](/c:/Users/fletc/Sources/NikoF/docs/ARCHITECTURE.md). Delivery stages, dependencies, and exit criteria live in [docs/IMPLEMENTATION_PLAN.md](/c:/Users/fletc/Sources/NikoF/docs/IMPLEMENTATION_PLAN.md).
+Fresh-machine bootstrap, local model storage policy, and squad continuity expectations live in [docs/SETUP_AND_CONTINUITY.md](/c:/Users/fletc/Sources/NikoF/docs/SETUP_AND_CONTINUITY.md).

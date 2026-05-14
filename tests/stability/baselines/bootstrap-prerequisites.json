@@ -1,0 +1,77 @@
+{
+    "scenario_id":  "bootstrap-prerequisites",
+    "scenario_name":  "Bootstrap prerequisite snapshot",
+    "tracked_inputs":  [
+                           "scripts/bootstrap/Test-NikoFPrerequisites.ps1",
+                           "scripts/bootstrap/bootstrap.targets.json"
+                       ],
+    "local_root":  "\u003cscenario-temp\u003e",
+    "tooling":  [
+                    {
+                        "id":  "git",
+                        "available":  true
+                    },
+                    {
+                        "id":  "python",
+                        "available":  true
+                    },
+                    {
+                        "id":  "node",
+                        "available":  false
+                    },
+                    {
+                        "id":  "npm",
+                        "available":  false
+                    }
+                ],
+    "missing_tools":  [
+                          "node",
+                          "npm"
+                      ],
+    "provider_payloads":  [
+                              {
+                                  "id":  "llm",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/llm/llama-3.1-8b-q4_k_m"
+                              },
+                              {
+                                  "id":  "stt-medium",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium"
+                              },
+                              {
+                                  "id":  "stt-small",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-small"
+                              },
+                              {
+                                  "id":  "tts",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits"
+                              },
+                              {
+                                  "id":  "embeddings-primary",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/embeddings/bge-small-en"
+                              },
+                              {
+                                  "id":  "embeddings-fallback",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/embeddings/MiniLM-L6-v2"
+                              },
+                              {
+                                  "id":  "provider-ollama",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/ollama"
+                              }
+                          ],
+    "missing_provider_payloads":  [
+                                      "llm",
+                                      "stt-medium",
+                                      "stt-small",
+                                      "tts",
+                                      "embeddings-primary",
+                                      "embeddings-fallback",
+                                      "provider-ollama"
+                                  ]
+}
