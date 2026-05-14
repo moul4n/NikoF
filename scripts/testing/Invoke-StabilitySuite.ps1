@@ -1248,7 +1248,13 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
         [string]$RunRoot
     )
 
+    $entrypointRoot = Join-Path $RepoRoot 'frontend\src'
     $appRoot = Join-Path $RepoRoot 'frontend\src\app'
+    $entrypointMarkers = @(
+        [pscustomobject]@{ name = 'create-root'; pattern = '\bcreateRoot\b' }
+        [pscustomobject]@{ name = 'import-app'; pattern = 'from\s+["'']\./app/App["'']' }
+        [pscustomobject]@{ name = 'render-app'; pattern = 'render\(\s*<App\b' }
+    )
     $backendSyncMarkers = @(
         [pscustomobject]@{ name = 'active-sync-error'; pattern = '\bActiveCharacterSyncError\b' }
         [pscustomobject]@{ name = 'bridge-character-catalog'; pattern = '\bbridgeCharacterCatalogWithBackend\b' }
@@ -1262,11 +1268,37 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
         [pscustomobject]@{ name = 'start-speech-lifecycle-live-consumption'; pattern = '\bstartSpeechLifecycleLiveConsumption\b' }
     )
 
+    $entrypointFiles = @(
+        Get-ChildItem -LiteralPath $entrypointRoot -File -Filter '*.tsx' |
+            Sort-Object FullName
+    )
     $surfaceFiles = @(
         Get-ChildItem -LiteralPath $appRoot -Recurse -File -Filter '*.tsx' |
             Sort-Object FullName
     )
+    $entrypointRecords = New-Object System.Collections.Generic.List[object]
     $surfaceRecords = New-Object System.Collections.Generic.List[object]
+
+    foreach ($entrypointFile in $entrypointFiles) {
+        $sourceText = Get-Content -LiteralPath $entrypointFile.FullName -Raw
+        $relativePath = Get-RepoRelativePath -Path $entrypointFile.FullName -RepoRoot $RepoRoot
+        $matchedEntrypointMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $entrypointMarkers)
+        $matchedBackendSyncMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $backendSyncMarkers)
+        $matchedSpeechLifecycleMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $speechLifecycleMarkers)
+        $rendersApp = ($matchedEntrypointMarkers -contains 'import-app') -and ($matchedEntrypointMarkers -contains 'render-app')
+
+        $entrypointRecords.Add(
+            [pscustomobject][ordered]@{
+                path = $relativePath
+                entrypoint_markers = $matchedEntrypointMarkers
+                backend_sync_markers = $matchedBackendSyncMarkers
+                speech_lifecycle_markers = $matchedSpeechLifecycleMarkers
+                renders_app = $rendersApp
+                owns_backend_sync_path = $matchedBackendSyncMarkers.Count -gt 0
+                owns_speech_lifecycle_path = $matchedSpeechLifecycleMarkers.Count -gt 0
+            }
+        ) | Out-Null
+    }
 
     foreach ($surfaceFile in $surfaceFiles) {
         $sourceText = Get-Content -LiteralPath $surfaceFile.FullName -Raw
@@ -1288,41 +1320,51 @@ function Invoke-FrontendShellSplitSurfaceSnapshot {
         ) | Out-Null
     }
 
+    $entrypointBackendSyncOwnerFiles = @($entrypointRecords | Where-Object { $_.owns_backend_sync_path } | ForEach-Object { $_.path })
+    $entrypointSpeechLifecycleOwnerFiles = @($entrypointRecords | Where-Object { $_.owns_speech_lifecycle_path } | ForEach-Object { $_.path })
+    $entrypointsWithoutApp = @($entrypointRecords | Where-Object { -not $_.renders_app } | ForEach-Object { $_.path })
     $backendSyncOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_backend_sync_path } | ForEach-Object { $_.path })
     $speechLifecycleOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_speech_lifecycle_path } | ForEach-Object { $_.path })
-    $presentationOnlySurfaceFiles = @($surfaceRecords | Where-Object { $_.presentation_only } | ForEach-Object { $_.path })
-    $splitSurfacePresent = $surfaceRecords.Count -gt 1
-    $presentationSurfacePresent = $presentationOnlySurfaceFiles.Count -gt 0
+    $splitEntrypointsPresent = $entrypointRecords.Count -gt 1
+    $entrypointsRouteThroughApp = ($entrypointsWithoutApp.Count -eq 0) -and ($entrypointBackendSyncOwnerFiles.Count -eq 0) -and ($entrypointSpeechLifecycleOwnerFiles.Count -eq 0)
 
     return [ordered]@{
         scenario_id = $Scenario.id
         scenario_name = $Scenario.name
         tracked_inputs = @($Scenario.tracked_inputs)
-        shell_surface_state = [ordered]@{
+        entrypoint_state = [ordered]@{
+            entrypoint_files = @($entrypointRecords | ForEach-Object { $_.path })
+            total_entrypoint_file_count = $entrypointRecords.Count
+            split_entrypoints_present = $splitEntrypointsPresent
+            entrypoints_render_app = $entrypointsWithoutApp.Count -eq 0
+            entrypoints_without_app = $entrypointsWithoutApp
+            entrypoint_backend_sync_owner_files = $entrypointBackendSyncOwnerFiles
+            entrypoint_speech_lifecycle_owner_files = $entrypointSpeechLifecycleOwnerFiles
+            dependency = if ($splitEntrypointsPresent) {
+                $null
+            }
+            else {
+                "Switch's real control/display entrypoint split is still absent under frontend/src/*.tsx, so this guard is prepared but blocked until separate /control and /display surfaces route through the same App-owned backend sync and speech.lifecycle path."
+            }
+        }
+        app_owner_state = [ordered]@{
             app_files = @($surfaceRecords | ForEach-Object { $_.path })
-            total_surface_file_count = $surfaceRecords.Count
-            split_surface_present = $splitSurfacePresent
-            presentation_surface_present = $presentationSurfacePresent
+            total_app_surface_file_count = $surfaceRecords.Count
             backend_sync_owner_files = $backendSyncOwnerFiles
             speech_lifecycle_owner_files = $speechLifecycleOwnerFiles
             secondary_backend_sync_path_present = $backendSyncOwnerFiles.Count -gt 1
             secondary_speech_lifecycle_path_present = $speechLifecycleOwnerFiles.Count -gt 1
-            presentation_only_surface_files = $presentationOnlySurfaceFiles
-            dependency = if ($splitSurfacePresent) {
-                $null
-            }
-            else {
-                "Switch's control/display split is still absent under frontend/src/app, so this guard is prepared but blocked until separate presentation surfaces exist without duplicating backend sync or speech.lifecycle consumption."
-            }
         }
+        entrypoint_files = @($entrypointRecords | ForEach-Object { $_ })
         surface_files = @($surfaceRecords | ForEach-Object { $_ })
         alignment = [ordered]@{
             single_backend_sync_owner = $backendSyncOwnerFiles.Count -eq 1
             single_speech_lifecycle_owner = $speechLifecycleOwnerFiles.Count -eq 1
             duplicate_backend_sync_path_blocked = $backendSyncOwnerFiles.Count -le 1
             duplicate_speech_lifecycle_path_blocked = $speechLifecycleOwnerFiles.Count -le 1
-            split_batch_unblocked = $splitSurfacePresent
-            display_surface_present = $presentationSurfacePresent
+            entrypoints_route_through_app = $entrypointsRouteThroughApp
+            split_batch_unblocked = $splitEntrypointsPresent -and $entrypointsRouteThroughApp
+            entrypoint_split_present = $splitEntrypointsPresent
         }
     }
 }

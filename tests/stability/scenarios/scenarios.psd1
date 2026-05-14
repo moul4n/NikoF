@@ -170,7 +170,8 @@
             harness = 'frontend-shell-split-surface'
             baseline = 'baselines/frontend-shell-split-surface.json'
             tracked_inputs = @(
-                'frontend/src/app/'
+                'frontend/src/main.tsx'
+                'frontend/src/app/App.tsx'
                 'frontend/src/avatar/loaders/backendCharacterFlow.ts'
                 'frontend/src/avatar/loaders/characterCatalog.ts'
                 'frontend/src/avatar/loaders/speechLifecycle.ts'

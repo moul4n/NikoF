@@ -57,7 +57,7 @@ type SpeechLifecycleLoadState = {
   message: string | null;
 };
 
-type SurfaceMode = "control" | "display";
+export type SurfaceMode = "control" | "display";
 
 function findCharacterEntry(catalog: CharacterCatalog | null, characterId: CharacterId | null): CharacterCatalogEntry | null {
   if (!catalog || !characterId) {
@@ -103,80 +103,57 @@ function describeSpeechLifecycleStateMessage(state: SpeechLifecycleLoadState): s
   return state.message ?? "The shell is reading the backend-owned snapshot envelope while live delivery is unavailable.";
 }
 
-function resolveSurfaceModeFromLocation(): SurfaceMode {
-  if (typeof window === "undefined") {
-    return "control";
-  }
-
-  const surface = new URL(window.location.href).searchParams.get("surface");
-
-  return surface === "display" ? "display" : "control";
-}
-
 function buildSurfaceHref(surfaceMode: SurfaceMode): string {
   if (typeof window === "undefined") {
-    return surfaceMode === "display" ? "?surface=display" : ".";
+    return surfaceMode === "display" ? "/display" : "/control";
   }
 
   const url = new URL(window.location.href);
 
-  if (surfaceMode === "display") {
-    url.searchParams.set("surface", "display");
-  } else {
-    url.searchParams.delete("surface");
+  const pathSegments = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+
+  if (pathSegments[pathSegments.length - 1] === "control" || pathSegments[pathSegments.length - 1] === "display") {
+    pathSegments.pop();
   }
 
-  return `${url.pathname}${url.search}${url.hash}`;
-}
+  pathSegments.push(surfaceMode);
 
-function syncSurfaceModeToLocation(surfaceMode: SurfaceMode): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const nextHref = buildSurfaceHref(surfaceMode);
-  const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-
-  if (currentHref !== nextHref) {
-    window.history.replaceState(null, "", nextHref);
-  }
+  return `/${pathSegments.join("/")}${url.search}${url.hash}`;
 }
 
 interface SurfaceModeSwitchProps {
   surfaceMode: SurfaceMode;
-  onSelectSurfaceMode: (surfaceMode: SurfaceMode) => void;
   controlSurfaceHref: string;
   displaySurfaceHref: string;
 }
 
-function SurfaceModeSwitch({
-  surfaceMode,
-  onSelectSurfaceMode,
-  controlSurfaceHref,
-  displaySurfaceHref
-}: SurfaceModeSwitchProps): JSX.Element {
+function SurfaceModeSwitch({ surfaceMode, controlSurfaceHref, displaySurfaceHref }: SurfaceModeSwitchProps): JSX.Element {
   const alternateSurfaceHref = surfaceMode === "control" ? displaySurfaceHref : controlSurfaceHref;
   const alternateSurfaceLabel = surfaceMode === "control" ? "Open display window" : "Open control window";
+  const alternateSurfaceTarget = surfaceMode === "control" ? "_blank" : undefined;
 
   return (
-    <nav className="surface-switcher" aria-label="Surface mode">
-      <button
-        type="button"
+    <nav className={surfaceMode === "display" ? "surface-switcher surface-switcher--display" : "surface-switcher"} aria-label="Surface mode">
+      <a
         className={surfaceMode === "control" ? "surface-switcher__button surface-switcher__button--active" : "surface-switcher__button"}
-        aria-pressed={surfaceMode === "control"}
-        onClick={() => onSelectSurfaceMode("control")}
+        aria-current={surfaceMode === "control" ? "page" : undefined}
+        href={controlSurfaceHref}
       >
         Control surface
-      </button>
-      <button
-        type="button"
+      </a>
+      <a
         className={surfaceMode === "display" ? "surface-switcher__button surface-switcher__button--active" : "surface-switcher__button"}
-        aria-pressed={surfaceMode === "display"}
-        onClick={() => onSelectSurfaceMode("display")}
+        aria-current={surfaceMode === "display" ? "page" : undefined}
+        href={displaySurfaceHref}
       >
         Display surface
-      </button>
-      <a className="surface-switcher__link" href={alternateSurfaceHref} target="_blank" rel="noreferrer">
+      </a>
+      <a
+        className="surface-switcher__link"
+        href={alternateSurfaceHref}
+        target={alternateSurfaceTarget}
+        rel={alternateSurfaceTarget ? "noreferrer" : undefined}
+      >
         {alternateSurfaceLabel}
       </a>
     </nav>
@@ -364,11 +341,11 @@ function DisplaySurfaceStatusPanel({
           : "snapshot fallback";
 
   return (
-    <section className="surface-panel" aria-labelledby="display-surface-status-title">
+    <section className="surface-panel surface-panel--display" aria-labelledby="display-surface-status-title">
       <div className="surface-panel__header">
         <div>
           <p className="eyebrow">Display surface</p>
-          <h2 id="display-surface-status-title">Render-window status</h2>
+          <h2 id="display-surface-status-title">Render status</h2>
         </div>
       </div>
 
@@ -396,10 +373,12 @@ function DisplaySurfaceStatusPanel({
     </section>
   );
 }
+interface AppProps {
+  surfaceMode: SurfaceMode;
+}
 
-export function App(): JSX.Element {
+export function App({ surfaceMode }: AppProps): JSX.Element {
   const [runtime] = useState<AvatarRuntimeBridge>(() => createAvatarRuntime());
-  const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>(() => resolveSurfaceModeFromLocation());
   const [loadState, setLoadState] = useState<CatalogLoadState>({
     status: "loading",
     catalog: null,
@@ -419,26 +398,6 @@ export function App(): JSX.Element {
   });
   const [speechLifecycleRefreshKey, setSpeechLifecycleRefreshKey] = useState(0);
   const [selectedCharacterId, setSelectedCharacterId] = useState<CharacterId | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-
-    const handlePopState = (): void => {
-      setSurfaceMode(resolveSurfaceModeFromLocation());
-    };
-
-    window.addEventListener("popstate", handlePopState);
-
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, []);
-
-  useEffect(() => {
-    syncSurfaceModeToLocation(surfaceMode);
-  }, [surfaceMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -660,30 +619,33 @@ export function App(): JSX.Element {
     return (
       <div className="app-shell app-shell--display">
         <header className="app-shell__header app-shell__header--display">
-          <div>
-            <p className="eyebrow">Phase 0 scaffold</p>
-            <h1>NikoF avatar display surface</h1>
+          <div className="app-shell__display-toolbar">
+            <div>
+              <p className="eyebrow">Display entrypoint</p>
+              <h1>NikoF avatar display surface</h1>
+            </div>
+            <SurfaceModeSwitch
+              surfaceMode={surfaceMode}
+              controlSurfaceHref={controlSurfaceHref}
+              displaySurfaceHref={displaySurfaceHref}
+            />
           </div>
-          <p className="app-shell__summary">
-            This surface is the dedicated avatar render window. App still owns catalog load, active-character sync, and speech lifecycle consumption; the display view only presents the current state.
+          <p className="app-shell__summary app-shell__summary--display">
+            Launch this window directly at `/display` for presentation mode. The shared App still owns catalog load, backend-confirmed active-character reconciliation, and live `speech.lifecycle` state.
           </p>
-          <SurfaceModeSwitch
-            surfaceMode={surfaceMode}
-            onSelectSurfaceMode={setSurfaceMode}
-            controlSurfaceHref={controlSurfaceHref}
-            displaySurfaceHref={displaySurfaceHref}
-          />
         </header>
 
         <main className="app-shell__display">
           <AvatarStage runtime={runtime} selectedCharacter={selectedCharacter} variant="display" />
-          <DisplaySurfaceStatusPanel
-            selectedCharacter={selectedCharacter}
-            backendStatusMessage={backendStatusMessage}
-            speechLifecycleState={speechLifecycleState}
-            speechLifecycleSnapshot={speechLifecycleSnapshot}
-            speechLifecycleMessage={speechLifecycleMessage}
-          />
+          <aside className="app-shell__display-rail">
+            <DisplaySurfaceStatusPanel
+              selectedCharacter={selectedCharacter}
+              backendStatusMessage={backendStatusMessage}
+              speechLifecycleState={speechLifecycleState}
+              speechLifecycleSnapshot={speechLifecycleSnapshot}
+              speechLifecycleMessage={speechLifecycleMessage}
+            />
+          </aside>
         </main>
       </div>
     );
@@ -693,18 +655,17 @@ export function App(): JSX.Element {
     <div className="app-shell">
       <header className="app-shell__header">
         <div>
-          <p className="eyebrow">Phase 0 scaffold</p>
+          <p className="eyebrow">Control entrypoint</p>
           <h1>NikoF control surface</h1>
         </div>
         <p className="app-shell__summary">
-          The control surface keeps manifest-backed catalog selection, backend-confirmed session status, and speech lifecycle telemetry in one shell. The avatar render window now lives on the separate display surface.
+          Launch this operator shell at `/control`. It keeps manifest-backed catalog selection, backend-confirmed session status, and speech lifecycle telemetry in one place while the display surface stays presentation-first.
         </p>
-        <SurfaceModeSwitch
-          surfaceMode={surfaceMode}
-          onSelectSurfaceMode={setSurfaceMode}
-          controlSurfaceHref={controlSurfaceHref}
-          displaySurfaceHref={displaySurfaceHref}
-        />
+          <SurfaceModeSwitch
+            surfaceMode={surfaceMode}
+            controlSurfaceHref={controlSurfaceHref}
+            displaySurfaceHref={displaySurfaceHref}
+          />
       </header>
 
       <main className="app-shell__content app-shell__content--control">

@@ -2,7 +2,7 @@
 
 Updated: 2026-05-14
 
-1. Use the landed control and display shell split to deepen display-only composition without moving backend-confirmed character state or `speech.lifecycle` consumption out of `App.tsx`.
-2. Keep the current local `surface` branch as the navigation seam until the shell needs real deep-linkable routes; do not add a router just to restate the current two-surface branch.
-3. If the display surface needs more structure, extract presentation-only components first and keep App as the single owner of backend sync, active-character confirmation, and live speech lifecycle state.
-4. Keep backend transport, cursor flow, manifest-local asset resolution, and the canonical `speech.lifecycle` envelope unchanged while that display-only follow-up batch lands.
+1. Treat `/control` and `/display` as the canonical frontend launch surfaces now that the real entrypoint split has landed; do not reintroduce the query-parameter surface toggle.
+2. Keep `App.tsx` as the single owner of backend sync, active-character confirmation, and live `speech.lifecycle` state while the next frontend seam extracts only presentation-first display composition under `frontend/src/app/` when that split buys clarity.
+3. Limit the next display-focused batch to minimal-chrome and fullscreen-ready presentation structure behind the real entrypoints, and keep operator or debug affordances on the control side unless they fit without backend contract changes.
+4. Keep backend transport, cursor flow, manifest-local asset resolution, and the canonical `speech.lifecycle` envelope unchanged while that display-only composition seam lands.

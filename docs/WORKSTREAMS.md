@@ -1,6 +1,6 @@
 # Squad Workstreams
 
-Updated at: 2026-05-14T10:08:00+01:00
+Updated at: 2026-05-14T10:23:00+01:00
 
 This is the active scaffold board for the current stages. It assumes the three test avatar package ids are fixed as `test-vrm-01`, `test-vrm-02`, and `test-vrm-03` until real identity review says otherwise.
 
@@ -26,7 +26,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 ### Trinity Stage 2
 
 - [ ] Review the frontend avatar runtime and catalog contract before Switch broadens beyond the default-character shell.
-- [ ] Review any display-only follow-up work against the landed control and display split so App stays the only backend-sync and `speech.lifecycle` owner.
+- [x] Review the real `/control` and `/display` entrypoint batch so App stays the only backend-sync and `speech.lifecycle` owner.
+- [ ] Review any follow-on display-only composition extraction so real entrypoints remain thin launch surfaces and `App.tsx` stays the only backend-sync and `speech.lifecycle` owner.
 - [ ] Keep camera and microphone UX bounded to the frontend shell without letting provider logic leak into components.
 
 ### Trinity Stages 3 Through 7
@@ -49,8 +50,10 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Load VRMs from manifest-provided paths only.
 - [x] Split the current frontend shell into a control surface and a display surface while keeping App-level loaders and backend envelope consumption unchanged.
 - [x] Use simple local surface branching for that split instead of adding a routing dependency in this batch.
-- [ ] Deepen display-only composition on top of the landed split without moving backend sync or `speech.lifecycle` consumption out of App.
-- [ ] Decide whether any later seam is richer display composition or true deep-linkable navigation before adding router-level information architecture.
+- [x] Replace the query-parameter split with real `/control` and `/display` entrypoints that both mount the same App-owned backend-sync shell.
+- [x] Keep the display entrypoint minimal-chrome, fullscreen-capable, and presentation-first while the control entrypoint retains configuration and status panels.
+- [x] Avoid router-level information architecture in this batch; prefer entrypoint-level bootstraps or multi-page Vite wiring that do not duplicate backend state ownership.
+- [ ] If the split needs cleanup, extract display-only presentation structure behind the real entrypoints without duplicating backend state ownership or reopening routing.
 - [ ] Reserve UI seams for microphone and camera permissions without coupling to provider runtime code.
 
 ### Switch Stage 5
@@ -145,6 +148,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Keep schema gates aligned with the Stage 1 service boundaries.
 - [ ] Add checks that missing local providers resolve to actionable bootstrap or manual-install guidance instead of opaque failures.
 - [x] Add a narrow frontend shell-structure check that proves backend-confirmed active-character and `speech.lifecycle` state still feed the same envelope-owning loader path after the control and display split lands.
+- [x] Retarget that shell-structure guard to the real `/control` and `/display` entrypoints so top-level bootstraps must still route through one App-owned backend-sync and `speech.lifecycle` path.
 - [ ] Extend that shell-structure guard only if display-only composition extracts more presentation files under `frontend/src/app/`.
 
 ### Mouse Stages 3 And 4
@@ -164,8 +168,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ## Immediate Handoff
 
-- Switch owns the next narrow frontend follow-up: deepen the display surface as presentation-only composition while keeping App as the single owner of backend sync and `speech.lifecycle` consumption.
-- Trinity reviews that follow-up for boundary discipline: no router dependency yet, no backend transport changes, and no new asset-serving contract.
-- Mouse is only back on the critical path if the display follow-up changes ownership boundaries under `frontend/src/app/`; otherwise keep the landed shell-split guard as the current frontend stability seam.
-- Tank and Link are not on the critical path for this batch unless Switch finds a real contract gap; keep the backend `speech.lifecycle` and active-character surfaces unchanged.
+- Switch owns the next frontend seam only if cleanup is needed: extract display-only presentation structure behind the landed `/control` and `/display` entrypoints while keeping `App.tsx` as the single owner of backend sync and `speech.lifecycle` consumption.
+- Trinity reviews that cleanup for boundary discipline: no backend transport changes, no new asset-serving contract, and no duplication of App-owned session state across entrypoints or presentation helpers.
+- Mouse is back on the critical path only if that presentation split widens `frontend/src/app/`; the guard should continue proving that every real entrypoint still routes through one App-owned backend-sync and `speech.lifecycle` path.
+- Tank and Link are not on the critical path for this seam unless Switch finds a real contract gap; keep the backend `speech.lifecycle` and active-character surfaces unchanged.
 - Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.

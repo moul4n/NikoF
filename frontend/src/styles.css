@@ -16,6 +16,10 @@ body {
   min-height: 100vh;
 }
 
+body[data-surface-mode="display"] {
+  background: radial-gradient(circle at top, #15213a 0%, #0a1220 56%, #04070d 100%);
+}
+
 button,
 input,
 textarea,
@@ -30,6 +34,10 @@ select {
 .app-shell {
   min-height: 100vh;
   padding: 2rem;
+}
+
+.app-shell--display {
+  padding: 0.85rem;
 }
 
 .app-shell__header,
@@ -52,7 +60,16 @@ select {
 }
 
 .app-shell__header--display {
-  width: min(1440px, 100%);
+  width: min(1500px, 100%);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.app-shell__display-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
 }
 
 .app-shell__header h1,
@@ -64,6 +81,10 @@ select {
 .app-shell__summary {
   max-width: 62ch;
   color: #b5c2d6;
+}
+
+.app-shell__summary--display {
+  max-width: 74ch;
 }
 
 .app-shell__content {
@@ -85,7 +106,16 @@ select {
 }
 
 .app-shell__display {
-  width: min(1440px, 100%);
+  width: min(1500px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 1rem;
+  align-items: start;
+}
+
+.app-shell__display-rail {
+  display: grid;
+  align-content: start;
 }
 
 .surface-switcher {
@@ -95,8 +125,15 @@ select {
   align-items: center;
 }
 
+.surface-switcher--display {
+  justify-content: flex-end;
+}
+
 .surface-switcher__button,
 .surface-switcher__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   border: 1px solid rgba(160, 175, 200, 0.24);
   background: rgba(21, 31, 48, 0.76);
@@ -136,6 +173,10 @@ select {
   border-radius: 20px;
   padding: 1.25rem;
   backdrop-filter: blur(12px);
+}
+
+.surface-panel--display {
+  padding: 1rem;
 }
 
 .catalog-panel__header,
@@ -311,9 +352,16 @@ select {
   gap: 1rem;
 }
 
+.avatar-stage__surface--display {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .avatar-stage--display .avatar-stage__surface {
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
-  min-height: calc(100vh - 18rem);
+  min-height: calc(100vh - 10.5rem);
+}
+
+.avatar-stage__header--display {
+  margin-bottom: 0.75rem;
 }
 
 .avatar-stage__viewport-shell,
@@ -326,14 +374,37 @@ select {
 }
 
 .avatar-stage--display .avatar-stage__viewport-shell,
-.avatar-stage--display .avatar-stage__overlay,
 .avatar-stage--display .avatar-stage__viewport {
-  min-height: calc(100vh - 18rem);
+  min-height: calc(100vh - 11.5rem);
+}
+
+.avatar-stage__viewport-shell--display {
+  padding: 0.6rem;
 }
 
 .avatar-stage__viewport-shell {
   position: relative;
   overflow: hidden;
+}
+
+.avatar-stage__display-banner {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.avatar-stage__display-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(140, 160, 191, 0.22);
+  background: rgba(8, 13, 22, 0.78);
+  padding: 0.45rem 0.75rem;
+  color: #dce6f5;
+  font-size: 0.9rem;
+  backdrop-filter: blur(8px);
 }
 
 .avatar-stage__viewport {
@@ -411,9 +482,13 @@ select {
     width: min(1200px, 100%);
   }
 
+  .app-shell__display-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .avatar-stage--display .avatar-stage__surface,
   .avatar-stage--display .avatar-stage__viewport-shell,
-  .avatar-stage--display .avatar-stage__overlay,
   .avatar-stage--display .avatar-stage__viewport {
     min-height: 360px;
   }

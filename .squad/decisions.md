@@ -218,6 +218,18 @@
 
 **By:** Switch
 **What:** Keep the Stage 1 active-character `PUT` contract unchanged, but preserve the normalized backend response on rejection so the frontend shell can roll local selection back to `response.active_character.character_id` and surface `selection.message` when the backend rejects a requested character.
+
+### 2026-05-14T10:14:00+01:00: Real control and display entrypoints for the next frontend batch
+
+**By:** Trinity
+**What:** Re-scope the next frontend batch to replace the current query-parameter surface split with real `/control` and `/display` entrypoints. Keep `App.tsx` as the only owner of backend sync, active-character confirmation, and live `speech.lifecycle` state, and keep operator or debug affordances out of this batch unless they fit without backend contract changes.
+**Why:** The user clarified that the display surface should behave like a directly launchable immersive window with minimal chrome, fullscreen capability, and normal resize behavior. The current local surface toggle proves the ownership boundary, but it does not satisfy that entrypoint requirement.
+
+### 2026-05-14T10:17:00+01:00: Frontend entrypoint split guard prep
+
+**By:** Mouse
+**What:** Retarget `frontend-shell-split-surface` to snapshot top-level React entrypoints under `frontend/src/*.tsx` separately from `App.tsx`, and require entrypoints to route through `App` without owning backend sync or `speech.lifecycle` themselves.
+**Why:** The real `/control` and `/display` split has not landed yet, so the narrow prep guard should baseline the current blocked one-entrypoint state now and fail future duplicate bridge ownership when Switch adds the new surfaces.
 **Why:** The shell was updating local selection optimistically and could drift from backend-confirmed active state after a rejected selection, which breaks the current bridge contract even without widening the API surface.
 
 ### 2026-05-14: Frontend Stage 1 rollback assertion matches structured catch path

@@ -2,32 +2,64 @@
     "scenario_id":  "frontend-shell-split-surface",
     "scenario_name":  "Frontend shell split surface snapshot",
     "tracked_inputs":  [
-                           "frontend/src/app/",
+                           "frontend/src/main.tsx",
+                           "frontend/src/app/App.tsx",
                            "frontend/src/avatar/loaders/backendCharacterFlow.ts",
                            "frontend/src/avatar/loaders/characterCatalog.ts",
                            "frontend/src/avatar/loaders/speechLifecycle.ts",
                            "frontend/src/shared/types/character.ts"
                        ],
-    "shell_surface_state":  {
-                                 "app_files":  [
-                                                   "frontend/src/app/App.tsx"
-                                               ],
-                                 "total_surface_file_count":  1,
-                                 "split_surface_present":  false,
-                                 "presentation_surface_present":  false,
-                                 "backend_sync_owner_files":  [
-                                                                  "frontend/src/app/App.tsx"
-                                                              ],
-                                 "speech_lifecycle_owner_files":  [
-                                                                       "frontend/src/app/App.tsx"
-                                                                   ],
-                                 "secondary_backend_sync_path_present":  false,
-                                 "secondary_speech_lifecycle_path_present":  false,
-                                 "presentation_only_surface_files":  [
+    "entrypoint_state":  {
+                             "entrypoint_files":  [
+                                                      "frontend/src/main.tsx"
+                                                  ],
+                             "total_entrypoint_file_count":  1,
+                             "split_entrypoints_present":  false,
+                             "entrypoints_render_app":  true,
+                             "entrypoints_without_app":  [
+
+                                                         ],
+                             "entrypoint_backend_sync_owner_files":  [
 
                                                                      ],
-                                 "dependency":  "Switch's control/display split is still absent under frontend/src/app, so this guard is prepared but blocked until separate presentation surfaces exist without duplicating backend sync or speech.lifecycle consumption."
-                             },
+                             "entrypoint_speech_lifecycle_owner_files":  [
+
+                                                                         ],
+                             "dependency":  "Switch\u0027s real control/display entrypoint split is still absent under frontend/src/*.tsx, so this guard is prepared but blocked until separate /control and /display surfaces route through the same App-owned backend sync and speech.lifecycle path."
+                         },
+    "app_owner_state":  {
+                            "app_files":  [
+                                              "frontend/src/app/App.tsx"
+                                          ],
+                            "total_app_surface_file_count":  1,
+                            "backend_sync_owner_files":  [
+                                                             "frontend/src/app/App.tsx"
+                                                         ],
+                            "speech_lifecycle_owner_files":  [
+                                                                 "frontend/src/app/App.tsx"
+                                                             ],
+                            "secondary_backend_sync_path_present":  false,
+                            "secondary_speech_lifecycle_path_present":  false
+                        },
+    "entrypoint_files":  [
+                             {
+                                 "path":  "frontend/src/main.tsx",
+                                 "entrypoint_markers":  [
+                                                            "create-root",
+                                                            "import-app",
+                                                            "render-app"
+                                                        ],
+                                 "backend_sync_markers":  [
+
+                                                          ],
+                                 "speech_lifecycle_markers":  [
+
+                                                              ],
+                                 "renders_app":  true,
+                                 "owns_backend_sync_path":  false,
+                                 "owns_speech_lifecycle_path":  false
+                             }
+                         ],
     "surface_files":  [
                           {
                               "path":  "frontend/src/app/App.tsx",
@@ -53,7 +85,8 @@
                       "single_speech_lifecycle_owner":  true,
                       "duplicate_backend_sync_path_blocked":  true,
                       "duplicate_speech_lifecycle_path_blocked":  true,
+                      "entrypoints_route_through_app":  true,
                       "split_batch_unblocked":  false,
-                      "display_surface_present":  false
+                      "entrypoint_split_present":  false
                   }
 }
