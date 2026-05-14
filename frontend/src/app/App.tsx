@@ -104,6 +104,48 @@ function describeSpeechLifecycleStateMessage(state: SpeechLifecycleLoadState): s
   return state.message ?? "The shell is reading the backend-owned snapshot envelope while live delivery is unavailable.";
 }
 
+function resolveDisplayReplySnapshot(snapshot: ConsumedSpeechLifecycleSnapshot | null): {
+  label: string | null;
+  status: string | null;
+  text: string | null;
+} {
+  const replyEvent = snapshot?.canonicalSpeechSynthesisEvent;
+
+  if (!replyEvent) {
+    return {
+      label: null,
+      status: null,
+      text: null
+    };
+  }
+
+  const assistantText = replyEvent.assistant?.text?.trim();
+
+  if (assistantText) {
+    return {
+      label: "Assistant reply",
+      status: replyEvent.assistant?.status ?? replyEvent.status,
+      text: assistantText
+    };
+  }
+
+  const synthesisText = replyEvent.synthesis?.text?.trim();
+
+  if (synthesisText) {
+    return {
+      label: "Synthesis reply",
+      status: replyEvent.synthesis?.status ?? replyEvent.status,
+      text: synthesisText
+    };
+  }
+
+  return {
+    label: "Reply activity",
+    status: replyEvent.assistant?.status ?? replyEvent.synthesis?.status ?? replyEvent.status,
+    text: null
+  };
+}
+
 function buildSurfaceHref(surfaceMode: SurfaceMode): string {
   if (typeof window === "undefined") {
     return surfaceMode === "display" ? "/display" : "/control";
@@ -323,6 +365,9 @@ interface DisplaySurfaceStatusPanelProps {
   speechLifecycleState: SpeechLifecycleLoadState;
   speechLifecycleSnapshot: ConsumedSpeechLifecycleSnapshot | null;
   speechLifecycleMessage: string | null;
+  replyActivityLabel: string | null;
+  replyActivityStatus: string | null;
+  replyActivityText: string | null;
 }
 
 function DisplaySurfaceStatusPanel({
@@ -330,7 +375,10 @@ function DisplaySurfaceStatusPanel({
   backendStatusMessage,
   speechLifecycleState,
   speechLifecycleSnapshot,
-  speechLifecycleMessage
+  speechLifecycleMessage,
+  replyActivityLabel,
+  replyActivityStatus,
+  replyActivityText
 }: DisplaySurfaceStatusPanelProps): JSX.Element {
   const speechDeliveryLabel =
     speechLifecycleState.status === "offline"
@@ -371,6 +419,20 @@ function DisplaySurfaceStatusPanel({
 
       <p className="surface-panel__message">{backendStatusMessage}</p>
       {speechLifecycleMessage ? <p className="surface-panel__summary">{speechLifecycleMessage}</p> : null}
+      {replyActivityText ? (
+        <>
+          <p className="surface-panel__summary">
+            {replyActivityLabel}
+            {replyActivityStatus ? ` · ${replyActivityStatus}` : ""}
+          </p>
+          <p className="surface-panel__message">{replyActivityText}</p>
+        </>
+      ) : replyActivityLabel ? (
+        <p className="surface-panel__summary">
+          {replyActivityLabel}
+          {replyActivityStatus ? ` detected (${replyActivityStatus}).` : " detected on the backend-owned speech lifecycle stream."}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -609,6 +671,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
   const canonicalTranscription = speechLifecycleSnapshot?.canonicalTranscriptionEvent?.transcription ?? null;
   const canonicalSynthesis = speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.synthesis ?? null;
+  const displayReplySnapshot = resolveDisplayReplySnapshot(speechLifecycleSnapshot);
   const speechLifecycleCharacterId =
     speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.character_id ??
     speechLifecycleSnapshot?.canonicalTranscriptionEvent?.character_id ??
@@ -646,6 +709,9 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
               speechLifecycleState={speechLifecycleState}
               speechLifecycleSnapshot={speechLifecycleSnapshot}
               speechLifecycleMessage={speechLifecycleMessage}
+              replyActivityLabel={displayReplySnapshot.label}
+              replyActivityStatus={displayReplySnapshot.status}
+              replyActivityText={displayReplySnapshot.text}
             />
           </aside>
         </main>

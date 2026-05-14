@@ -743,17 +743,64 @@ class OperatorCommandRouteTests(unittest.TestCase):
         self.assertEqual("test-vrm-01", payload["character_id"])
         self.assertEqual("session.operator.text-question", payload["session_event"]["event_type"])
         self.assertEqual("assistant.message", payload["speech_lifecycle_events"][0]["event"]["event_type"])
+        self.assertEqual("speech.synthesis", payload["speech_lifecycle_events"][1]["event"]["event_type"])
         self.assertEqual(
             "You should keep iterating on the backend seam.",
             payload["speech_lifecycle_events"][0]["event"]["assistant"]["text"],
         )
         self.assertEqual(
             "You should keep iterating on the backend seam.",
+            payload["speech_lifecycle_events"][1]["event"]["synthesis"]["text"],
+        )
+        self.assertEqual(
+            "You should keep iterating on the backend seam.",
             payload["session_event"]["assistant"]["text"],
         )
-        self.assertEqual(["assistant.message"], [event.event.event_type for event in speech_events])
+        self.assertEqual(
+            ["assistant.message", "speech.synthesis"],
+            [event.event.event_type for event in speech_events],
+        )
         self.assertEqual(["session.operator.text-question"], [event.event.event_type for event in session_events])
-        self.assertEqual("speech.lifecycle:session-scaffold-01:2", payload["next_speech_cursor"])
+        self.assertEqual("speech.lifecycle:session-scaffold-01:3", payload["next_speech_cursor"])
+
+    def test_text_question_command_reply_round_trips_through_speech_snapshot(self) -> None:
+        endpoint, session_service = build_operator_command_route_endpoint()
+
+        response = endpoint(
+            OperatorCommandRequest(
+                command_type="text_question",
+                text="What should I do next?",
+                locale="en-US",
+            )
+        )
+
+        response_payload = cast(
+            dict[str, object],
+            canonicalize_transport_payload(_serialize_dataclass_payload(response)),
+        )
+        snapshot_service = StubSpeechLifecycleSnapshotService(event_store=session_service.event_store)
+        transport_snapshot = snapshot_service.get_snapshot(
+            session_service.get_snapshot(),
+            character_id="test-vrm-01",
+        )
+        snapshot_payload = cast(
+            dict[str, object],
+            canonicalize_transport_payload(_serialize_dataclass_payload(transport_snapshot)),
+        )
+
+        response_events = cast(list[dict[str, object]], response_payload["speech_lifecycle_events"])
+        snapshot_events = cast(list[dict[str, object]], snapshot_payload["events"])
+
+        self.assertEqual(response_events, snapshot_events)
+        self.assertEqual(response_payload["next_speech_cursor"], snapshot_payload["next_cursor"])
+        self.assertEqual(
+            response_payload["session_event"]["assistant"],
+            snapshot_events[0]["event"]["assistant"],
+        )
+        self.assertEqual(
+            response_events[1]["event"]["synthesis"],
+            snapshot_events[1]["event"]["synthesis"],
+        )
 
     def test_text_question_command_surfaces_unavailable_assistant_status(self) -> None:
         endpoint, session_service = build_operator_command_route_endpoint(
@@ -779,7 +826,14 @@ class OperatorCommandRouteTests(unittest.TestCase):
             "Local text generation is unavailable.",
             payload["session_event"]["assistant"]["text"],
         )
-        self.assertEqual(["assistant.message"], [event.event.event_type for event in speech_events])
+        self.assertEqual(
+            ["assistant.message", "speech.synthesis"],
+            [event.event.event_type for event in speech_events],
+        )
+        self.assertEqual(
+            "Local text generation is unavailable.",
+            speech_events[1].event.synthesis.text,
+        )
 
     def test_tts_preview_command_publishes_canonical_synthesis_event(self) -> None:
         endpoint, session_service = build_operator_command_route_endpoint()

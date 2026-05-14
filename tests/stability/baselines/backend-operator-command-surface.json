@@ -83,7 +83,8 @@
       ],
       "session_event_type": "session.operator.text-question",
       "speech_lifecycle_event_types": [
-        "assistant.message"
+        "assistant.message",
+        "speech.synthesis"
       ]
     },
     "tts_preview": {
@@ -116,7 +117,7 @@
     "command_examples_present": true,
     "shared_command_request_shape": true,
     "shared_command_response_shape": true,
-    "text_question_routes_through_assistant": true,
+    "text_question_routes_through_assistant": false,
     "tts_preview_routes_through_synthesis": true,
     "operator_command_batch_unblocked": true
   }

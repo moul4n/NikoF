@@ -275,6 +275,37 @@ def _append_speech_lifecycle_event(
     return session_service.event_store.append(SPEECH_LIFECYCLE_STREAM, session_event)
 
 
+def _append_synthesis_speech_lifecycle_event(
+    session_service: SessionService,
+    session_event_factory: SessionEventFactory,
+    synthesis_service: SpeechSynthesisService,
+    snapshot: SessionSnapshot,
+    *,
+    character_id: str,
+    text: str,
+    locale: str,
+    reason: str,
+) -> SpeechLifecycleEventEnvelope:
+    synthesis = synthesis_service.synthesize(
+        SpeechSynthesisRequest(
+            text=text,
+            locale=locale,
+        )
+    )
+    return _append_speech_lifecycle_event(
+        session_service,
+        _build_session_event(
+            snapshot,
+            session_event_factory,
+            character_id=character_id,
+            event_type="speech.synthesis",
+            status=synthesis.status,
+            reason=reason,
+            synthesis=synthesis,
+        ),
+    )
+
+
 def _normalize_operator_command_text(text: str) -> str:
     normalized = text.strip()
     if not normalized:
@@ -379,6 +410,16 @@ def _publish_operator_command(
                 assistant=assistant,
             ),
         )
+        synthesis_speech_lifecycle_event = _append_synthesis_speech_lifecycle_event(
+            session_service,
+            session_event_factory,
+            synthesis_service,
+            snapshot,
+            character_id=character_id,
+            text=assistant.text,
+            locale=command.locale,
+            reason="operator.text-question",
+        )
         session_event = _append_session_event(
             session_service,
             _build_session_event(
@@ -397,28 +438,20 @@ def _publish_operator_command(
             character_id=character_id,
             status=session_event.status,
             session_event=session_event,
-            speech_lifecycle_events=(speech_lifecycle_event,),
+            speech_lifecycle_events=(speech_lifecycle_event, synthesis_speech_lifecycle_event),
             session_service=session_service,
         )
 
     if command.command_type == "tts_preview":
-        synthesis = synthesis_service.synthesize(
-            SpeechSynthesisRequest(
-                text=text,
-                locale=command.locale,
-            )
-        )
-        speech_lifecycle_event = _append_speech_lifecycle_event(
+        speech_lifecycle_event = _append_synthesis_speech_lifecycle_event(
             session_service,
-            _build_session_event(
-                snapshot,
-                session_event_factory,
-                character_id=character_id,
-                event_type="speech.synthesis",
-                status=synthesis.status,
-                reason="operator.tts-preview",
-                synthesis=synthesis,
-            ),
+            session_event_factory,
+            synthesis_service,
+            snapshot,
+            character_id=character_id,
+            text=text,
+            locale=command.locale,
+            reason="operator.tts-preview",
         )
         session_event = _append_session_event(
             session_service,
@@ -427,9 +460,9 @@ def _publish_operator_command(
                 session_event_factory,
                 character_id=character_id,
                 event_type="session.operator.tts-preview",
-                status=synthesis.status,
+                status=speech_lifecycle_event.event.status,
                 reason="operator.tts-preview",
-                synthesis=synthesis,
+                synthesis=speech_lifecycle_event.event.synthesis,
             ),
         )
         return _build_operator_command_response(

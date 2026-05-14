@@ -315,7 +315,7 @@
             "locale": "en-US"
           }
         },
-        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:4",
+        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:5",
         "speech_lifecycle_events": [
           {
             "event_id": "speech-lifecycle-0003",
@@ -337,6 +337,73 @@
                 "locale": "en-US"
               },
               "synthesis": null
+            }
+          },
+          {
+            "event_id": "speech-lifecycle-0004",
+            "sequence": 4,
+            "cursor": "speech.lifecycle:session-scaffold-01:4",
+            "event": {
+              "schema_version": 1,
+              "event_type": "speech.synthesis",
+              "session_id": "session-scaffold-01",
+              "character_id": "test-vrm-01",
+              "status": "unavailable",
+              "timestamp": "<generated-at>",
+              "reason": "operator.text-question",
+              "transcription": null,
+              "assistant": null,
+              "synthesis": {
+                "profile_id": "tts.gpt-sovits.2026-stable",
+                "status": "unavailable",
+                "text": "Local text generation is unavailable.",
+                "locale": "en-US",
+                "timing": {
+                  "utterance_duration_ms": 2120,
+                  "segment_ranges": [
+                    {
+                      "start_ms": 0,
+                      "end_ms": 880,
+                      "text": "Sure."
+                    },
+                    {
+                      "start_ms": 880,
+                      "end_ms": 2120,
+                      "text": "I can wave once I finish speaking."
+                    }
+                  ],
+                  "audio_format": {
+                    "container": "wav",
+                    "encoding": "pcm_s16le",
+                    "sample_rate_hz": 24000,
+                    "channels": 1
+                  },
+                  "phoneme_slots": [
+                    {
+                      "phoneme": "S",
+                      "start_ms": 0,
+                      "end_ms": 110
+                    },
+                    {
+                      "phoneme": "UH",
+                      "start_ms": 110,
+                      "end_ms": 260
+                    }
+                  ],
+                  "viseme_slots": [
+                    {
+                      "viseme": "sil",
+                      "start_ms": 0,
+                      "end_ms": 45
+                    },
+                    {
+                      "viseme": "smile",
+                      "start_ms": 45,
+                      "end_ms": 310
+                    }
+                  ]
+                }
+              }
             }
           }
         ]
@@ -414,12 +481,12 @@
             }
           }
         },
-        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:5",
+        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:6",
         "speech_lifecycle_events": [
           {
-            "event_id": "speech-lifecycle-0004",
-            "sequence": 4,
-            "cursor": "speech.lifecycle:session-scaffold-01:4",
+            "event_id": "speech-lifecycle-0005",
+            "sequence": 5,
+            "cursor": "speech.lifecycle:session-scaffold-01:5",
             "event": {
               "schema_version": 1,
               "event_type": "speech.synthesis",

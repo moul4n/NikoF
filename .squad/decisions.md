@@ -334,6 +334,12 @@
 **What:** Persist `text_question` exchanges in a SQLite store at the existing local app root under `memory/session-memory.sqlite3`, keep retrieval in the backend route layer rather than the LLM adapter, and scope lexical recall strictly to the current `session_id` plus active `character_id`.
 **Why:** This lands a real first memory slice without widening the public transport contract, changing the frontend path, or coupling retrieval policy to the provider adapter.
 
+### 2026-05-14T12:25:00+01:00: Text-question speech and display contract
+
+**By:** Trinity
+**What:** Keep `POST /session/operator-command` as the only write seam for `text_question`. For `text_question`, the backend remains the owner of reply generation and should publish `assistant.message` as the canonical reply record on `speech.lifecycle`, while successful backend replies also drive canonical `speech.synthesis` publication from the same backend command path rather than from a frontend follow-up call. The display surface may read backend-confirmed character state plus canonical `speech.lifecycle` events only; it must not read or own operator-command write state directly.
+**Why:** The current seam already proves the right boundary: control posts commands, backend authors canonical events, and the display surface is read-only. Extending the same seam to cover spoken assistant replies avoids a second reply transport and keeps display behavior aligned with backend-owned lifecycle events.
+
 ## Governance
 
 - All meaningful changes require team consensus
