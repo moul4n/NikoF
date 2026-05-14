@@ -12,7 +12,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [x] Document the minimum manifest and fallback identity metadata.
 - [x] Publish squad workstreams and the immediate handoff contract.
 - [x] Publish the 2026 local baseline for STT, TTS, LLM, embeddings, and optional vision.
-- [x] Own squad model-fit policy review and only reopen it when repeated reviewer failures, repeated multi-session quality misses, materially worse cost or latency, or a clearly better latest-family replacement shows the mapping is wrong.
+- [x] Own squad model-fit policy review and keep persistent routing on the available GPT-5.4 family labels in this environment: `gpt-5.4-mini` for cheap routine work and `gpt-5.4` for core working roles. Only reopen the mapping when repeated reviewer failures, repeated multi-session quality misses, materially worse cost or latency, or a clearly better latest-family replacement shows it is wrong.
 - [ ] Lock the portability rule that heavyweight prerequisites stay out of Git and are recovered through bootstrap plus install documentation.
 - [ ] Review the setup and continuity guide whenever storage roots, provider expectations, or onboarding steps change.
 
