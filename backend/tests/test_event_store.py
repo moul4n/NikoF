@@ -18,12 +18,14 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.api.router import _build_speech_lifecycle_sse_frame, _serialize_dataclass_payload, build_api_router
 from app.schemas.session import (
+    AssistantMessageContract,
     OperatorCommandRequest,
     SessionSnapshot,
     SpeechSynthesisContract,
     SpeechTranscriptionContract,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource
+from app.services.llm import TextGenerationRequest
 from app.services.session import InMemorySessionService
 from app.services.session import InMemorySessionEventStore
 from app.services.speech import (
@@ -56,6 +58,19 @@ class StaticSpeechSynthesisService:
 
     def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
         return self._contract
+
+
+class StaticTextGenerationService:
+    def __init__(self, contract: AssistantMessageContract) -> None:
+        self._contract = contract
+
+    def generate(self, request: TextGenerationRequest) -> AssistantMessageContract:
+        return AssistantMessageContract(
+            profile_id=self._contract.profile_id,
+            status=self._contract.status,
+            locale=request.locale,
+            text=self._contract.text,
+        )
 
 
 class FiniteSpeechLifecycleLiveDeliveryService:
@@ -187,6 +202,7 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
     snapshot = session_service.get_snapshot()
     transcription_service = StubSpeechTranscriptionService()
     synthesis_service = StubSpeechSynthesisService()
+    text_generation_service = StaticTextGenerationService(build_assistant_message_contract("ready"))
     session_event_factory = DefaultSessionEventFactory()
     turn_pipeline_publisher = DefaultTurnPipelinePublisher(
         transcription_service=transcription_service,
@@ -215,6 +231,7 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
                 character_service,
                 transcription_service,
                 synthesis_service,
+                text_generation_service,
                 speech_lifecycle_service,
                 speech_lifecycle_live_delivery,
                 session_event_factory,
@@ -231,7 +248,10 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
     return speech_lifecycle_route.endpoint, publication, speech_lifecycle_live_delivery
 
 
-def build_operator_command_route_endpoint() -> tuple[object, InMemorySessionService]:
+def build_operator_command_route_endpoint(
+    *,
+    text_generation_service: StaticTextGenerationService | None = None,
+) -> tuple[object, InMemorySessionService]:
     fake_fastapi = types.ModuleType("fastapi")
     fake_fastapi.APIRouter = FakeAPIRouter
     fake_fastapi.HTTPException = FakeHTTPException
@@ -245,6 +265,9 @@ def build_operator_command_route_endpoint() -> tuple[object, InMemorySessionServ
     character_service = CharacterService(FileSystemCharacterManifestSource())
     transcription_service = StubSpeechTranscriptionService()
     synthesis_service = StubSpeechSynthesisService()
+    resolved_text_generation_service = text_generation_service or StaticTextGenerationService(
+        build_assistant_message_contract("ready")
+    )
     session_event_factory = DefaultSessionEventFactory()
     speech_lifecycle_service = StubSpeechLifecycleSnapshotService(event_store=session_service.event_store)
     speech_lifecycle_live_delivery = FiniteSpeechLifecycleLiveDeliveryService(
@@ -271,6 +294,7 @@ def build_operator_command_route_endpoint() -> tuple[object, InMemorySessionServ
                 character_service,
                 transcription_service,
                 synthesis_service,
+                resolved_text_generation_service,
                 speech_lifecycle_service,
                 speech_lifecycle_live_delivery,
                 session_event_factory,
@@ -318,6 +342,18 @@ def build_synthesis_contract(status: str) -> SpeechSynthesisContract:
         profile_id="tts.gpt-sovits.2026-stable",
         status=status,
         text="Sure. I can wave once I finish speaking.",
+        locale="en-US",
+    )
+
+
+def build_assistant_message_contract(
+    status: str,
+    text: str = "You should keep iterating on the backend seam.",
+) -> AssistantMessageContract:
+    return AssistantMessageContract(
+        profile_id="llm.ollama.llama3.1-8b-2026",
+        status=status,
+        text=text,
         locale="en-US",
     )
 
@@ -685,7 +721,7 @@ class SpeechLifecycleRouteTransportTests(unittest.TestCase):
 
 
 class OperatorCommandRouteTests(unittest.TestCase):
-    def test_text_question_command_publishes_canonical_transcription_event(self) -> None:
+    def test_text_question_command_publishes_canonical_assistant_event(self) -> None:
         endpoint, session_service = build_operator_command_route_endpoint()
 
         response = endpoint(
@@ -701,17 +737,47 @@ class OperatorCommandRouteTests(unittest.TestCase):
         session_events = session_service.event_store.read("session", session_id="session-scaffold-01")
 
         self.assertEqual("text_question", payload["command_type"])
-        self.assertEqual("accepted", payload["status"])
+        self.assertEqual("ready", payload["status"])
         self.assertEqual("test-vrm-01", payload["character_id"])
         self.assertEqual("session.operator.text-question", payload["session_event"]["event_type"])
-        self.assertEqual("transcription.status", payload["speech_lifecycle_events"][0]["event"]["event_type"])
+        self.assertEqual("assistant.message", payload["speech_lifecycle_events"][0]["event"]["event_type"])
         self.assertEqual(
-            "What should I do next?",
-            payload["speech_lifecycle_events"][0]["event"]["transcription"]["transcript"],
+            "You should keep iterating on the backend seam.",
+            payload["speech_lifecycle_events"][0]["event"]["assistant"]["text"],
         )
-        self.assertEqual(["transcription.status"], [event.event.event_type for event in speech_events])
+        self.assertEqual(
+            "You should keep iterating on the backend seam.",
+            payload["session_event"]["assistant"]["text"],
+        )
+        self.assertEqual(["assistant.message"], [event.event.event_type for event in speech_events])
         self.assertEqual(["session.operator.text-question"], [event.event.event_type for event in session_events])
         self.assertEqual("speech.lifecycle:session-scaffold-01:2", payload["next_speech_cursor"])
+
+    def test_text_question_command_surfaces_unavailable_assistant_status(self) -> None:
+        endpoint, session_service = build_operator_command_route_endpoint(
+            text_generation_service=StaticTextGenerationService(
+                build_assistant_message_contract("unavailable", "Local text generation is unavailable.")
+            )
+        )
+
+        response = endpoint(
+            OperatorCommandRequest(
+                command_type="text_question",
+                text="What should I do next?",
+                locale="en-US",
+            )
+        )
+
+        payload = _serialize_dataclass_payload(response)
+        speech_events = session_service.event_store.read("speech.lifecycle", session_id="session-scaffold-01")
+
+        self.assertEqual("unavailable", payload["status"])
+        self.assertEqual("unavailable", payload["session_event"]["assistant"]["status"])
+        self.assertEqual(
+            "Local text generation is unavailable.",
+            payload["session_event"]["assistant"]["text"],
+        )
+        self.assertEqual(["assistant.message"], [event.event.event_type for event in speech_events])
 
     def test_tts_preview_command_publishes_canonical_synthesis_event(self) -> None:
         endpoint, session_service = build_operator_command_route_endpoint()

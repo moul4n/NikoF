@@ -1,6 +1,6 @@
 # Squad Workstreams
 
-Updated at: 2026-05-14T10:56:00+01:00
+Updated at: 2026-05-14T11:42:00+01:00
 
 This is the active scaffold board for the current stages. It assumes the three test avatar package ids are fixed as `test-vrm-01`, `test-vrm-02`, and `test-vrm-03` until real identity review says otherwise.
 
@@ -23,6 +23,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Review backend character-service schemas before Tank exposes any asset APIs.
 - [ ] Review backend configuration contracts for local model-path resolution and machine-specific provider discovery.
 - [x] Review the first backend-authored operator command envelope so text-question submission and TTS preview publish only canonical session or `speech.lifecycle` events and do not smuggle in frontend-only state.
+- [ ] Review the first real `text_question` LLM execution seam so the existing backend command route stays authoritative, the frontend remains unchanged, and debug or operator-control expansion stays deferred.
 
 ### Trinity Stage 2
 
@@ -56,6 +57,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [x] Avoid router-level information architecture in this batch; prefer entrypoint-level bootstraps or multi-page Vite wiring that do not duplicate backend state ownership.
 - [x] Add control-surface operator forms for text-question submission and TTS preview, but keep them as thin clients of one backend-authored command route.
 - [x] Keep the display surface read-only with respect to operator commands; it should react only to canonical backend session or `speech.lifecycle` envelopes.
+- [x] Surface backend-authored assistant status and reply text on the control surface without creating a second reply path or display-side reply state.
 - [ ] Reserve UI seams for microphone and camera permissions without coupling to provider runtime code.
 
 ### Switch Stage 5
@@ -88,8 +90,10 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Tank Stage 3
 
-- [ ] Add backend live delivery on top of the existing ordered store, streaming canonical `speech.lifecycle` events without leaking provider-specific events or changing the current envelope.
-- [ ] Keep the transport surface cursor-based and envelope-preserving so SSE or WebSocket delivery reuses the ordered `speech.lifecycle` document rather than transport-specific payload shapes.
+- [x] Add backend live delivery on top of the existing ordered store, streaming canonical `speech.lifecycle` events without leaking provider-specific events or changing the current envelope.
+- [x] Keep the transport surface cursor-based and envelope-preserving so SSE or WebSocket delivery reuses the ordered `speech.lifecycle` document rather than transport-specific payload shapes.
+- [x] Route `text_question` through a real backend LLM adapter seam that turns accepted operator text into reply text on the existing command path.
+- [x] Publish the first LLM reply through the current canonical session and `speech.lifecycle` envelopes instead of inventing a second frontend-facing reply transport.
 
 ### Tank Stage 4
 
@@ -121,9 +125,11 @@ This is the active scaffold board for the current stages. It assumes the three t
 ### Link Stage 4
 
 - [ ] Integrate the LLaMA 3.1 8B Q4_K_M baseline through llama.cpp or Ollama without leaking runtime choice past the adapter boundary.
+- [x] Add the first local text-generation adapter slice for backend-owned `text_question` replies, keeping degraded `unavailable` and `error` outcomes inside one normalized assistant contract.
 - [ ] Define the embedding baseline as `bge-small-en` first and `MiniLM-L6-v2` second.
 - [ ] Keep SQLite plus ChromaDB or FAISS retrieval hidden behind a normalized memory contract.
 - [ ] Document expected local model placement and provider-specific environment settings so fresh-machine setup stays deterministic.
+- [x] Narrow the first LLM slice to one local `text_question` reply path with no retrieval or memory enrichment beyond the current operator-command input.
 
 ### Link Stage 5
 
@@ -158,7 +164,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Mouse Stages 3 And 4
 
-- [ ] Add tests for backend live-delivery ordering, degraded failure states, and timing metadata presence; the current stability harness covers event-store projection ordering plus degraded real-adapter shells, but not transport publication, reconnect or cursor handoff behavior, or transport-backed frontend runtime behavior.
+- [x] Add regression coverage for the first backend-only `text_question` LLM reply path, including accepted-command publication, canonical reply output, and degraded provider outcomes without changing the command envelope.
 - [ ] Add tests for retrieval provenance and vector-store fallback behavior.
 
 ### Mouse Stage 5
@@ -173,9 +179,17 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ## Immediate Handoff
 
-- Tank now owns the next seam: publish the existing canonical `speech.lifecycle` stream as backend live delivery on top of the ordered store, preserving the current envelope and cursor model.
-- Switch follows with display-surface consumption of that live delivery path while keeping operator commands on the existing control-only client and avoiding local display-side write state.
-- Mouse is back on the critical path for this seam: add backend and frontend regression coverage for cursor resume, ordered live updates, and transport failures without widening the canonical event contract.
-- Trinity reviews the live-delivery seam for boundary discipline: keep `POST /session/operator-command` and its command types unchanged, preserve active-character selection as the only selection control, and do not widen into provider-profile switching, LLM reply generation, or animation debug actions such as `wave` yet.
-- Link stays consult-only unless live delivery requires small timing or speech-envelope normalization changes; do not let this seam widen into full LLM orchestration or provider-profile selection.
+- Tank now owns seam stability: keep the backend-owned `text_question` reply path authoritative on `POST /session/operator-command`, preserve the current canonical session plus `speech.lifecycle` envelopes, and only deepen the slice when hardening requires it.
+- Link keeps the local text-generation adapter narrow and provider-agnostic: no retrieval, memory enrichment, or provider-profile work while this first backend-owned reply path settles.
+- Mouse stays on the critical path for seam hardening: extend backend-first regression coverage for canonical assistant reply publication and degraded local-LLM outcomes without inventing frontend-only assertions.
+- Trinity keeps debug and operator-control expansion deferred: preserve active-character selection as the only selection control and keep `wave`, provider switching, and diagnostics growth in the backlog.
+- Switch treats the current control-surface assistant reply readout as sufficient until the backend proves a real read-model gap; the display surface remains read-only over canonical backend state.
 - Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.
+
+## Deferred Work
+
+- Additional operator or debug controls beyond the landed `text_question` and `tts_preview` path.
+- Provider-profile switching.
+- Animation debug actions such as `wave`.
+- Extra control-surface or display-side debug toggles, diagnostics panels, or similar operator affordances that do not advance the backend reply path.
+- Memory retrieval, prompt enrichment, and other post-baseline LLM orchestration once one local `text_question` reply path works end to end.

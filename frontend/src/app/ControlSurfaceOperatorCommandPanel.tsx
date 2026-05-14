@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { OperatorCommandSubmitError, submitOperatorCommand } from "../avatar/loaders/operatorCommand";
 import type {
+  BackendAssistantMessageDocument,
   BackendOperatorCommandResponseDocument,
   BackendOperatorCommandType,
   CharacterCatalogEntry
@@ -40,10 +41,26 @@ function describeOperatorCommandState(state: OperatorCommandSubmissionState): st
   }
 
   if (state.response) {
+    const assistantReply = getAssistantReply(state.response);
+
+    if (state.response.command_type === "text_question" && assistantReply) {
+      return `${getOperatorCommandLabel(state.response.command_type)} returned assistant status ${assistantReply.status}.`;
+    }
+
     return `${getOperatorCommandLabel(state.response.command_type)} accepted on ${state.response.character_id} with ${state.response.speech_lifecycle_events.length} canonical speech event${state.response.speech_lifecycle_events.length === 1 ? "" : "s"} published.`;
   }
 
   return "Use these forms to publish backend-owned text-question and TTS-preview commands without creating a local display shortcut.";
+}
+
+function getAssistantReply(
+  response: BackendOperatorCommandResponseDocument | null
+): BackendAssistantMessageDocument | null {
+  if (!response || response.command_type !== "text_question") {
+    return null;
+  }
+
+  return response.session_event.assistant ?? response.speech_lifecycle_events[0]?.event.assistant ?? null;
 }
 
 export function ControlSurfaceOperatorCommandPanel({
@@ -113,6 +130,7 @@ export function ControlSurfaceOperatorCommandPanel({
 
   const lastPublishedEvent = operatorCommandState.response?.speech_lifecycle_events[0]?.event.event_type ?? "No command submitted yet";
   const isSubmitting = operatorCommandState.status === "submitting";
+  const assistantReply = getAssistantReply(operatorCommandState.response);
 
   return (
     <section className="surface-panel operator-panel" aria-labelledby="operator-command-panel-title">
@@ -142,7 +160,15 @@ export function ControlSurfaceOperatorCommandPanel({
           <dt>Next speech cursor</dt>
           <dd>{operatorCommandState.response?.next_speech_cursor ?? "Unchanged"}</dd>
         </div>
+        {assistantReply ? (
+          <div>
+            <dt>Assistant status</dt>
+            <dd>{assistantReply.status}</dd>
+          </div>
+        ) : null}
       </dl>
+
+      {assistantReply ? <p className="surface-panel__message">{assistantReply.text}</p> : null}
 
       <label className="operator-panel__field" htmlFor="operator-command-locale">
         <span className="operator-panel__field-label">Command locale</span>

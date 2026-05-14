@@ -184,6 +184,7 @@
                 "viseme_slots": []
               }
             },
+            "assistant": null,
             "synthesis": null
           }
         },
@@ -200,6 +201,7 @@
             "timestamp": "<generated-at>",
             "reason": "turn.pipeline",
             "transcription": null,
+            "assistant": null,
             "synthesis": {
               "profile_id": "tts.gpt-sovits.2026-stable",
               "status": "unavailable",

@@ -9,6 +9,7 @@ from app.core.settings import get_app_paths
 from app.schemas.character import ActiveCharacterSelection, CharacterCatalogResponse, CharacterSummary
 from app.schemas.health import DiagnosticProbe, HealthDiagnostics, HealthPayload
 from app.schemas.session import (
+    AssistantMessageContract,
     ActiveCharacterResponse,
     ActiveCharacterSelectionResult,
     OperatorCommandRequest,
@@ -23,6 +24,7 @@ from app.schemas.session import (
     build_baseline_speech_adapter_profiles,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource, UnknownCharacterError
+from app.services.llm import TextGenerationRequest, TextGenerationService, build_text_generation_service_registry
 from app.services.session import InvalidEventCursor, InMemorySessionService, SessionService
 from app.services.speech import (
     BackendTurnRequest,
@@ -93,6 +95,7 @@ def _build_services() -> tuple[
     CharacterService,
     SpeechTranscriptionService,
     SpeechSynthesisService,
+    TextGenerationService,
     SpeechLifecycleSnapshotService,
     SessionEventFactory,
     TurnPipelinePublisher,
@@ -107,6 +110,11 @@ def _build_services() -> tuple[
     synthesis_service = speech_registry.synthesis_services.get(
         "gpt-sovits",
         speech_registry.fallback_synthesis_service,
+    )
+    text_generation_registry = build_text_generation_service_registry(get_app_paths())
+    text_generation_service = text_generation_registry.text_generation_services.get(
+        "ollama",
+        text_generation_registry.fallback_text_generation_service,
     )
     session_event_factory = DefaultSessionEventFactory()
     speech_lifecycle_service = StubSpeechLifecycleSnapshotService(
@@ -126,6 +134,7 @@ def _build_services() -> tuple[
         character_service,
         transcription_service,
         synthesis_service,
+        text_generation_service,
         speech_lifecycle_service,
         speech_lifecycle_live_delivery,
         session_event_factory,
@@ -236,6 +245,7 @@ def _build_session_event(
     reason: str | None = None,
     transcription: SpeechTranscriptionContract | None = None,
     synthesis: SpeechSynthesisContract | None = None,
+    assistant: AssistantMessageContract | None = None,
 ) -> SessionEvent:
     return session_event_factory.build_event(
         snapshot,
@@ -245,6 +255,7 @@ def _build_session_event(
         reason=reason,
         transcription=transcription,
         synthesis=synthesis,
+        assistant=assistant,
     )
 
 
@@ -299,6 +310,7 @@ def _build_operator_command_response(
 def _publish_operator_command(
     session_service: SessionService,
     session_event_factory: SessionEventFactory,
+    text_generation_service: TextGenerationService,
     synthesis_service: SpeechSynthesisService,
     snapshot: SessionSnapshot,
     *,
@@ -308,12 +320,11 @@ def _publish_operator_command(
     text = _normalize_operator_command_text(command.text)
 
     if command.command_type == "text_question":
-        transcription = SpeechTranscriptionContract(
-            profile_id=STT_BASELINE_PROFILE_IDS[0],
-            status="final",
-            locale=command.locale,
-            transcript=text,
-            confidence=1.0,
+        assistant = text_generation_service.generate(
+            TextGenerationRequest(
+                prompt=text,
+                locale=command.locale,
+            )
         )
         speech_lifecycle_event = _append_speech_lifecycle_event(
             session_service,
@@ -321,10 +332,10 @@ def _publish_operator_command(
                 snapshot,
                 session_event_factory,
                 character_id=character_id,
-                event_type="transcription.status",
-                status=transcription.status,
+                event_type="assistant.message",
+                status=assistant.status,
                 reason="operator.text-question",
-                transcription=transcription,
+                assistant=assistant,
             ),
         )
         session_event = _append_session_event(
@@ -334,9 +345,9 @@ def _publish_operator_command(
                 session_event_factory,
                 character_id=character_id,
                 event_type="session.operator.text-question",
-                status="accepted",
+                status=assistant.status,
                 reason="operator.text-question",
-                transcription=transcription,
+                assistant=assistant,
             ),
         )
         return _build_operator_command_response(
@@ -399,6 +410,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
         character_service,
         transcription_service,
         synthesis_service,
+        text_generation_service,
         speech_lifecycle_service,
         _speech_lifecycle_live_delivery,
         session_event_factory,
@@ -477,6 +489,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                     _publish_operator_command(
                         session_service,
                         session_event_factory,
+                        text_generation_service,
                         synthesis_service,
                         current_snapshot,
                         character_id=current_character.character_id,
@@ -490,6 +503,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                     _publish_operator_command(
                         session_service,
                         session_event_factory,
+                        text_generation_service,
                         synthesis_service,
                         current_snapshot,
                         character_id=current_character.character_id,
@@ -555,6 +569,7 @@ def build_api_router() -> Any:
         character_service,
         _transcription_service,
         synthesis_service,
+        text_generation_service,
         speech_lifecycle_service,
         speech_lifecycle_live_delivery,
         session_event_factory,
@@ -658,6 +673,7 @@ def build_api_router() -> Any:
             return _publish_operator_command(
                 session_service,
                 session_event_factory,
+                text_generation_service,
                 synthesis_service,
                 snapshot,
                 character_id=active_character.character_id,

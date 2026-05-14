@@ -215,6 +215,7 @@
                 "viseme_slots": []
               }
             },
+            "assistant": null,
             "synthesis": null
           }
         },
@@ -231,6 +232,7 @@
             "timestamp": "<generated-at>",
             "reason": "turn.pipeline",
             "transcription": null,
+            "assistant": null,
             "synthesis": {
               "profile_id": "tts.gpt-sovits.2026-stable",
               "status": "unavailable",
@@ -297,21 +299,20 @@
         "session_id": "session-scaffold-01",
         "command_type": "text_question",
         "character_id": "test-vrm-01",
-        "status": "accepted",
+        "status": "unavailable",
         "session_event": {
           "schema_version": 1,
           "event_type": "session.operator.text-question",
           "session_id": "session-scaffold-01",
           "character_id": "test-vrm-01",
-          "status": "accepted",
+          "status": "unavailable",
           "timestamp": "<generated-at>",
           "reason": "operator.text-question",
-          "transcription": {
-            "profile_id": "stt.faster-whisper.medium-2026",
-            "status": "final",
-            "locale": "en-US",
-            "transcript": "What should I do next?",
-            "confidence": 1.0
+          "assistant": {
+            "profile_id": "llm.ollama.llama3.1-8b-2026",
+            "status": "unavailable",
+            "text": "Local text generation is unavailable.",
+            "locale": "en-US"
           }
         },
         "next_speech_cursor": "speech.lifecycle:session-scaffold-01:4",
@@ -322,19 +323,18 @@
             "cursor": "speech.lifecycle:session-scaffold-01:3",
             "event": {
               "schema_version": 1,
-              "event_type": "transcription.status",
+              "event_type": "assistant.message",
               "session_id": "session-scaffold-01",
               "character_id": "test-vrm-01",
-              "status": "final",
+              "status": "unavailable",
               "timestamp": "<generated-at>",
               "reason": "operator.text-question",
-              "transcription": {
-                "profile_id": "stt.faster-whisper.medium-2026",
-                "status": "final",
-                "locale": "en-US",
-                "transcript": "What should I do next?",
-                "confidence": 1.0,
-                "timing": null
+              "transcription": null,
+              "assistant": {
+                "profile_id": "llm.ollama.llama3.1-8b-2026",
+                "status": "unavailable",
+                "text": "Local text generation is unavailable.",
+                "locale": "en-US"
               },
               "synthesis": null
             }
@@ -429,6 +429,7 @@
               "timestamp": "<generated-at>",
               "reason": "operator.tts-preview",
               "transcription": null,
+              "assistant": null,
               "synthesis": {
                 "profile_id": "tts.gpt-sovits.2026-stable",
                 "status": "unavailable",

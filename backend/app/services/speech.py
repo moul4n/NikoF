@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlparse
 
 from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import (
+    AssistantMessageContract,
     AudioFormatMetadata,
     SessionEvent,
     SessionSnapshot,
@@ -77,6 +78,7 @@ class SessionEventFactory(Protocol):
         reason: str | None = None,
         transcription: SpeechTranscriptionContract | None = None,
         synthesis: SpeechSynthesisContract | None = None,
+        assistant: AssistantMessageContract | None = None,
     ) -> SessionEvent:
         raise NotImplementedError
 
@@ -966,6 +968,7 @@ class DefaultSessionEventFactory:
         reason: str | None = None,
         transcription: SpeechTranscriptionContract | None = None,
         synthesis: SpeechSynthesisContract | None = None,
+        assistant: AssistantMessageContract | None = None,
     ) -> SessionEvent:
         return SessionEvent(
             schema_version=1,
@@ -977,4 +980,5 @@ class DefaultSessionEventFactory:
             reason=reason,
             transcription=transcription,
             synthesis=synthesis,
+            assistant=assistant,
         )

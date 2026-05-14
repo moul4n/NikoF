@@ -134,6 +134,13 @@ export interface BackendSpeechSynthesisDocument {
   timing?: BackendSpeechTimingMetadataDocument | null;
 }
 
+export interface BackendAssistantMessageDocument {
+  profile_id: string;
+  status: string;
+  text: string;
+  locale: string;
+}
+
 export interface BackendSessionEventDocument {
   schema_version: number;
   event_type: string;
@@ -143,6 +150,7 @@ export interface BackendSessionEventDocument {
   timestamp: string;
   reason?: string | null;
   transcription?: BackendSpeechTranscriptionDocument | null;
+  assistant?: BackendAssistantMessageDocument | null;
   synthesis?: BackendSpeechSynthesisDocument | null;
 }
 

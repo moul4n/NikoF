@@ -14,6 +14,10 @@ TTS_BASELINE_PROFILE_IDS = (
     "tts.gpt-sovits.2026-stable",
 )
 
+LLM_BASELINE_PROFILE_IDS = (
+    "llm.ollama.llama3.1-8b-2026",
+)
+
 
 @dataclass(slots=True, frozen=True)
 class SpeechAdapterProfile:
@@ -81,6 +85,14 @@ class SpeechSynthesisContract:
     timing: SpeechTimingMetadata | None = None
 
 
+@dataclass(slots=True, frozen=True)
+class AssistantMessageContract:
+    profile_id: str
+    status: str
+    text: str
+    locale: str
+
+
 def build_baseline_speech_adapter_profiles() -> tuple[SpeechAdapterProfile, ...]:
     return (
         SpeechAdapterProfile(
@@ -124,6 +136,7 @@ class SessionEvent:
     timestamp: str
     reason: str | None = None
     transcription: SpeechTranscriptionContract | None = None
+    assistant: AssistantMessageContract | None = None
     synthesis: SpeechSynthesisContract | None = None
 
 

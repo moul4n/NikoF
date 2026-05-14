@@ -250,6 +250,18 @@
 **What:** Extract the frontend operator command client from `frontend/src/app/App.tsx` into a control-only component and extend `frontend-shell-split-surface` so it requires one non-`App.tsx` operator-command owner, the backend seam path `/session/operator-command`, and the narrowed `text_question` plus `tts_preview` command types.
 **Why:** The shared App shell was still allocating command draft and submit mutation state before the display-mode early return, which let the display surface own write state even though it is supposed to stay read-only.
 
+### 2026-05-14T11:04:00+01:00: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Skip debug controls for now and move them to the todo list instead of the active implementation seam.
+**Why:** User wants the immediate queue focused on non-debug product seams first.
+
+### 2026-05-14T11:12:00+01:00: Next implementation batch scope lock
+
+**By:** Trinity
+**What:** Re-scope the next implementation batch to real `text_question` execution into a local LLM reply path on the existing backend-owned operator-command seam. Keep the first LLM slice backend-only, preserve the current canonical session plus `speech.lifecycle` envelopes and cursor handoff, and defer frontend expansion, provider-profile switching, animation debug actions, and other operator-control growth.
+**Why:** The current code already has backend live `speech.lifecycle` delivery and frontend consumption in place, but `text_question` still only publishes a canonical transcription-style event and a session acceptance event. The narrowest coherent slice that matches the user's chosen product seam is to add one real backend reply path without reopening frontend ownership or debug scope.
+
 ### 2026-05-14T08:57:41.6820932+01:00: Local speech adapter execution contract
 
 **By:** Link

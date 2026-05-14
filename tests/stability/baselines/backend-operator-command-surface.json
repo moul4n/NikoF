@@ -1,123 +1,123 @@
 {
-    "scenario_id":  "backend-operator-command-surface",
-    "scenario_name":  "Backend operator command surface snapshot",
-    "runner":  "python",
-    "tracked_inputs":  [
-                           "scripts/testing/Invoke-StabilitySuite.ps1",
-                           "backend/app/api/router.py",
-                           "backend/app/schemas/session.py",
-                           "backend/app/services/speech.py"
-                       ],
-    "local_root":  "\u003cscenario-temp\u003e",
-    "route_surface":  {
-                          "writable_routes":  [
-                                                  {
-                                                      "method":  "POST",
-                                                      "path":  "/session/operator-command",
-                                                      "name":  "submit_operator_command"
-                                                  },
-                                                  {
-                                                      "method":  "PUT",
-                                                      "path":  "/session/active-character",
-                                                      "name":  "set_active_character"
-                                                  }
-                                              ],
-                          "non_selection_write_routes":  [
-                                                             {
-                                                                 "method":  "POST",
-                                                                 "path":  "/session/operator-command",
-                                                                 "name":  "submit_operator_command"
-                                                             }
-                                                         ],
-                          "operator_command_route_count":  1,
-                          "operator_command_route_present":  true,
-                          "operator_route_markers":  [
-                                                         "/session/operator-command"
-                                                     ],
-                          "dependency":  null
-                      },
-    "canonical_publication_surface":  {
-                                          "turn_pipeline_publisher_present":  true,
-                                          "backend_turn_request_fields":  [
-                                                                              "character_id",
-                                                                              "transcription",
-                                                                              "synthesis",
-                                                                              "reason"
-                                                                          ],
-                                          "transcription_request_fields":  [
-                                                                               "audio_reference",
-                                                                               "locale",
-                                                                               "profile_id",
-                                                                               "transcript_hint",
-                                                                               "confidence_hint",
-                                                                               "timing"
-                                                                           ],
-                                          "synthesis_request_fields":  [
-                                                                           "text",
-                                                                           "locale",
-                                                                           "profile_id",
-                                                                           "timing"
-                                                                       ],
-                                          "operator_schema_markers":  [
-                                                                          "OperatorCommandRequest",
-                                                                          "OperatorCommandResponse"
-                                                                      ]
-                                      },
-    "command_examples":  {
-                             "text_question":  {
-                                                   "present":  true,
-                                                   "request_keys":  [
-                                                                        "command_type",
-                                                                        "locale",
-                                                                        "text"
-                                                                    ],
-                                                   "response_keys":  [
-                                                                         "character_id",
-                                                                         "command_type",
-                                                                         "next_speech_cursor",
-                                                                         "schema_version",
-                                                                         "session_event",
-                                                                         "session_id",
-                                                                         "speech_lifecycle_events",
-                                                                         "status"
-                                                                     ],
-                                                   "session_event_type":  "session.operator.text-question",
-                                                   "speech_lifecycle_event_types":  [
-                                                                                        "transcription.status"
-                                                                                    ]
-                                               },
-                             "tts_preview":  {
-                                                 "present":  true,
-                                                 "request_keys":  [
-                                                                      "command_type",
-                                                                      "locale",
-                                                                      "text"
-                                                                  ],
-                                                 "response_keys":  [
-                                                                       "character_id",
-                                                                       "command_type",
-                                                                       "next_speech_cursor",
-                                                                       "schema_version",
-                                                                       "session_event",
-                                                                       "session_id",
-                                                                       "speech_lifecycle_events",
-                                                                       "status"
-                                                                   ],
-                                                 "session_event_type":  "session.operator.tts-preview",
-                                                 "speech_lifecycle_event_types":  [
-                                                                                      "speech.synthesis"
-                                                                                  ]
-                                             }
-                         },
-    "alignment":  {
-                      "active_character_is_only_writable_route":  false,
-                      "single_operator_command_route_present":  true,
-                      "canonical_turn_publication_present":  true,
-                      "command_examples_present":  true,
-                      "shared_command_request_shape":  true,
-                      "shared_command_response_shape":  true,
-                      "text_question_routes_through_transcription":  true,
-                      "tts_preview_routes_through_synthesis":  true,
-                      "operator_command_batch_unblocked":  true
-                  }
+  "scenario_id": "backend-operator-command-surface",
+  "scenario_name": "Backend operator command surface snapshot",
+  "runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "backend/app/api/router.py",
+    "backend/app/schemas/session.py",
+    "backend/app/services/speech.py"
+  ],
+  "local_root": "<scenario-temp>",
+  "route_surface": {
+    "writable_routes": [
+      {
+        "method": "POST",
+        "path": "/session/operator-command",
+        "name": "submit_operator_command"
+      },
+      {
+        "method": "PUT",
+        "path": "/session/active-character",
+        "name": "set_active_character"
+      }
+    ],
+    "non_selection_write_routes": [
+      {
+        "method": "POST",
+        "path": "/session/operator-command",
+        "name": "submit_operator_command"
+      }
+    ],
+    "operator_command_route_count": 1,
+    "operator_command_route_present": true,
+    "operator_route_markers": [
+      "/session/operator-command"
+    ],
+    "dependency": null
+  },
+  "canonical_publication_surface": {
+    "turn_pipeline_publisher_present": true,
+    "backend_turn_request_fields": [
+      "character_id",
+      "transcription",
+      "synthesis",
+      "reason"
+    ],
+    "transcription_request_fields": [
+      "audio_reference",
+      "locale",
+      "profile_id",
+      "transcript_hint",
+      "confidence_hint",
+      "timing"
+    ],
+    "synthesis_request_fields": [
+      "text",
+      "locale",
+      "profile_id",
+      "timing"
+    ],
+    "operator_schema_markers": [
+      "OperatorCommandRequest",
+      "OperatorCommandResponse"
+    ]
+  },
+  "command_examples": {
+    "text_question": {
+      "present": true,
+      "request_keys": [
+        "command_type",
+        "locale",
+        "text"
+      ],
+      "response_keys": [
+        "character_id",
+        "command_type",
+        "next_speech_cursor",
+        "schema_version",
+        "session_event",
+        "session_id",
+        "speech_lifecycle_events",
+        "status"
+      ],
+      "session_event_type": "session.operator.text-question",
+      "speech_lifecycle_event_types": [
+        "assistant.message"
+      ]
+    },
+    "tts_preview": {
+      "present": true,
+      "request_keys": [
+        "command_type",
+        "locale",
+        "text"
+      ],
+      "response_keys": [
+        "character_id",
+        "command_type",
+        "next_speech_cursor",
+        "schema_version",
+        "session_event",
+        "session_id",
+        "speech_lifecycle_events",
+        "status"
+      ],
+      "session_event_type": "session.operator.tts-preview",
+      "speech_lifecycle_event_types": [
+        "speech.synthesis"
+      ]
+    }
+  },
+  "alignment": {
+    "active_character_is_only_writable_route": false,
+    "single_operator_command_route_present": true,
+    "canonical_turn_publication_present": true,
+    "command_examples_present": true,
+    "shared_command_request_shape": true,
+    "shared_command_response_shape": true,
+    "text_question_routes_through_assistant": true,
+    "tts_preview_routes_through_synthesis": true,
+    "operator_command_batch_unblocked": true
+  }
 }

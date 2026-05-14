@@ -2,7 +2,15 @@
 
 Updated: 2026-05-14
 
-1. Treat `POST /session/operator-command` plus the thin control-surface client as landed work; do not move operator-command draft or submit state back into `App.tsx` or the display surface.
-2. Make the next implementation batch a backend live-delivery seam: stream canonical `speech.lifecycle` updates for accepted operator commands from the existing ordered store so the immersive display can react without polling or frontend-only shortcuts.
-3. Keep that live-delivery batch cursor-based and envelope-preserving, reusing the current `speech.lifecycle` document shape and `next_speech_cursor` handoff instead of inventing a second transport or widening command types.
-4. Defer LLM reply generation for `text_question`, provider-profile switching, and animation debug actions such as `wave` until the live-delivery seam is stable and still backend-authored.
+1. Treat backend live `speech.lifecycle` delivery, real backend `text_question` execution, and the minimal control-surface assistant-reply readout as landed work; do not move reply ownership into `App.tsx`, the display surface, or a second command path.
+2. Keep the immediate queue on hardening the current backend-authored reply seam: preserve `POST /session/operator-command`, the ordered store, and the canonical session plus `speech.lifecycle` envelopes while validating degraded local-LLM behavior on the same contract.
+3. Do not widen this first reply slice into a second reply transport, frontend-owned reply state, provider-profile switching, or new operator commands while the backend-owned assistant path is settling.
+4. Keep the active queue non-debug: animation debug actions such as `wave`, extra control-surface or display diagnostics, and other debug affordances stay deferred until they advance a real product seam.
+
+## Deferred Todo
+
+- Additional operator or debug controls beyond the landed `text_question` and `tts_preview` flow.
+- Provider-profile switching.
+- Animation debug actions such as `wave`.
+- Extra control-surface or display-side debug toggles, diagnostics panels, or similar operator affordances that do not advance the backend reply path.
+- Memory retrieval, prompt enrichment, and other post-baseline LLM orchestration once one local `text_question` reply path works end to end.

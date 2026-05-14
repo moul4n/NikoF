@@ -1330,10 +1330,10 @@ function Invoke-BackendOperatorCommandSurfaceSnapshot {
             command_examples_present = [bool]$hasTextQuestionExample -and [bool]$hasTtsPreviewExample
             shared_command_request_shape = Test-StringArrayEquality -Left $textQuestionRequestKeys -Right $ttsPreviewRequestKeys
             shared_command_response_shape = Test-StringArrayEquality -Left $textQuestionResponseKeys -Right $ttsPreviewResponseKeys
-            text_question_routes_through_transcription =
+            text_question_routes_through_assistant =
                 [bool]$hasTextQuestionExample -and
                 ($textQuestionSessionEventType -ceq 'session.operator.text-question') -and
-                (Test-StringArrayEquality -Left $textQuestionSpeechEventTypes -Right @('transcription.status'))
+                (Test-StringArrayEquality -Left $textQuestionSpeechEventTypes -Right @('assistant.message'))
             tts_preview_routes_through_synthesis =
                 [bool]$hasTtsPreviewExample -and
                 ($ttsPreviewSessionEventType -ceq 'session.operator.tts-preview') -and
