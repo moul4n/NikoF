@@ -116,6 +116,14 @@
 **What:** Added `docs/WORKSTREAMS.md` as the phase-by-phase squad handoff for Trinity, Switch, Tank, Link, and Mouse.
 **Why:** The project now has enough contract clarity to start scaffold work immediately, and the board keeps phase ownership explicit.
 
+### 2026-05-14T08:57:41.6820932+01:00: Squad model policy
+
+**By:** Trinity
+**What:** Set `claude-haiku-4.5` as the persistent squad default for coordination, logging, and other low-cost routine work, with `claude-sonnet-4.6` pinned for Trinity, Switch, Tank, Link, and Mouse because those roles routinely handle code, test design, integration review, or higher-consequence reasoning. Do not persist Opus-class models in squad config; treat them as explicit, temporary exceptions for rare full-repo review or deep analysis only.
+**Why:** This keeps day-to-day work on the best current cost-value mix using latest model families only, while preserving a stronger standard tier for the roles most likely to write code or gate quality. VS Code sessions may not honor per-subagent model overrides, so the intended policy needs to live in squad config and decisions for compatible surfaces and future sessions.
+
+**Reevaluation:** Trinity owns periodic model-fit review and should only change this mapping when repeated reviewer rejections, repeated multi-session quality misses, materially worse latency or cost, or a clearly better latest-family replacement demonstrates a real need.
+
 ### 2026-05-14T08:57:41.6820932+01:00: Bootstrap, local storage, and continuity rule
 
 **By:** Trinity
