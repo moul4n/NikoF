@@ -1,0 +1,44 @@
+{
+  "agents": {
+    "trinity": {
+      "persistent_name": "Trinity",
+      "universe": "The Matrix",
+      "created_at": "2026-05-14T08:57:41.6820932+01:00",
+      "legacy_named": false,
+      "status": "active",
+      "role": "Lead"
+    },
+    "switch": {
+      "persistent_name": "Switch",
+      "universe": "The Matrix",
+      "created_at": "2026-05-14T08:57:41.6820932+01:00",
+      "legacy_named": false,
+      "status": "active",
+      "role": "Frontend Dev"
+    },
+    "tank": {
+      "persistent_name": "Tank",
+      "universe": "The Matrix",
+      "created_at": "2026-05-14T08:57:41.6820932+01:00",
+      "legacy_named": false,
+      "status": "active",
+      "role": "Backend Dev"
+    },
+    "link": {
+      "persistent_name": "Link",
+      "universe": "The Matrix",
+      "created_at": "2026-05-14T08:57:41.6820932+01:00",
+      "legacy_named": false,
+      "status": "active",
+      "role": "AI/Audio Dev"
+    },
+    "mouse": {
+      "persistent_name": "Mouse",
+      "universe": "The Matrix",
+      "created_at": "2026-05-14T08:57:41.6820932+01:00",
+      "legacy_named": false,
+      "status": "active",
+      "role": "Tester"
+    }
+  }
+}

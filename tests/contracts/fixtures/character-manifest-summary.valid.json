@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "character_id": "test-vrm-01",
+  "display_name": "Test Character 01",
+  "identity_source": "scaffolded",
+  "vrm_spec_version": "1.0",
+  "supported_states": [
+    "idle",
+    "listen",
+    "speak",
+    "emote"
+  ],
+  "shared_animation_set": "core-v1"
+}

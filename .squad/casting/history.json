@@ -1,0 +1,45 @@
+{
+  "universe_usage_history": [
+    {
+      "assignment_id": "nikof-2026-05-14",
+      "universe": "The Matrix",
+      "used_at": "2026-05-14T08:57:41.6820932+01:00",
+      "project": "NikoF"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "nikof-2026-05-14": {
+      "created_at": "2026-05-14T08:57:41.6820932+01:00",
+      "owner": "Jason Fletcher",
+      "project": "NikoF",
+      "universe": "The Matrix",
+      "members": [
+        {
+          "name": "Trinity",
+          "slug": "trinity",
+          "role": "Lead"
+        },
+        {
+          "name": "Switch",
+          "slug": "switch",
+          "role": "Frontend Dev"
+        },
+        {
+          "name": "Tank",
+          "slug": "tank",
+          "role": "Backend Dev"
+        },
+        {
+          "name": "Link",
+          "slug": "link",
+          "role": "AI/Audio Dev"
+        },
+        {
+          "name": "Mouse",
+          "slug": "mouse",
+          "role": "Tester"
+        }
+      ]
+    }
+  }
+}

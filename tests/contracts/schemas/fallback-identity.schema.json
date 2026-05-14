@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nikof.local/schemas/fallback-identity.schema.json",
+  "title": "Fallback Identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "character_id",
+    "display_name",
+    "identity_status",
+    "source_vrm",
+    "review_required"
+  ],
+  "properties": {
+    "character_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identity_status": {
+      "type": "string",
+      "enum": [
+        "scaffolded",
+        "reviewed-source"
+      ]
+    },
+    "source_vrm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_name",
+        "embedded_name",
+        "embedded_identifier"
+      ],
+      "properties": {
+        "file_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "embedded_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "embedded_identifier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "review_required": {
+      "type": "boolean"
+    }
+  }
+}

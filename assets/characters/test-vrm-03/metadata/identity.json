@@ -1,0 +1,11 @@
+{
+  "character_id": "test-vrm-03",
+  "display_name": "Test Character 03",
+  "identity_status": "scaffolded",
+  "source_vrm": {
+    "file_name": "model.vrm",
+    "embedded_name": null,
+    "embedded_identifier": "import_file_name:8243145137141555378.vrm"
+  },
+  "review_required": true
+}

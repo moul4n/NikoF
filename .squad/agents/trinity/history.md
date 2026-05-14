@@ -1,0 +1,20 @@
+# Project Context
+
+- **Owner:** Jason Fletcher
+- **Project:** Local-only anime companion with interchangeable VRM characters, local voice pipeline, persistent memory, and AI-authored animation scripts
+- **Stack:** Python backend, FastAPI/Starlette, React + TypeScript + Vite, three.js + three-vrm, Faster-Whisper, Ollama/llama.cpp, GPT-SoVITS, SQLite, Chroma/FAISS
+- **Created:** 2026-05-14T08:57:41.6820932+01:00
+
+## Learnings
+
+- Windows-first offline app; low latency and modular boundaries are primary constraints.
+- Character swapping, shared animations, and character-specific overrides are core design requirements.
+- UniVRM 1.0 should be treated as the required character interchange standard, with swap compatibility enforced through manifest validation rather than runtime special cases.
+- The repo should split early into `frontend/`, `backend/`, `assets/`, `models/`, `scripts/`, `tests/`, and `docs/` so character, runtime, provider, and validation work can move independently.
+- The delivery order should prioritize contracts and a character shell before full provider integration; otherwise STT, TTS, and animation work will couple against unstable interfaces.
+- 2026-05-14T08:57:41.6820932+01:00: The initial test avatar intake should always reserve exactly three stable package ids under `assets/characters/test-vrm-01..03/` so frontend, backend, and validation work can move before final naming is settled.
+- 2026-05-14T08:57:41.6820932+01:00: Missing VRM identity metadata is a packaging problem, not a viewer problem; solve it with scaffolded manifest and `metadata/identity.json` files, never runtime special cases.
+- 2026-05-14T08:57:41.6820932+01:00: Shared animation assets, generated motion, and per-character overrides need separate storage roots or the animation contract will blur immediately.
+- 2026-05-14T08:57:41.6820932+01:00: Treat the 2026 local model stack as an interface contract, not a loose preference: Faster-Whisper Medium with Small fallback, GPT-SoVITS latest stable 2026 fork, LLaMA 3.1 8B Q4_K_M, MediaPipe Face Mesh, optional CLIP, SQLite plus ChromaDB or FAISS, and `bge-small-en` with `MiniLM-L6-v2` fallback.
+- 2026-05-14T08:57:41.6820932+01:00: The voice path is `Mic -> STT -> Memory -> LLM -> TTS -> Avatar`, and the vision path is `Camera -> MediaPipe -> optional CLIP -> backend context -> avatar reactions`; vision must stay optional and outside the core voice-turn latency budget.
+- 2026-05-14T08:57:41.6820932+01:00: Keep planning contract-first even when user-facing character swapping is scheduled later; lock manifest, session, animation, and vision event boundaries early, then harden multi-character behavior only after the core voice, memory, and reaction loops exist.

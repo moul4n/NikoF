@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nikof.local/schemas/animation-event.schema.json",
+  "title": "Animation Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "session_id",
+    "character_id",
+    "semantic_id",
+    "source_category",
+    "playback",
+    "fallback"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "event_type": {
+      "type": "string",
+      "const": "animation.play"
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "character_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "semantic_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_category": {
+      "type": "string",
+      "enum": [
+        "shared-library",
+        "character-override",
+        "generated-staged"
+      ]
+    },
+    "playback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blend_mode",
+        "blend_in_ms"
+      ],
+      "properties": {
+        "blend_mode": {
+          "type": "string"
+        },
+        "blend_in_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semantic_id",
+        "expression"
+      ],
+      "properties": {
+        "semantic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expression": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

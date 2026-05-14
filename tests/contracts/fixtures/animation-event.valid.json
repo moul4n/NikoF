@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "event_type": "animation.play",
+  "session_id": "session-demo-01",
+  "character_id": "test-vrm-01",
+  "semantic_id": "listen.attentive",
+  "source_category": "shared-library",
+  "playback": {
+    "blend_mode": "override",
+    "blend_in_ms": 120
+  },
+  "fallback": {
+    "semantic_id": "idle.base",
+    "expression": "neutral"
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nikof.local/schemas/character-manifest.schema.json",
+  "title": "Character Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "character_id",
+    "display_name",
+    "identity_source",
+    "asset_version",
+    "vrm_spec_version",
+    "model_file",
+    "metadata_file",
+    "supported_states",
+    "shared_animation_set",
+    "voice_profile",
+    "expression_map",
+    "animation_overrides"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "character_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identity_source": {
+      "type": "string",
+      "enum": [
+        "scaffolded",
+        "reviewed-source"
+      ]
+    },
+    "asset_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "vrm_spec_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "model_file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metadata_file": {
+      "type": "string",
+      "const": "metadata/identity.json"
+    },
+    "supported_states": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "string"
+      }
+    },
+    "shared_animation_set": {
+      "type": "string",
+      "minLength": 1
+    },
+    "voice_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "path"
+      ],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "expression_map": {
+      "type": "string",
+      "minLength": 1
+    },
+    "animation_overrides": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nikof.local/schemas/character-manifest-summary.schema.json",
+  "title": "Character Manifest Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "character_id",
+    "display_name",
+    "identity_source",
+    "vrm_spec_version",
+    "supported_states",
+    "shared_animation_set"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "character_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identity_source": {
+      "type": "string",
+      "enum": [
+        "scaffolded",
+        "reviewed-source"
+      ]
+    },
+    "vrm_spec_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "supported_states": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shared_animation_set": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

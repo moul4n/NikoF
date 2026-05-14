@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "character_id": "test-vrm-02",
+  "display_name": "Test Character 02",
+  "identity_source": "scaffolded",
+  "asset_version": "0.1.0",
+  "vrm_spec_version": "1.0",
+  "model_file": "model.vrm",
+  "metadata_file": "metadata/identity.json",
+  "supported_states": [
+    "idle",
+    "listen",
+    "speak",
+    "emote"
+  ],
+  "shared_animation_set": "core-v1",
+  "voice_profile": {
+    "profile_id": "test-vrm-02-default",
+    "path": "voice/profile.json"
+  },
+  "expression_map": "expressions/mapping.json",
+  "animation_overrides": "overrides/animations.json"
+}
