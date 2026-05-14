@@ -322,6 +322,18 @@
 **What:** Lock the next frontend batch to splitting the current `App.tsx` shell into explicit control and display surfaces while keeping character catalog loading, active-character synchronization, and `speech.lifecycle` consumption on the existing App-owned loader path and backend-owned envelope. Use simple in-app surface branching in this batch and do not add a routing dependency yet.
 **Why:** The current shell already has one coherent state owner and only two tightly coupled surfaces. Adding router infrastructure now would widen the batch without solving a real navigation problem, while extracting control and display surfaces now will reduce App-level coupling and preserve the current transport and contract boundary.
 
+### 2026-05-14T12:00:00+01:00: Minimal backend-owned memory retrieval slice
+
+**By:** Trinity
+**What:** Start memory work behind the existing `POST /session/operator-command` `text_question` branch only. Add a backend-only memory service boundary that persists text-question turns and assistant replies to SQLite and returns ranked retrieval snippets for the same session and active character before LLM generation. Keep the current HTTP route, canonical session plus `speech.lifecycle` envelopes, and frontend reply readout unchanged. Defer vector indexing, embedding adapters, summarization, cross-session affinity, and any UI-visible memory diagnostics until this first durable retrieval seam is proven.
+**Why:** The repo now has one working backend-authored reply path. The next smallest shippable step is to make retrieval real without widening into full orchestration or leaking memory concerns into routes, frontend state, or provider adapters.
+
+### 2026-05-14T12:05:00+01:00: Backend memory slice storage and scope
+
+**By:** Tank
+**What:** Persist `text_question` exchanges in a SQLite store at the existing local app root under `memory/session-memory.sqlite3`, keep retrieval in the backend route layer rather than the LLM adapter, and scope lexical recall strictly to the current `session_id` plus active `character_id`.
+**Why:** This lands a real first memory slice without widening the public transport contract, changing the frontend path, or coupling retrieval policy to the provider adapter.
+
 ## Governance
 
 - All meaningful changes require team consensus

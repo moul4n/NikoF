@@ -13,4 +13,4 @@ Updated: 2026-05-14
 - Provider-profile switching.
 - Animation debug actions such as `wave`.
 - Extra control-surface or display-side debug toggles, diagnostics panels, or similar operator affordances that do not advance the backend reply path.
-- Memory retrieval, prompt enrichment, and other post-baseline LLM orchestration once one local `text_question` reply path works end to end.
+- Richer memory ranking, summaries, or vector retrieval beyond the landed SQLite-backed lexical recall for `text_question`.

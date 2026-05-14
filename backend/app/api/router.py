@@ -25,6 +25,7 @@ from app.schemas.session import (
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource, UnknownCharacterError
 from app.services.llm import TextGenerationRequest, TextGenerationService, build_text_generation_service_registry
+from app.services.memory import MemoryExchange, SessionMemoryService, build_session_memory_service
 from app.services.session import InvalidEventCursor, InMemorySessionService, SessionService
 from app.services.speech import (
     BackendTurnRequest,
@@ -307,10 +308,37 @@ def _build_operator_command_response(
     )
 
 
+def _build_memory_enriched_prompt(
+    text: str,
+    prior_exchanges: tuple[MemoryExchange, ...],
+) -> str:
+    if not prior_exchanges:
+        return text
+
+    memory_lines: list[str] = [
+        "Use the following prior exchanges from the same session and active character only when they are relevant.",
+        "",
+    ]
+
+    for index, exchange in enumerate(prior_exchanges, start=1):
+        memory_lines.extend(
+            (
+                f"Prior exchange {index}:",
+                f"User: {exchange.user_text}",
+                f"Assistant: {exchange.assistant_text}",
+                "",
+            )
+        )
+
+    memory_lines.extend(("Current user question:", text))
+    return "\n".join(memory_lines)
+
+
 def _publish_operator_command(
     session_service: SessionService,
     session_event_factory: SessionEventFactory,
     text_generation_service: TextGenerationService,
+    memory_service: SessionMemoryService,
     synthesis_service: SpeechSynthesisService,
     snapshot: SessionSnapshot,
     *,
@@ -320,11 +348,24 @@ def _publish_operator_command(
     text = _normalize_operator_command_text(command.text)
 
     if command.command_type == "text_question":
+        prior_exchanges = memory_service.retrieve_relevant_exchanges(
+            session_id=snapshot.session_id,
+            character_id=character_id,
+            query_text=text,
+        )
         assistant = text_generation_service.generate(
             TextGenerationRequest(
-                prompt=text,
+                prompt=_build_memory_enriched_prompt(text, prior_exchanges),
                 locale=command.locale,
             )
+        )
+        memory_service.store_exchange(
+            session_id=snapshot.session_id,
+            character_id=character_id,
+            user_text=text,
+            assistant_text=assistant.text,
+            assistant_status=assistant.status,
+            locale=command.locale,
         )
         speech_lifecycle_event = _append_speech_lifecycle_event(
             session_service,
@@ -449,6 +490,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
         text="This is a voice preview.",
         locale="en-US",
     )
+    memory_service = build_session_memory_service(get_app_paths())
     invalid_selection = ActiveCharacterSelection(
         character_id="missing-character",
         reason="user_selected",
@@ -490,6 +532,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                         session_service,
                         session_event_factory,
                         text_generation_service,
+                        memory_service,
                         synthesis_service,
                         current_snapshot,
                         character_id=current_character.character_id,
@@ -504,6 +547,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                         session_service,
                         session_event_factory,
                         text_generation_service,
+                        memory_service,
                         synthesis_service,
                         current_snapshot,
                         character_id=current_character.character_id,
@@ -575,6 +619,7 @@ def build_api_router() -> Any:
         session_event_factory,
         _turn_pipeline_publisher,
     ) = _build_services()
+    memory_service = build_session_memory_service(get_app_paths())
     route_definitions = _route_definitions()
 
     try:
@@ -674,6 +719,7 @@ def build_api_router() -> Any:
                 session_service,
                 session_event_factory,
                 text_generation_service,
+                memory_service,
                 synthesis_service,
                 snapshot,
                 character_id=active_character.character_id,

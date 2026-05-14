@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 from typing import cast
 
@@ -28,6 +29,7 @@ from app.services.character import CharacterService, FileSystemCharacterManifest
 from app.services.llm import TextGenerationRequest
 from app.services.session import InMemorySessionService
 from app.services.session import InMemorySessionEventStore
+from app.services.memory import SqliteSessionMemoryService
 from app.services.speech import (
     BackendTurnRequest,
     DefaultSessionEventFactory,
