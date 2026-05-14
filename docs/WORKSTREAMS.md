@@ -76,8 +76,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Tank Stage 3
 
-- [ ] Expose the audio turn lifecycle through the backend-owned `speech.lifecycle` envelope without leaking provider-specific events.
-- [ ] Stream transcription, synthesis, and speaking-state updates by reusing the ordered `speech.lifecycle` event envelope rather than transport-specific payload shapes.
+- [ ] Add an explicit backend turn-pipeline publication seam that emits canonical `session` and `speech.lifecycle` events into the existing ordered store without leaking provider-specific events or changing the current envelope.
+- [ ] Keep live delivery queued behind publication; when that slice opens, stream transcription, synthesis, and speaking-state updates by reusing the ordered `speech.lifecycle` event envelope rather than transport-specific payload shapes.
 
 ### Tank Stage 4
 
@@ -142,7 +142,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Mouse Stages 3 And 4
 
-- [ ] Add tests for STT and TTS event ordering, degraded failure states, and timing metadata presence; the current stability harness now covers event-store projection ordering plus degraded real-adapter shells, but not live delivery or real provider execution.
+- [ ] Add tests for backend turn-pipeline publication ordering, degraded failure states, and timing metadata presence; the current stability harness covers event-store projection ordering plus degraded real-adapter shells, but not the real turn publication seam, live delivery, or transport-backed frontend runtime behavior.
 - [ ] Add tests for retrieval provenance and vector-store fallback behavior.
 
 ### Mouse Stage 5
@@ -157,8 +157,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ## Immediate Handoff
 
-- Tank owns the next backend slice: wire the real turn pipeline to append canonical `session` and `speech.lifecycle` events into the existing event store while keeping the current ordered envelope stable.
-- Switch stays queued behind live delivery: once Tank exposes a live feed on the current envelope, extend the runtime from snapshot consumption to transport-backed speech-lifecycle consumption without reopening manifest-local asset resolution.
-- Link supports the next backend slice by keeping the real Faster-Whisper and GPT-SoVITS execution paths on the current normalized contract and by publishing any extra timing metadata only if the live runtime needs it.
-- Mouse owns the next stability slice: add backend turn-pipeline publication, live-delivery, and transport-aware frontend runtime checks now that the snapshot, event-store, and degraded-adapter baselines are green.
+- Tank owns the next backend slice: add the real turn-pipeline publication seam and append canonical `session` and `speech.lifecycle` events into the existing event store while keeping the current ordered envelope stable.
+- Switch stays queued behind live delivery: do not move frontend transport work in the same batch as publication; once Tank exposes a live feed on the current envelope, extend the runtime from snapshot consumption to transport-backed speech-lifecycle consumption without reopening manifest-local asset resolution.
+- Link supports the next backend slice by keeping the real Faster-Whisper and GPT-SoVITS execution paths on the current normalized contract and by publishing any extra timing metadata only if the publication seam exposes a real contract gap.
+- Mouse owns the next stability slice in the same batch as Tank: add backend turn-pipeline publication checks now that the snapshot, event-store, and degraded-adapter baselines are green, but keep live-delivery and transport-aware frontend runtime checks queued behind the transport slice.
 - Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.

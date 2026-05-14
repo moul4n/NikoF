@@ -262,6 +262,18 @@
 **What:** Treat the backend-owned event store, the real Faster-Whisper and GPT-SoVITS execution paths, the frontend speech-lifecycle snapshot bridge, and the current stability slice as landed. Sequence the next queue as backend turn-pipeline publication into the existing ordered event envelope, then live delivery on that same envelope, then frontend live consumption and transport-aware runtime stability expansion without widening payload shapes.
 **Why:** `docs/NEXT_STEPS.md` and `docs/WORKSTREAMS.md` had drifted behind the landed batch and were still advertising finished work as upcoming scope.
 
+### 2026-05-14T09:05:00+01:00: Next implementation block boundary
+
+**By:** Trinity
+**What:** Lock the next implementation block to backend turn-pipeline publication into the existing canonical `session` and `speech.lifecycle` event store plus publication-scoped stability coverage only. Keep the current `speech.lifecycle` envelope unchanged, queue live delivery as the following batch, and keep Switch's frontend transport work behind that transport slice.
+**Why:** The current backend still synthesizes `speech.lifecycle` events from the snapshot read path and does not yet expose an explicit turn orchestration or publication seam. Bundling publication, transport, and frontend live consumption now would cross two unfinished abstraction boundaries at once and make it harder to preserve the canonical envelope.
+
+### 2026-05-14T09:08:00+01:00: Backend turn publication owns canonical speech event creation
+
+**By:** Tank
+**What:** Add an explicit backend turn-pipeline publisher that executes the normalized STT and TTS services and appends canonical `session` plus `speech.lifecycle` events in fixed order. Keep `GET /session/speech-lifecycle` as a read-only projection over the existing event store instead of letting the snapshot read path seed events itself.
+**Why:** The next batch needs a backend-owned publication seam that can be reused by later delivery work without changing the current speech lifecycle envelope or inventing transport-specific payloads.
+
 ## Governance
 
 - All meaningful changes require team consensus

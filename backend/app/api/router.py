@@ -17,15 +17,19 @@ from app.schemas.session import (
 from app.services.character import CharacterService, FileSystemCharacterManifestSource, UnknownCharacterError
 from app.services.session import InvalidEventCursor, InMemorySessionService, SessionService
 from app.services.speech import (
+    BackendTurnRequest,
     DefaultSessionEventFactory,
+    DefaultTurnPipelinePublisher,
     SPEECH_LIFECYCLE_STREAM,
     SessionEventFactory,
     SpeechLifecycleSnapshotService,
+    SpeechSynthesisRequest,
     SpeechSynthesisService,
+    SpeechTranscriptionRequest,
     SpeechTranscriptionService,
     StubSpeechLifecycleSnapshotService,
-    StubSpeechSynthesisService,
-    StubSpeechTranscriptionService,
+    TurnPipelinePublisher,
+    build_speech_service_registry,
 )
 
 
@@ -76,13 +80,24 @@ def _build_services() -> tuple[
     SpeechSynthesisService,
     SpeechLifecycleSnapshotService,
     SessionEventFactory,
+    TurnPipelinePublisher,
 ]:
     character_service = CharacterService(FileSystemCharacterManifestSource())
     session_service = InMemorySessionService(default_character_id="test-vrm-01")
-    transcription_service = StubSpeechTranscriptionService()
-    synthesis_service = StubSpeechSynthesisService()
+    speech_registry = build_speech_service_registry(get_app_paths())
+    transcription_service = speech_registry.transcription_services.get(
+        "faster-whisper",
+        speech_registry.fallback_transcription_service,
+    )
+    synthesis_service = speech_registry.synthesis_services.get(
+        "gpt-sovits",
+        speech_registry.fallback_synthesis_service,
+    )
     session_event_factory = DefaultSessionEventFactory()
     speech_lifecycle_service = StubSpeechLifecycleSnapshotService(
+        event_store=session_service.event_store,
+    )
+    turn_pipeline_publisher = DefaultTurnPipelinePublisher(
         transcription_service=transcription_service,
         synthesis_service=synthesis_service,
         session_event_factory=session_event_factory,
@@ -95,6 +110,7 @@ def _build_services() -> tuple[
         synthesis_service,
         speech_lifecycle_service,
         session_event_factory,
+        turn_pipeline_publisher,
     )
 
 
@@ -225,10 +241,27 @@ def build_api_contract_snapshot() -> dict[str, Any]:
         synthesis_service,
         speech_lifecycle_service,
         session_event_factory,
+        turn_pipeline_publisher,
     ) = _build_services()
     characters = character_service.list_character_summaries()
     current_snapshot = session_service.get_snapshot()
     current_character = character_service.get_character_summary(current_snapshot.active_character_id)
+    turn_pipeline_publisher.publish_turn(
+        current_snapshot,
+        BackendTurnRequest(
+            character_id=current_character.character_id,
+            transcription=SpeechTranscriptionRequest(
+                audio_reference="session://speech-sample/transcription.wav",
+                locale="en-US",
+                transcript_hint="Hey Niko, can you wave after you answer?",
+                confidence_hint=0.98,
+            ),
+            synthesis=SpeechSynthesisRequest(
+                text="Sure. I can wave once I finish speaking.",
+                locale="en-US",
+            ),
+        ),
+    )
     speech_lifecycle_snapshot = speech_lifecycle_service.get_snapshot(
         current_snapshot,
         character_id=current_character.character_id,
@@ -327,6 +360,7 @@ def build_api_router() -> Any:
         _synthesis_service,
         speech_lifecycle_service,
         session_event_factory,
+        _turn_pipeline_publisher,
     ) = _build_services()
     route_definitions = _route_definitions()
 

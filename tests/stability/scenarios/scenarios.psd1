@@ -83,6 +83,18 @@
             )
         }
         @{
+            id = 'backend-turn-publication'
+            name = 'Backend turn publication seam snapshot'
+            harness = 'backend-turn-publication'
+            baseline = 'baselines/backend-turn-publication.json'
+            tracked_inputs = @(
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'backend/app/schemas/session.py'
+                'backend/app/services/session.py'
+                'backend/app/services/speech.py'
+            )
+        }
+        @{
             id = 'backend-speech-real-adapter-degraded'
             name = 'Backend speech real-adapter degraded-mode snapshot'
             harness = 'backend-speech-real-adapter-degraded'

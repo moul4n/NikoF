@@ -42,9 +42,9 @@
         "event_type": "transcription.status",
         "session_id": "session-scaffold-01",
         "character_id": "test-vrm-01",
-        "status": "final",
+        "status": "unavailable",
         "timestamp": "<generated-at>",
-        "reason": null,
+        "reason": "turn.pipeline",
         "transcription": {
           "profile_id": "stt.faster-whisper.medium-2026",
           "status": "unavailable",
@@ -82,9 +82,9 @@
         "event_type": "speech.synthesis",
         "session_id": "session-scaffold-01",
         "character_id": "test-vrm-01",
-        "status": "ready",
+        "status": "unavailable",
         "timestamp": "<generated-at>",
-        "reason": null,
+        "reason": "turn.pipeline",
         "transcription": null,
         "synthesis": {
           "profile_id": "tts.gpt-sovits.2026-stable",
@@ -154,9 +154,9 @@
               "event_type": "transcription.status",
               "session_id": "session-scaffold-01",
               "character_id": "test-vrm-01",
-              "status": "final",
+              "status": "unavailable",
               "timestamp": "<generated-at>",
-              "reason": null,
+              "reason": "turn.pipeline",
               "transcription": {
                 "profile_id": "stt.faster-whisper.medium-2026",
                 "status": "unavailable",
@@ -199,9 +199,9 @@
               "event_type": "speech.synthesis",
               "session_id": "session-scaffold-01",
               "character_id": "test-vrm-01",
-              "status": "ready",
+              "status": "unavailable",
               "timestamp": "<generated-at>",
-              "reason": null,
+              "reason": "turn.pipeline",
               "transcription": null,
               "synthesis": {
                 "profile_id": "tts.gpt-sovits.2026-stable",
@@ -262,7 +262,7 @@
     "contract_equivalence": {
       "canonical_transcription_event_match": false,
       "canonical_speech_synthesis_event_match": false,
-      "speech_lifecycle_transport_snapshot_match": false
+      "speech_lifecycle_transport_snapshot_match": true
     }
   }
 }

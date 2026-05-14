@@ -704,6 +704,215 @@ function Invoke-BackendSpeechEventStoreSnapshot {
     }
 }
 
+function Invoke-BackendTurnPublicationSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $pythonLauncher = Get-PythonLauncher
+    $scriptPath = Join-Path $RunRoot 'backend-turn-publication.py'
+    $scenarioTempRoot = Join-Path $RunRoot 'backend-turn-publication'
+    New-DirectoryIfMissing -Path $scenarioTempRoot
+    $pythonScript = @'
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+repo_root = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo_root / "backend"))
+
+from app.schemas.session import SessionSnapshot, SpeechSynthesisContract, SpeechTranscriptionContract
+from app.services.session import InMemorySessionEventStore
+from app.services.speech import (
+    BackendTurnRequest,
+    DefaultSessionEventFactory,
+    DefaultTurnPipelinePublisher,
+    SpeechSynthesisRequest,
+    SpeechTranscriptionRequest,
+    StubSpeechLifecycleSnapshotService,
+    StubSpeechSynthesisService,
+    StubSpeechTranscriptionService,
+)
+
+
+@dataclass(slots=True)
+class StaticSpeechTranscriptionService:
+    contract: SpeechTranscriptionContract
+
+    def transcribe(self, request: SpeechTranscriptionRequest) -> SpeechTranscriptionContract:
+        return self.contract
+
+
+@dataclass(slots=True)
+class StaticSpeechSynthesisService:
+    contract: SpeechSynthesisContract
+
+    def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
+        return self.contract
+
+
+def build_turn_request() -> BackendTurnRequest:
+    return BackendTurnRequest(
+        character_id="test-vrm-01",
+        transcription=SpeechTranscriptionRequest(
+            audio_reference="session://speech-sample/transcription.wav",
+            locale="en-US",
+            transcript_hint="Hey Niko, can you wave after you answer?",
+            confidence_hint=0.98,
+        ),
+        synthesis=SpeechSynthesisRequest(
+            text="Sure. I can wave once I finish speaking.",
+            locale="en-US",
+        ),
+    )
+
+
+def build_transcription_contract(status: str) -> SpeechTranscriptionContract:
+    return SpeechTranscriptionContract(
+        profile_id="stt.faster-whisper.medium-2026",
+        status=status,
+        locale="en-US",
+        transcript="Hey Niko, can you wave after you answer?",
+        confidence=0.98,
+    )
+
+
+def build_synthesis_contract(status: str) -> SpeechSynthesisContract:
+    return SpeechSynthesisContract(
+        profile_id="tts.gpt-sovits.2026-stable",
+        status=status,
+        text="Sure. I can wave once I finish speaking.",
+        locale="en-US",
+    )
+
+
+snapshot = SessionSnapshot(
+    session_id="session-scaffold-01",
+    active_character_id="test-vrm-01",
+)
+store = InMemorySessionEventStore()
+snapshot_service = StubSpeechLifecycleSnapshotService(event_store=store)
+
+before_publication = snapshot_service.get_snapshot(snapshot, character_id="test-vrm-01")
+
+publisher = DefaultTurnPipelinePublisher(
+    transcription_service=StubSpeechTranscriptionService(),
+    synthesis_service=StubSpeechSynthesisService(),
+    session_event_factory=DefaultSessionEventFactory(),
+    event_store=store,
+)
+first_publication = publisher.publish_turn(snapshot, build_turn_request())
+after_first_publication = snapshot_service.get_snapshot(snapshot, character_id="test-vrm-01")
+second_publication = publisher.publish_turn(snapshot, build_turn_request())
+
+session_events = store.read("session", session_id=snapshot.session_id)
+speech_events = store.read("speech.lifecycle", session_id=snapshot.session_id)
+
+degraded_cases = []
+for transcription_status, synthesis_status, publication_status in (
+    ("unavailable", "ready", "degraded"),
+    ("final", "unavailable", "degraded"),
+    ("error", "ready", "error"),
+    ("final", "error", "error"),
+):
+    degraded_store = InMemorySessionEventStore()
+    degraded_publisher = DefaultTurnPipelinePublisher(
+        transcription_service=StaticSpeechTranscriptionService(
+            build_transcription_contract(transcription_status)
+        ),
+        synthesis_service=StaticSpeechSynthesisService(
+            build_synthesis_contract(synthesis_status)
+        ),
+        session_event_factory=DefaultSessionEventFactory(),
+        event_store=degraded_store,
+    )
+    publication = degraded_publisher.publish_turn(snapshot, build_turn_request())
+    degraded_cases.append(
+        {
+            "transcription_status": transcription_status,
+            "synthesis_status": synthesis_status,
+            "publication_status": publication.session_events[-1].event.status,
+            "speech_lifecycle_statuses": [
+                publication.speech_lifecycle_events[0].event.status,
+                publication.speech_lifecycle_events[1].event.status,
+            ],
+        }
+    )
+
+payload = {
+    "scenario_id": "backend-turn-publication",
+    "publication_origin": {
+        "snapshot_before_publication": {
+            "event_count": len(before_publication.events),
+            "event_types": [event.event.event_type for event in before_publication.events],
+            "next_cursor": before_publication.next_cursor,
+        },
+        "snapshot_after_first_publication": {
+            "event_count": len(after_first_publication.events),
+            "event_types": [event.event.event_type for event in after_first_publication.events],
+            "event_ids": [event.event_id for event in after_first_publication.events],
+            "event_statuses": [event.event.status for event in after_first_publication.events],
+            "event_ids_match_publication": [event.event_id for event in after_first_publication.events]
+            == [event.event_id for event in first_publication.speech_lifecycle_events],
+            "next_cursor": after_first_publication.next_cursor,
+        },
+    },
+    "turn_publication_ordering": {
+        "first_publication_ordered_event_types": [
+            event.event.event_type for event in first_publication.ordered_events
+        ],
+        "first_publication_ordered_statuses": [
+            event.event.status for event in first_publication.ordered_events
+        ],
+        "second_publication_speech_sequences": [
+            event.sequence for event in second_publication.speech_lifecycle_events
+        ],
+        "session_stream_event_types": [event.event.event_type for event in session_events],
+        "speech_lifecycle_event_types": [event.event.event_type for event in speech_events],
+        "speech_lifecycle_sequences": [event.sequence for event in speech_events],
+        "speech_lifecycle_next_cursor": store.next_cursor(
+            "speech.lifecycle",
+            session_id=snapshot.session_id,
+        ),
+    },
+    "degraded_publication_outcomes": degraded_cases,
+}
+
+json.dump(payload, sys.stdout, indent=4)
+sys.stdout.write("\n")
+'@
+
+    Set-Content -LiteralPath $scriptPath -Value $pythonScript -Encoding Ascii
+
+    $outputLines = @(
+        & $pythonLauncher.executable @($pythonLauncher.arguments + @($scriptPath, $RepoRoot, $scenarioTempRoot)) 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($exitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $pythonLauncher.runner
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $exitCode
+            error_lines = @($outputLines | ForEach-Object { Normalize-Text -Text $_ -RepoRoot $RepoRoot -RunRoot $RunRoot })
+        }
+    }
+
+    return ($outputLines -join [Environment]::NewLine) | ConvertFrom-Json
+}
+
 function Invoke-BackendSpeechRealAdapterDegradedSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -754,7 +963,9 @@ sys.path.insert(0, str(repo_root / "backend"))
 from app.schemas.session import SessionSnapshot
 from app.services.session import InMemorySessionEventStore
 from app.services.speech import (
+    BackendTurnRequest,
     DefaultSessionEventFactory,
+    DefaultTurnPipelinePublisher,
     SpeechSynthesisRequest,
     SpeechTranscriptionRequest,
     StubSpeechLifecycleSnapshotService,
@@ -779,15 +990,32 @@ synthesis_service = registry.resolve_synthesis(synthesis_request)
 transcription_binding = transcription_service.binding_for(transcription_request)
 synthesis_binding = synthesis_service.binding_for(synthesis_request)
 
+snapshot = SessionSnapshot(
+    session_id="session-scaffold-01",
+    active_character_id="test-vrm-01",
+)
+store = InMemorySessionEventStore()
+
 lifecycle_service = StubSpeechLifecycleSnapshotService(
+    event_store=store,
+)
+publisher = DefaultTurnPipelinePublisher(
     transcription_service=transcription_service,
     synthesis_service=synthesis_service,
     session_event_factory=DefaultSessionEventFactory(),
-    event_store=InMemorySessionEventStore(),
+    event_store=store,
+)
+publication = publisher.publish_turn(
+    snapshot,
+    BackendTurnRequest(
+        character_id="test-vrm-01",
+        transcription=transcription_request,
+        synthesis=synthesis_request,
+    ),
 )
 transport_snapshot = asdict(
     lifecycle_service.get_snapshot(
-        SessionSnapshot(session_id="session-scaffold-01", active_character_id="test-vrm-01"),
+        snapshot,
         character_id="test-vrm-01",
     )
 )
@@ -816,6 +1044,15 @@ result = {
             "invocation_entrypoint": normalize_path(synthesis_binding.invocation_entrypoint, scenario_root),
             "configured": synthesis_binding.configured,
         },
+    },
+    "publication_origin": {
+        "session_event_types": [
+            envelope.event.event_type for envelope in publication.session_events
+        ],
+        "speech_lifecycle_event_types": [
+            envelope.event.event_type for envelope in publication.speech_lifecycle_events
+        ],
+        "speech_lifecycle_event_count": len(publication.speech_lifecycle_events),
     },
     "contracts": {
         "canonical_transcription_event": transport_snapshot["events"][0]["event"],
@@ -1184,6 +1421,9 @@ function Invoke-ScenarioSnapshot {
         }
         'backend-speech-event-store' {
             return Invoke-BackendSpeechEventStoreSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'backend-turn-publication' {
+            return Invoke-BackendTurnPublicationSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         'backend-speech-real-adapter-degraded' {
             return Invoke-BackendSpeechRealAdapterDegradedSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot

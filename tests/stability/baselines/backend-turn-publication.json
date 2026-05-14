@@ -1,0 +1,104 @@
+{
+    "scenario_id":  "backend-turn-publication",
+    "publication_origin":  {
+                               "snapshot_before_publication":  {
+                                                                   "event_count":  0,
+                                                                   "event_types":  [
+
+                                                                                   ],
+                                                                   "next_cursor":  "speech.lifecycle:session-scaffold-01:1"
+                                                               },
+                               "snapshot_after_first_publication":  {
+                                                                        "event_count":  2,
+                                                                        "event_types":  [
+                                                                                            "transcription.status",
+                                                                                            "speech.synthesis"
+                                                                                        ],
+                                                                        "event_ids":  [
+                                                                                          "speech-lifecycle-0001",
+                                                                                          "speech-lifecycle-0002"
+                                                                                      ],
+                                                                        "event_statuses":  [
+                                                                                               "final",
+                                                                                               "ready"
+                                                                                           ],
+                                                                        "event_ids_match_publication":  true,
+                                                                        "next_cursor":  "speech.lifecycle:session-scaffold-01:3"
+                                                                    }
+                           },
+    "turn_publication_ordering":  {
+                                      "first_publication_ordered_event_types":  [
+                                                                                    "session.turn.started",
+                                                                                    "transcription.status",
+                                                                                    "speech.synthesis",
+                                                                                    "session.turn.published"
+                                                                                ],
+                                      "first_publication_ordered_statuses":  [
+                                                                                 "started",
+                                                                                 "final",
+                                                                                 "ready",
+                                                                                 "published"
+                                                                             ],
+                                      "second_publication_speech_sequences":  [
+                                                                                  3,
+                                                                                  4
+                                                                              ],
+                                      "session_stream_event_types":  [
+                                                                         "session.turn.started",
+                                                                         "session.turn.published",
+                                                                         "session.turn.started",
+                                                                         "session.turn.published"
+                                                                     ],
+                                      "speech_lifecycle_event_types":  [
+                                                                           "transcription.status",
+                                                                           "speech.synthesis",
+                                                                           "transcription.status",
+                                                                           "speech.synthesis"
+                                                                       ],
+                                      "speech_lifecycle_sequences":  [
+                                                                         1,
+                                                                         2,
+                                                                         3,
+                                                                         4
+                                                                     ],
+                                      "speech_lifecycle_next_cursor":  "speech.lifecycle:session-scaffold-01:5"
+                                  },
+    "degraded_publication_outcomes":  [
+                                          {
+                                              "transcription_status":  "unavailable",
+                                              "synthesis_status":  "ready",
+                                              "publication_status":  "degraded",
+                                              "speech_lifecycle_statuses":  [
+                                                                                "unavailable",
+                                                                                "ready"
+                                                                            ]
+                                          },
+                                          {
+                                              "transcription_status":  "final",
+                                              "synthesis_status":  "unavailable",
+                                              "publication_status":  "degraded",
+                                              "speech_lifecycle_statuses":  [
+                                                                                "final",
+                                                                                "unavailable"
+                                                                            ]
+                                          },
+                                          {
+                                              "transcription_status":  "error",
+                                              "synthesis_status":  "ready",
+                                              "publication_status":  "error",
+                                              "speech_lifecycle_statuses":  [
+                                                                                "error",
+                                                                                "ready"
+                                                                            ]
+                                          },
+                                          {
+                                              "transcription_status":  "final",
+                                              "synthesis_status":  "error",
+                                              "publication_status":  "error",
+                                              "speech_lifecycle_statuses":  [
+                                                                                "final",
+                                                                                "error"
+                                                                            ]
+                                          }
+                                      ]
+}

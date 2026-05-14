@@ -94,6 +94,32 @@ class SpeechLifecycleSnapshotService(Protocol):
 
 
 @dataclass(slots=True, frozen=True)
+class BackendTurnRequest:
+    character_id: str
+    transcription: SpeechTranscriptionRequest
+    synthesis: SpeechSynthesisRequest
+    reason: str | None = "turn.pipeline"
+
+
+@dataclass(slots=True, frozen=True)
+class BackendTurnPublication:
+    ordered_events: tuple[SpeechLifecycleEventEnvelope, ...]
+    session_events: tuple[SpeechLifecycleEventEnvelope, ...]
+    speech_lifecycle_events: tuple[SpeechLifecycleEventEnvelope, ...]
+
+
+class TurnPipelinePublisher(Protocol):
+    """Explicit backend seam for executing one speech turn and publishing canonical events."""
+
+    def publish_turn(
+        self,
+        snapshot: SessionSnapshot,
+        request: BackendTurnRequest,
+    ) -> BackendTurnPublication:
+        raise NotImplementedError
+
+
+@dataclass(slots=True, frozen=True)
 class SpeechAdapterRuntimeBinding:
     """Describes where a future provider-specific adapter will resolve its runtime assets."""
 
@@ -723,10 +749,6 @@ class GptSovitsSynthesisAdapter(StubSpeechSynthesisService):
 @dataclass(slots=True)
 class StubSpeechLifecycleSnapshotService:
     """Deterministic read surface until live speech delivery exists."""
-
-    transcription_service: SpeechTranscriptionService
-    synthesis_service: SpeechSynthesisService
-    session_event_factory: SessionEventFactory
     event_store: SessionEventStore
 
     def get_snapshot(
@@ -736,7 +758,6 @@ class StubSpeechLifecycleSnapshotService:
         character_id: str,
         cursor: str | None = None,
     ) -> SpeechLifecycleTransportSnapshot:
-        self._ensure_lifecycle_events(snapshot, character_id=character_id)
         envelopes = self.event_store.read(
             SPEECH_LIFECYCLE_STREAM,
             session_id=snapshot.session_id,
@@ -754,49 +775,6 @@ class StubSpeechLifecycleSnapshotService:
             ),
             events=envelopes,
         )
-
-    def _ensure_lifecycle_events(self, snapshot: SessionSnapshot, *, character_id: str) -> None:
-        existing_events = self.event_store.read(
-            SPEECH_LIFECYCLE_STREAM,
-            session_id=snapshot.session_id,
-        )
-        if existing_events and existing_events[-1].event.character_id == character_id:
-            return
-
-        transcription = self.transcription_service.transcribe(
-            SpeechTranscriptionRequest(
-                audio_reference="session://speech-sample/transcription.wav",
-                locale="en-US",
-                transcript_hint="Hey Niko, can you wave after you answer?",
-                confidence_hint=0.98,
-            )
-        )
-        synthesis = self.synthesis_service.synthesize(
-            SpeechSynthesisRequest(
-                text="Sure. I can wave once I finish speaking.",
-                locale="en-US",
-            )
-        )
-
-        events = (
-            self.session_event_factory.build_event(
-                snapshot,
-                character_id=character_id,
-                event_type="transcription.status",
-                status="final",
-                transcription=transcription,
-            ),
-            self.session_event_factory.build_event(
-                snapshot,
-                character_id=character_id,
-                event_type="speech.synthesis",
-                status="ready",
-                synthesis=synthesis,
-            ),
-        )
-
-        for event in events:
-            self.event_store.append(SPEECH_LIFECYCLE_STREAM, event)
 
 
 @dataclass(slots=True)
@@ -835,6 +813,95 @@ def build_speech_service_registry(app_paths: AppPaths | None = None) -> SpeechSe
             "gpt-sovits": GptSovitsSynthesisAdapter(app_paths=resolved_paths),
         },
     )
+
+
+def _resolve_turn_publication_status(
+    transcription: SpeechTranscriptionContract,
+    synthesis: SpeechSynthesisContract,
+) -> str:
+    if transcription.status == "error" or synthesis.status == "error":
+        return "error"
+
+    if transcription.status == "unavailable" or synthesis.status == "unavailable":
+        return "degraded"
+
+    return "published"
+
+
+@dataclass(slots=True)
+class DefaultTurnPipelinePublisher:
+    """Executes one backend-owned speech turn and appends canonical events in fixed order."""
+
+    transcription_service: SpeechTranscriptionService
+    synthesis_service: SpeechSynthesisService
+    session_event_factory: SessionEventFactory
+    event_store: SessionEventStore
+
+    def publish_turn(
+        self,
+        snapshot: SessionSnapshot,
+        request: BackendTurnRequest,
+    ) -> BackendTurnPublication:
+        session_started = self.event_store.append(
+            "session",
+            self.session_event_factory.build_event(
+                snapshot,
+                character_id=request.character_id,
+                event_type="session.turn.started",
+                status="started",
+                reason=request.reason,
+            ),
+        )
+
+        transcription = self.transcription_service.transcribe(request.transcription)
+        transcription_event = self.event_store.append(
+            SPEECH_LIFECYCLE_STREAM,
+            self.session_event_factory.build_event(
+                snapshot,
+                character_id=request.character_id,
+                event_type="transcription.status",
+                status=transcription.status,
+                reason=request.reason,
+                transcription=transcription,
+            ),
+        )
+
+        synthesis = self.synthesis_service.synthesize(request.synthesis)
+        synthesis_event = self.event_store.append(
+            SPEECH_LIFECYCLE_STREAM,
+            self.session_event_factory.build_event(
+                snapshot,
+                character_id=request.character_id,
+                event_type="speech.synthesis",
+                status=synthesis.status,
+                reason=request.reason,
+                synthesis=synthesis,
+            ),
+        )
+
+        session_published = self.event_store.append(
+            "session",
+            self.session_event_factory.build_event(
+                snapshot,
+                character_id=request.character_id,
+                event_type="session.turn.published",
+                status=_resolve_turn_publication_status(transcription, synthesis),
+                reason=request.reason,
+                transcription=transcription,
+                synthesis=synthesis,
+            ),
+        )
+
+        return BackendTurnPublication(
+            ordered_events=(
+                session_started,
+                transcription_event,
+                synthesis_event,
+                session_published,
+            ),
+            session_events=(session_started, session_published),
+            speech_lifecycle_events=(transcription_event, synthesis_event),
+        )
 
 
 @dataclass(slots=True)
