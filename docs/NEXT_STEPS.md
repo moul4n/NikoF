@@ -2,8 +2,7 @@
 
 Updated: 2026-05-14
 
-1. Add a backend-owned event store for canonical session and `speech.lifecycle` events, with ordered persistence and cursor-based reads that keep the current snapshot contract stable.
-2. Replace the current speech adapter shells with real Faster-Whisper and GPT-SoVITS execution behind the existing provider-agnostic interfaces, while keeping provider-specific details out of route payloads.
-3. Add live delivery on top of the existing `speech.lifecycle` envelope, using SSE or WebSocket transport that reuses the backend-owned event contract instead of inventing a second payload shape.
-4. Extend the frontend and avatar runtime from snapshot proofs to real integration by consuming live speech lifecycle delivery, real synthesis metadata, and backend-confirmed character state without regressing the repaired Stage 1 bridge path.
-5. Expand stability coverage with event-store, live-delivery, and real-adapter scenarios so each new seam is baseline-checked before broader UX work lands.
+1. Wire the backend turn pipeline to publish canonical `session` and `speech.lifecycle` events into the existing backend-owned event store, using the landed Faster-Whisper and GPT-SoVITS execution paths without widening the ordered envelope.
+2. Add live delivery on top of the existing `speech.lifecycle` contract, using SSE or WebSocket transport that reuses the same cursor and payload shape rather than inventing a second transport document.
+3. Extend the frontend and avatar runtime from snapshot consumption to live speech-lifecycle consumption, preserving cursor ordering, backend-confirmed character state, and the current transcription and synthesis event contract.
+4. Expand stability coverage from the green snapshot, event-store, and degraded-adapter proofs into backend turn-pipeline publication, live-delivery, and transport-aware frontend runtime scenarios once those seams exist in code.

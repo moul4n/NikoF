@@ -1,0 +1,174 @@
+{
+  "scenario_id": "backend-speech-event-store",
+  "scenario_name": "Backend speech event-store projection snapshot",
+  "runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "backend/app/api/router.py",
+    "backend/app/schemas/session.py",
+    "backend/app/services/speech.py",
+    "assets/characters/test-vrm-01/manifest.json"
+  ],
+  "local_root": "<scenario-temp>",
+  "event_store_projection": {
+    "stream": "speech.lifecycle",
+    "session_id": "session-scaffold-01",
+    "delivery": "snapshot",
+    "record_count": 2,
+    "ordered_sequences": [
+      1,
+      2
+    ],
+    "ordered_event_ids": [
+      "speech-lifecycle-0001",
+      "speech-lifecycle-0002"
+    ],
+    "ordered_event_types": [
+      "transcription.status",
+      "speech.synthesis"
+    ],
+    "next_cursor": "speech.lifecycle:session-scaffold-01:3",
+    "last_cursor": "speech.lifecycle:session-scaffold-01:2",
+    "cursor_prefix": "speech.lifecycle:session-scaffold-01",
+    "sequence_gap_free": true,
+    "persisted_records": [
+      {
+        "event_id": "speech-lifecycle-0001",
+        "sequence": 1,
+        "cursor": "speech.lifecycle:session-scaffold-01:1",
+        "event": {
+          "schema_version": 1,
+          "event_type": "transcription.status",
+          "session_id": "session-scaffold-01",
+          "character_id": "test-vrm-01",
+          "status": "final",
+          "timestamp": "<generated-at>",
+          "reason": null,
+          "transcription": {
+            "profile_id": "stt.faster-whisper.medium-2026",
+            "status": "final",
+            "locale": "en-US",
+            "transcript": "Hey Niko, can you wave after you answer?",
+            "confidence": 0.98,
+            "timing": {
+              "utterance_duration_ms": 1890,
+              "segment_ranges": [
+                {
+                  "start_ms": 0,
+                  "end_ms": 640,
+                  "text": "Hey Niko,"
+                },
+                {
+                  "start_ms": 640,
+                  "end_ms": 1890,
+                  "text": "can you wave after you answer?"
+                }
+              ],
+              "audio_format": {
+                "container": "wav",
+                "encoding": "pcm_s16le",
+                "sample_rate_hz": 16000,
+                "channels": 1
+              },
+              "phoneme_slots": [],
+              "viseme_slots": []
+            }
+          },
+          "synthesis": null
+        }
+      },
+      {
+        "event_id": "speech-lifecycle-0002",
+        "sequence": 2,
+        "cursor": "speech.lifecycle:session-scaffold-01:2",
+        "event": {
+          "schema_version": 1,
+          "event_type": "speech.synthesis",
+          "session_id": "session-scaffold-01",
+          "character_id": "test-vrm-01",
+          "status": "ready",
+          "timestamp": "<generated-at>",
+          "reason": null,
+          "transcription": null,
+          "synthesis": {
+            "profile_id": "tts.gpt-sovits.2026-stable",
+            "status": "ready",
+            "text": "Sure. I can wave once I finish speaking.",
+            "locale": "en-US",
+            "timing": {
+              "utterance_duration_ms": 2120,
+              "segment_ranges": [
+                {
+                  "start_ms": 0,
+                  "end_ms": 880,
+                  "text": "Sure."
+                },
+                {
+                  "start_ms": 880,
+                  "end_ms": 2120,
+                  "text": "I can wave once I finish speaking."
+                }
+              ],
+              "audio_format": {
+                "container": "wav",
+                "encoding": "pcm_s16le",
+                "sample_rate_hz": 24000,
+                "channels": 1
+              },
+              "phoneme_slots": [
+                {
+                  "phoneme": "S",
+                  "start_ms": 0,
+                  "end_ms": 110
+                },
+                {
+                  "phoneme": "UH",
+                  "start_ms": 110,
+                  "end_ms": 260
+                }
+              ],
+              "viseme_slots": [
+                {
+                  "viseme": "sil",
+                  "start_ms": 0,
+                  "end_ms": 45
+                },
+                {
+                  "viseme": "smile",
+                  "start_ms": 45,
+                  "end_ms": 310
+                }
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "cursor_reads": {
+      "from_origin": {
+        "cursor": null,
+        "returned_event_ids": [
+          "speech-lifecycle-0001",
+          "speech-lifecycle-0002"
+        ],
+        "returned_event_types": [
+          "transcription.status",
+          "speech.synthesis"
+        ],
+        "returned_count": 2,
+        "next_cursor": "speech.lifecycle:session-scaffold-01:3"
+      },
+      "after_first_cursor": {
+        "cursor": "speech.lifecycle:session-scaffold-01:1",
+        "returned_event_ids": [
+          "speech-lifecycle-0002"
+        ],
+        "returned_event_types": [
+          "speech.synthesis"
+        ],
+        "returned_count": 4,
+        "next_cursor": "speech.lifecycle:session-scaffold-01:3"
+      }
+    }
+  }
+}

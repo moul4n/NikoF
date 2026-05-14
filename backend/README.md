@@ -18,9 +18,17 @@ implemented.
 
 - Real HTTP handlers belong in `app/api/` once FastAPI is introduced.
 - Local STT, LLM, TTS, and memory providers should sit behind dedicated services, not route modules.
-- Normalized speech adapter contracts live in `app/schemas/session.py`. Later Faster-Whisper and GPT-SoVITS adapters should map provider-specific payloads into those schema types instead of widening route payloads or introducing provider-shaped API responses.
+- Normalized speech adapter contracts live in `app/schemas/session.py`. The Faster-Whisper and GPT-SoVITS adapters now execute behind those schema types instead of widening route payloads or introducing provider-shaped API responses.
 - Baseline speech profile ids are locked for planning and fixture coverage: `stt.faster-whisper.medium-2026`, `stt.faster-whisper.small-2026`, and `tts.gpt-sovits.2026-stable`.
 - Persistent session state can replace the in-memory session stub without changing route contracts.
+
+## Local Speech Adapter Expectations
+
+- `app/services/speech.py` resolves speech runtimes only from the bootstrap-managed local roots in `NIKOF_STT_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, and `NIKOF_PROVIDERS_ROOT`.
+- Faster-Whisper transcription first tries inline execution when `faster_whisper` is importable in the backend environment. If that package is unavailable, it falls back to a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT/stt/faster-whisper/transcribe.py` or `main.py` and sends one JSON request over stdin.
+- GPT-SoVITS synthesis executes through a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT/tts/gpt-sovits/synthesize.py` or `api_server.py`, again using one JSON request over stdin and one JSON response over stdout.
+- Provider entrypoints must return normalized JSON fields only: `status`, `locale`, optional `transcript` or `text`, optional `confidence`, and optional `timing` with `utterance_duration_ms`, `segment_ranges`, `audio_format`, and optional `phoneme_slots` or `viseme_slots`.
+- When the local model payload, audio input, runtime, or provider entrypoint is absent, the adapters return deterministic normalized `unavailable` or `error` contracts instead of raising raw provider failures into route payloads.
 
 ## Quick check
 

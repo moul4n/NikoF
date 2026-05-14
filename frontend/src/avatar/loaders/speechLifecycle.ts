@@ -3,6 +3,14 @@ import type {
   BackendSpeechLifecycleTransportSnapshotDocument
 } from "../../shared/types/character.js";
 
+const backendApiBaseUrl = resolveBackendApiBaseUrl();
+
+type ImportMetaWithOptionalEnv = ImportMeta & {
+  env?: {
+    VITE_BACKEND_API_BASE_URL?: string;
+  };
+};
+
 export interface ConsumedSpeechLifecycleSnapshot {
   stream: string;
   delivery: string;
@@ -15,6 +23,18 @@ export interface ConsumedSpeechLifecycleSnapshot {
   nextCursorAdvancesPastLastEvent: boolean;
   canonicalTranscriptionEvent: BackendSessionEventDocument | null;
   canonicalSpeechSynthesisEvent: BackendSessionEventDocument | null;
+}
+
+export async function fetchSpeechLifecycleSnapshot(
+  fetcher: typeof fetch = fetch
+): Promise<ConsumedSpeechLifecycleSnapshot> {
+  const response = await fetcher(buildBackendApiUrl("/session/speech-lifecycle"));
+
+  if (!response.ok) {
+    throw new Error(`Backend speech lifecycle request failed with status ${response.status}.`);
+  }
+
+  return consumeSpeechLifecycleSnapshot((await response.json()) as BackendSpeechLifecycleTransportSnapshotDocument);
 }
 
 export function consumeSpeechLifecycleSnapshot(
@@ -75,4 +95,19 @@ function stripNullFields(value: unknown): unknown {
   }
 
   return value;
+}
+
+function resolveBackendApiBaseUrl(): string {
+  const configuredBaseUrl = (import.meta as ImportMetaWithOptionalEnv).env?.VITE_BACKEND_API_BASE_URL?.trim();
+
+  if (!configuredBaseUrl) {
+    return "/api";
+  }
+
+  return configuredBaseUrl.replace(/\/+$/, "");
+}
+
+function buildBackendApiUrl(pathname: string): string {
+  const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `${backendApiBaseUrl}${normalizedPath}`;
 }

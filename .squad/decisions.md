@@ -226,6 +226,42 @@
 **What:** Detect rejection rollback in the `frontend-stage1-bridge-surface` stability scenario by matching the structured `ActiveCharacterSyncError` catch path in `App.tsx`, including the intermediate reconciled-character variable and the subsequent `setSelectedCharacterId(...)` call, instead of requiring one inline nested call shape.
 **Why:** The frontend still performs the intended rollback to the backend-confirmed active character on rejection, but the earlier assertion only recognized one exact syntax form and produced a false negative baseline.
 
+### 2026-05-14T08:57:41.6820932+01:00: Local speech adapter execution contract
+
+**By:** Link
+**What:** Faster-Whisper and GPT-SoVITS execution stays behind the existing normalized speech service interfaces and resolves only from the bootstrap-managed local roots. Faster-Whisper may run inline when `faster_whisper` is installed in the backend environment, otherwise it falls back to a provider-local Python entrypoint under `NIKOF_PROVIDERS_ROOT/stt/faster-whisper/`. GPT-SoVITS runs through a provider-local Python entrypoint under `NIKOF_PROVIDERS_ROOT/tts/gpt-sovits/`. Provider entrypoints accept one JSON request on stdin and emit one normalized JSON response on stdout.
+**Why:** The backend needs real local execution paths without widening API payloads, mutating bootstrap state, or forcing one machine-specific runtime layout beyond the documented local storage contract.
+
+### 2026-05-14T08:57:41.6820932+01:00: Speech degraded-mode baseline policy
+
+**By:** Mouse
+**What:** Keep speech stability coverage centered on the backend-owned canonical envelope, but let the degraded real-adapter scenario baseline the actual adapter-shell result for the current branch, including selected provider entrypoints and `unavailable` statuses when local provider payloads are missing.
+**Why:** The real adapter shells now express degraded mode through the same envelope shape with different contract values. Forcing stub-ready values in the harness would hide legitimate backend behavior changes and make the baseline less trustworthy.
+
+### 2026-05-14T08:57:41.6820932+01:00: Frontend bridge stability follows the actual bridge owner
+
+**By:** Mouse
+**What:** Keep `frontend-stage1-bridge-surface` anchored to the file that actually owns Stage 1 bridge behavior. In the current slice that means source-inspecting `frontend/src/avatar/loaders/backendCharacterFlow.ts` for catalog-envelope consumption and helper-backed rejection rollback, while `App.tsx` only needs to prove it routes structured rejection handling through that helper path.
+**Why:** The Stage 1 frontend bridge contract did not change, but the implementation moved out of inline loader and component code into helper functions. The stability seam should fail on contract drift, not on harmless internal extraction.
+
+### 2026-05-14T08:57:41.6820932+01:00: Frontend speech lifecycle snapshot bridge
+
+**By:** Switch
+**What:** Bridge the frontend shell to `GET /session/speech-lifecycle` as a read-only snapshot surface only, fetching once after catalog readiness and refreshing after backend-confirmed active-character responses, while keeping manifest loading and VRM asset resolution frontend-local.
+**Why:** This surfaces canonical transcription and synthesis lifecycle state in the current shell and keeps it aligned with backend-confirmed session flow without widening into polling, SSE, WebSocket transport, or backend asset serving.
+
+### 2026-05-14T08:57:41.6820932+01:00: Backend event-store shape
+
+**By:** Tank
+**What:** Persist canonical `session` and `speech.lifecycle` events in a backend-owned, per-session, per-stream ordered store that reuses the existing envelope fields (`event_id`, `sequence`, `cursor`, `event`). The current `GET /session/speech-lifecycle` surface may accept an optional cursor for incremental reads, but it keeps the same snapshot payload shape and does not introduce transport-specific event bodies.
+**Why:** This gives the backend one canonical ordering and cursor source before SSE or WebSocket delivery exists, while preserving the current provider-agnostic contract and avoiding a second event schema.
+
+### 2026-05-14T08:57:41.6820932+01:00: Post-batch queue alignment
+
+**By:** Trinity
+**What:** Treat the backend-owned event store, the real Faster-Whisper and GPT-SoVITS execution paths, the frontend speech-lifecycle snapshot bridge, and the current stability slice as landed. Sequence the next queue as backend turn-pipeline publication into the existing ordered event envelope, then live delivery on that same envelope, then frontend live consumption and transport-aware runtime stability expansion without widening payload shapes.
+**Why:** `docs/NEXT_STEPS.md` and `docs/WORKSTREAMS.md` had drifted behind the landed batch and were still advertising finished work as upcoming scope.
+
 ## Governance
 
 - All meaningful changes require team consensus

@@ -100,8 +100,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Link Stage 3
 
-- [ ] Wire Faster-Whisper Medium as the default STT path with Small as the fallback profile.
-- [ ] Wire GPT-SoVITS latest stable 2026 fork behind the normalized TTS contract.
+- [x] Wire Faster-Whisper Medium as the default STT path with Small as the fallback profile.
+- [x] Wire GPT-SoVITS latest stable 2026 fork behind the normalized TTS contract.
 - [ ] Publish the timing or phoneme metadata shape needed for speech-aligned avatar playback.
 - [ ] Define bootstrap download steps, checksum or version expectations, and manual install notes for STT and TTS providers.
 
@@ -142,7 +142,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Mouse Stages 3 And 4
 
-- [ ] Add tests for STT and TTS event ordering, degraded failure states, and timing metadata presence.
+- [ ] Add tests for STT and TTS event ordering, degraded failure states, and timing metadata presence; the current stability harness now covers event-store projection ordering plus degraded real-adapter shells, but not live delivery or real provider execution.
 - [ ] Add tests for retrieval provenance and vector-store fallback behavior.
 
 ### Mouse Stage 5
@@ -157,8 +157,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ## Immediate Handoff
 
-- Tank can deepen the backend skeleton and provider-agnostic adapter seams now.
-- Switch can keep the frontend focused on the default-character VRM shell and device permission seams now.
-- Link can start STT and TTS adapter contracts now, using the agreed 2026 baseline.
-- Mouse owns the stability harness next: add backend session-event snapshots, bootstrap artifact assertions, and staged failure baselines as Stage 1 contracts firm up. Widened-payload baselines now cover the current backend Stage 1 response envelopes and bootstrap report surface.
-- Trinity owns the portability, bootstrap, and continuity contract until those rules are reflected in implementation docs and setup validation.
+- Tank owns the next backend slice: wire the real turn pipeline to append canonical `session` and `speech.lifecycle` events into the existing event store while keeping the current ordered envelope stable.
+- Switch stays queued behind live delivery: once Tank exposes a live feed on the current envelope, extend the runtime from snapshot consumption to transport-backed speech-lifecycle consumption without reopening manifest-local asset resolution.
+- Link supports the next backend slice by keeping the real Faster-Whisper and GPT-SoVITS execution paths on the current normalized contract and by publishing any extra timing metadata only if the live runtime needs it.
+- Mouse owns the next stability slice: add backend turn-pipeline publication, live-delivery, and transport-aware frontend runtime checks now that the snapshot, event-store, and degraded-adapter baselines are green.
+- Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.

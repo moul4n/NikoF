@@ -16,3 +16,5 @@
 - Stage 1 frontend-to-backend bridging should overlay backend character summaries and active-character session state onto the local manifest catalog by `character_id`, never replace manifest-derived asset URLs with backend payloads.
 - The frontend shell can persist active-character changes over HTTP, but it must degrade cleanly to local-only selection when `/characters` or `/session/active-character` is unavailable.
 - In Vite dev, route backend bridge calls through a local `/api` proxy by default so the shell can use FastAPI surfaces without opening CORS work in the frontend slice.
+- The backend-owned `GET /session/speech-lifecycle` surface can be consumed as a pull-only snapshot in the shell once the manifest catalog is ready; refresh it after backend-confirmed active-character outcomes so the displayed lifecycle state stays aligned without adding polling or live transport.
+- Surface canonical transcription and synthesis state from the normalized snapshot envelope itself, including cursor order and profile metadata, instead of inventing frontend-specific speech state models before SSE or WebSocket delivery exists.

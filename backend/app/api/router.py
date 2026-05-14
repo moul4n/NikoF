@@ -9,14 +9,16 @@ from app.schemas.health import DiagnosticProbe, HealthDiagnostics, HealthPayload
 from app.schemas.session import (
     ActiveCharacterResponse,
     ActiveCharacterSelectionResult,
+    SessionEvent,
     SessionSnapshot,
     SpeechLifecycleTransportSnapshot,
     build_baseline_speech_adapter_profiles,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource, UnknownCharacterError
-from app.services.session import InMemorySessionService, SessionService
+from app.services.session import InvalidEventCursor, InMemorySessionService, SessionService
 from app.services.speech import (
     DefaultSessionEventFactory,
+    SPEECH_LIFECYCLE_STREAM,
     SessionEventFactory,
     SpeechLifecycleSnapshotService,
     SpeechSynthesisService,
@@ -84,6 +86,7 @@ def _build_services() -> tuple[
         transcription_service=transcription_service,
         synthesis_service=synthesis_service,
         session_event_factory=session_event_factory,
+        event_store=session_service.event_store,
     )
     return (
         session_service,
@@ -166,16 +169,12 @@ def _build_character_catalog_response(
 def _build_active_character_response(
     snapshot: SessionSnapshot,
     active_character: CharacterSummary,
-    session_event_factory: SessionEventFactory,
     *,
     requested_character_id: str,
     selection_applied: bool,
-    event_type: str,
-    status: str,
+    session_event: SessionEvent,
     error_code: str | None = None,
     message: str | None = None,
-    event_character_id: str | None = None,
-    reason: str | None = None,
 ) -> ActiveCharacterResponse:
     return ActiveCharacterResponse(
         schema_version=1,
@@ -188,14 +187,34 @@ def _build_active_character_response(
             error_code=error_code,
             message=message,
         ),
-        session_event=session_event_factory.build_event(
-            snapshot,
-            character_id=event_character_id or active_character.character_id,
-            event_type=event_type,
-            status=status,
-            reason=reason,
-        ),
+        session_event=session_event,
     )
+
+
+def _build_session_event(
+    snapshot: SessionSnapshot,
+    session_event_factory: SessionEventFactory,
+    *,
+    character_id: str,
+    event_type: str,
+    status: str,
+    reason: str | None = None,
+) -> SessionEvent:
+    return session_event_factory.build_event(
+        snapshot,
+        character_id=character_id,
+        event_type=event_type,
+        status=status,
+        reason=reason,
+    )
+
+
+def _append_session_event(
+    session_service: SessionService,
+    session_event: SessionEvent,
+) -> SessionEvent:
+    session_service.event_store.append("session", session_event)
+    return session_event
 
 
 def build_api_contract_snapshot() -> dict[str, Any]:
@@ -235,11 +254,15 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                 _build_active_character_response(
                     current_snapshot,
                     current_character,
-                    session_event_factory,
                     requested_character_id=current_character.character_id,
                     selection_applied=True,
-                    event_type="session.state",
-                    status=current_snapshot.lifecycle_state,
+                    session_event=_build_session_event(
+                        current_snapshot,
+                        session_event_factory,
+                        character_id=current_character.character_id,
+                        event_type="session.state",
+                        status=current_snapshot.lifecycle_state,
+                    ),
                     message="Active character resolved.",
                 )
             ),
@@ -250,13 +273,20 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                     _build_active_character_response(
                         updated_snapshot,
                         selected_character,
-                        session_event_factory,
                         requested_character_id=selection.character_id,
                         selection_applied=True,
-                        event_type="session.character.selected",
-                        status="applied",
+                        session_event=_append_session_event(
+                            session_service,
+                            _build_session_event(
+                                updated_snapshot,
+                                session_event_factory,
+                                character_id=selected_character.character_id,
+                                event_type="session.character.selected",
+                                status="applied",
+                                reason=selection.reason,
+                            ),
+                        ),
                         message="Active character updated.",
-                        reason=selection.reason,
                     )
                 ),
             },
@@ -267,15 +297,21 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                     _build_active_character_response(
                         current_snapshot,
                         current_character,
-                        session_event_factory,
                         requested_character_id=invalid_selection.character_id,
                         selection_applied=False,
-                        event_type="session.character.rejected",
-                        status="rejected",
+                        session_event=_append_session_event(
+                            session_service,
+                            _build_session_event(
+                                current_snapshot,
+                                session_event_factory,
+                                character_id=invalid_selection.character_id,
+                                event_type="session.character.rejected",
+                                status="rejected",
+                                reason=invalid_selection.reason,
+                            ),
+                        ),
                         error_code="unknown_character",
                         message="Requested character is unavailable.",
-                        event_character_id=invalid_selection.character_id,
-                        reason=invalid_selection.reason,
                     )
                 ),
             },
@@ -300,7 +336,7 @@ def build_api_router() -> Any:
         return RouterShell(routes=route_definitions)
 
     router = APIRouter()
-    from fastapi import Response, status
+    from fastapi import HTTPException, Response, status
 
     @router.get("/health", response_model=HealthPayload)
     def healthcheck() -> HealthPayload:
@@ -322,11 +358,15 @@ def build_api_router() -> Any:
         return _build_active_character_response(
             snapshot,
             active_character,
-            session_event_factory,
             requested_character_id=active_character.character_id,
             selection_applied=True,
-            event_type="session.state",
-            status=snapshot.lifecycle_state,
+            session_event=_build_session_event(
+                snapshot,
+                session_event_factory,
+                character_id=active_character.character_id,
+                event_type="session.state",
+                status=snapshot.lifecycle_state,
+            ),
             message="Active character resolved.",
         )
 
@@ -335,13 +375,17 @@ def build_api_router() -> Any:
         response_model=SpeechLifecycleTransportSnapshot,
         response_model_exclude_none=True,
     )
-    def get_speech_lifecycle() -> SpeechLifecycleTransportSnapshot:
+    def get_speech_lifecycle(cursor: str | None = None) -> SpeechLifecycleTransportSnapshot:
         snapshot = session_service.get_snapshot()
         active_character = character_service.get_character_summary(snapshot.active_character_id)
-        return speech_lifecycle_service.get_snapshot(
-            snapshot,
-            character_id=active_character.character_id,
-        )
+        try:
+            return speech_lifecycle_service.get_snapshot(
+                snapshot,
+                character_id=active_character.character_id,
+                cursor=cursor,
+            )
+        except InvalidEventCursor as error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
     @router.put(
         "/session/active-character",
@@ -359,28 +403,41 @@ def build_api_router() -> Any:
             return _build_active_character_response(
                 current_snapshot,
                 current_character,
-                session_event_factory,
                 requested_character_id=selection.character_id,
                 selection_applied=False,
-                event_type="session.character.rejected",
-                status="rejected",
+                session_event=_append_session_event(
+                    session_service,
+                    _build_session_event(
+                        current_snapshot,
+                        session_event_factory,
+                        character_id=selection.character_id,
+                        event_type="session.character.rejected",
+                        status="rejected",
+                        reason=selection.reason,
+                    ),
+                ),
                 error_code="unknown_character",
                 message="Requested character is unavailable.",
-                event_character_id=selection.character_id,
-                reason=selection.reason,
             )
 
         snapshot = session_service.set_active_character(selection)
         return _build_active_character_response(
             snapshot,
             active_character,
-            session_event_factory,
             requested_character_id=selection.character_id,
             selection_applied=True,
-            event_type="session.character.selected",
-            status="applied",
+            session_event=_append_session_event(
+                session_service,
+                _build_session_event(
+                    snapshot,
+                    session_event_factory,
+                    character_id=active_character.character_id,
+                    event_type="session.character.selected",
+                    status="applied",
+                    reason=selection.reason,
+                ),
+            ),
             message="Active character updated.",
-            reason=selection.reason,
         )
 
     return router

@@ -1,52 +1,53 @@
 {
-  "scenario_id": "frontend-stage1-character-flow-runtime",
-  "scenario_name": "Frontend Stage 1 character flow runtime snapshot",
-  "runner": "node",
-  "backend_source_runner": "python",
-  "tracked_inputs": [
-    "scripts/testing/frontendStage1CharacterFlow.runtime.ts",
-    "scripts/testing/Invoke-StabilitySuite.ps1",
-    "frontend/src/app/App.tsx",
-    "frontend/src/avatar/loaders/backendCharacterFlow.ts",
-    "frontend/src/avatar/loaders/characterCatalog.ts",
-    "frontend/src/shared/types/character.ts",
-    "backend/app/api/router.py",
-    "backend/app/core/settings.py",
-    "backend/app/schemas/session.py",
-    "backend/app/schemas/character.py",
-    "backend/app/schemas/health.py",
-    "backend/app/services/character.py",
-    "backend/app/services/session.py",
-    "assets/characters/test-vrm-01/manifest.json",
-    "assets/characters/test-vrm-02/manifest.json",
-    "assets/characters/test-vrm-03/manifest.json"
-  ],
-  "local_root": "<scenario-temp>",
-  "runtime_proof": {
-    "bridge_runtime": {
-      "summaries_connected": true,
-      "active_character_connected": true,
-      "active_character_id": "test-vrm-01",
-      "first_display_name_before": "Local Placeholder 1",
-      "first_display_name_after": "Test Character 01",
-      "catalog_envelope_consumed": true,
-      "catalog_message_count": 0
-    },
-    "success_sync_runtime": {
-      "requested_character_id": "test-vrm-03",
-      "backend_confirmed_character_id": "test-vrm-03",
-      "selected_character_id": "test-vrm-03",
-      "message": "Active character updated.",
-      "session_id": "session-scaffold-01",
-      "matched_backend_confirmed_character": true
-    },
-    "rejection_sync_runtime": {
-      "requested_character_id": "missing-character",
-      "backend_confirmed_character_id": "test-vrm-01",
-      "selected_character_id": "test-vrm-01",
-      "message": "Requested character is unavailable.",
-      "session_id": "session-scaffold-01",
-      "matched_backend_confirmed_character": true
-    }
-  }
+    "scenario_id":  "frontend-stage1-character-flow-runtime",
+    "scenario_name":  "Frontend Stage 1 character flow runtime snapshot",
+    "runner":  "node",
+    "backend_source_runner":  "python",
+    "tracked_inputs":  [
+                           "scripts/testing/frontendStage1CharacterFlow.runtime.ts",
+                           "scripts/testing/Invoke-StabilitySuite.ps1",
+                           "frontend/src/app/App.tsx",
+                           "frontend/src/avatar/loaders/backendCharacterFlow.ts",
+                           "frontend/src/avatar/loaders/characterCatalog.ts",
+                           "frontend/src/shared/types/character.ts",
+                           "backend/app/api/router.py",
+                           "backend/app/core/settings.py",
+                           "backend/app/schemas/session.py",
+                           "backend/app/schemas/character.py",
+                           "backend/app/schemas/health.py",
+                           "backend/app/services/character.py",
+                           "backend/app/services/speech.py",
+                           "backend/app/services/session.py",
+                           "assets/characters/test-vrm-01/manifest.json",
+                           "assets/characters/test-vrm-02/manifest.json",
+                           "assets/characters/test-vrm-03/manifest.json"
+                       ],
+    "local_root":  "\u003cscenario-temp\u003e",
+    "runtime_proof":  {
+                          "bridge_runtime":  {
+                                                 "summaries_connected":  true,
+                                                 "active_character_connected":  true,
+                                                 "active_character_id":  "test-vrm-01",
+                                                 "first_display_name_before":  "Local Placeholder 1",
+                                                 "first_display_name_after":  "Test Character 01",
+                                                 "catalog_envelope_consumed":  true,
+                                                 "catalog_message_count":  0
+                                             },
+                          "success_sync_runtime":  {
+                                                       "requested_character_id":  "test-vrm-03",
+                                                       "backend_confirmed_character_id":  "test-vrm-03",
+                                                       "selected_character_id":  "test-vrm-03",
+                                                       "message":  "Active character updated.",
+                                                       "session_id":  "session-scaffold-01",
+                                                       "matched_backend_confirmed_character":  true
+                                                   },
+                          "rejection_sync_runtime":  {
+                                                         "requested_character_id":  "missing-character",
+                                                         "backend_confirmed_character_id":  "test-vrm-01",
+                                                         "selected_character_id":  "test-vrm-01",
+                                                         "message":  "Requested character is unavailable.",
+                                                         "session_id":  "session-scaffold-01",
+                                                         "matched_backend_confirmed_character":  true
+                                                     }
+                      }
 }

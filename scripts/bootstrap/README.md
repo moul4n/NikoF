@@ -54,6 +54,12 @@ Dot-source the generated helper in a PowerShell session when you want those valu
 
 The manifest file [bootstrap.targets.json](/c:/Users/fletc/Sources/NikoF/scripts/bootstrap/bootstrap.targets.json) records the expected folder names and upstream/manual-install notes for the current baseline.
 
+For the speech slice, the backend now expects these local entrypoints in addition to the model payload roots:
+
+- Faster-Whisper: if the backend environment does not already provide the `faster_whisper` package, place a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\transcribe.py` or `main.py`.
+- GPT-SoVITS: place a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\synthesize.py` or `api_server.py`.
+- Both entrypoints should accept one JSON request on stdin and emit one normalized JSON response on stdout so the backend can keep provider-specific details out of its API payloads.
+
 After placing the required payloads in local storage, rerun bootstrap and then run the contract gate:
 
 ```powershell

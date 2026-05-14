@@ -64,7 +64,7 @@
       "rootKey": "stt_models_root",
       "expectedRelativePath": "faster-whisper-medium",
       "upstream": "https://huggingface.co/Systran/faster-whisper-medium",
-      "manualInstall": "Download the Faster-Whisper Medium files from the upstream release page and extract them under the STT models root using the expected folder name."
+      "manualInstall": "Download the Faster-Whisper Medium files from the upstream release page and extract them under the STT models root using the expected folder name. If the backend environment will not install `faster_whisper` directly, also provide a local provider entrypoint at `%LOCALAPPDATA%\\NikoF\\providers\\stt\\faster-whisper\\transcribe.py` or `main.py`."
     },
     {
       "id": "stt-small",
@@ -72,7 +72,7 @@
       "rootKey": "stt_models_root",
       "expectedRelativePath": "faster-whisper-small",
       "upstream": "https://huggingface.co/Systran/faster-whisper-small",
-      "manualInstall": "Download the Faster-Whisper Small files only if you want the lower-VRAM fallback available on the machine."
+      "manualInstall": "Download the Faster-Whisper Small files only if you want the lower-VRAM fallback available on the machine. Reuse the same provider-local entrypoint under `%LOCALAPPDATA%\\NikoF\\providers\\stt\\faster-whisper\\` when the backend is not running Faster-Whisper inline."
     },
     {
       "id": "tts",
@@ -80,7 +80,7 @@
       "rootKey": "tts_models_root",
       "expectedRelativePath": "gpt-sovits",
       "upstream": "Use the project-approved GPT-SoVITS upstream release or fork selected for the environment; do not commit vendor payloads.",
-      "manualInstall": "Install or extract the selected GPT-SoVITS runtime under the TTS models root and keep any voice-specific weights alongside that runtime in local storage only."
+      "manualInstall": "Install or extract the selected GPT-SoVITS runtime under the TTS models root and keep any voice-specific weights alongside that runtime in local storage only. Also provide a local provider entrypoint at `%LOCALAPPDATA%\\NikoF\\providers\\tts\\gpt-sovits\\synthesize.py` or `api_server.py` so the backend can invoke the runtime through its normalized adapter contract."
     },
     {
       "id": "embeddings-primary",

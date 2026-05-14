@@ -70,6 +70,31 @@
             )
         }
         @{
+            id = 'backend-speech-event-store'
+            name = 'Backend speech event-store projection snapshot'
+            harness = 'backend-speech-event-store'
+            baseline = 'baselines/backend-speech-event-store.json'
+            tracked_inputs = @(
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'backend/app/api/router.py'
+                'backend/app/schemas/session.py'
+                'backend/app/services/speech.py'
+                'assets/characters/test-vrm-01/manifest.json'
+            )
+        }
+        @{
+            id = 'backend-speech-real-adapter-degraded'
+            name = 'Backend speech real-adapter degraded-mode snapshot'
+            harness = 'backend-speech-real-adapter-degraded'
+            baseline = 'baselines/backend-speech-real-adapter-degraded.json'
+            tracked_inputs = @(
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'backend/app/core/settings.py'
+                'backend/app/schemas/session.py'
+                'backend/app/services/speech.py'
+            )
+        }
+        @{
             id = 'backend-stage1-payload-surface'
             name = 'Backend Stage 1 payload surface snapshot'
             harness = 'backend-stage1-payload-surface'
@@ -95,6 +120,7 @@
             baseline = 'baselines/frontend-stage1-bridge-surface.json'
             tracked_inputs = @(
                 'frontend/src/app/App.tsx'
+                'frontend/src/avatar/loaders/backendCharacterFlow.ts'
                 'frontend/src/avatar/loaders/characterCatalog.ts'
                 'frontend/src/shared/types/character.ts'
                 'tests/stability/baselines/backend-stage1-contracts.json'

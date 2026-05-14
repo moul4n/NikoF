@@ -12,6 +12,10 @@ import {
   createSuccessfulActiveCharacterSyncState,
   resolveSelectedCharacterId
 } from "../avatar/loaders/backendCharacterFlow";
+import {
+  fetchSpeechLifecycleSnapshot,
+  type ConsumedSpeechLifecycleSnapshot
+} from "../avatar/loaders/speechLifecycle";
 import { createAvatarRuntime, type AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
 import type { CharacterCatalog, CharacterCatalogEntry, CharacterId } from "../shared/types/character";
 
@@ -39,6 +43,23 @@ type BackendSyncState = {
   message: string | null;
 };
 
+type SpeechLifecycleLoadState =
+  | {
+      status: "loading";
+      snapshot: null;
+      message: null;
+    }
+  | {
+      status: "ready";
+      snapshot: ConsumedSpeechLifecycleSnapshot;
+      message: null;
+    }
+  | {
+      status: "offline";
+      snapshot: null;
+      message: string;
+    };
+
 function findCharacterEntry(catalog: CharacterCatalog | null, characterId: CharacterId | null): CharacterCatalogEntry | null {
   if (!catalog || !characterId) {
     return null;
@@ -63,6 +84,14 @@ function describeBackendSyncState(syncState: BackendSyncState): string {
   return "Backend bridge offline; shell is using the local manifest catalog only.";
 }
 
+function formatDurationLabel(durationMs: number | null | undefined): string {
+  if (typeof durationMs !== "number") {
+    return "timing unavailable";
+  }
+
+  return `${(durationMs / 1000).toFixed(2)}s`;
+}
+
 export function App(): JSX.Element {
   const [runtime] = useState<AvatarRuntimeBridge>(() => createAvatarRuntime());
   const [loadState, setLoadState] = useState<CatalogLoadState>({
@@ -76,6 +105,12 @@ export function App(): JSX.Element {
     sessionId: null,
     message: null
   });
+  const [speechLifecycleState, setSpeechLifecycleState] = useState<SpeechLifecycleLoadState>({
+    status: "loading",
+    snapshot: null,
+    message: null
+  });
+  const [speechLifecycleRefreshKey, setSpeechLifecycleRefreshKey] = useState(0);
   const [selectedCharacterId, setSelectedCharacterId] = useState<CharacterId | null>(null);
 
   useEffect(() => {
@@ -139,6 +174,62 @@ export function App(): JSX.Element {
     runtime.setState("idle");
   }, [loadState.catalog, runtime, selectedCharacterId]);
 
+  useEffect(() => {
+    if (loadState.status === "error") {
+      setSpeechLifecycleState({
+        status: "offline",
+        snapshot: null,
+        message: "Speech lifecycle read surface unavailable until the local manifest catalog loads successfully."
+      });
+      return;
+    }
+
+    if (loadState.status !== "ready") {
+      return;
+    }
+
+    let cancelled = false;
+
+    if (speechLifecycleRefreshKey === 0) {
+      setSpeechLifecycleState({
+        status: "loading",
+        snapshot: null,
+        message: null
+      });
+    }
+
+    void fetchSpeechLifecycleSnapshot()
+      .then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSpeechLifecycleState({
+          status: "ready",
+          snapshot,
+          message: null
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSpeechLifecycleState({
+          status: "offline",
+          snapshot: null,
+          message:
+            error instanceof Error
+              ? `${error.message} The shell stays on backend-confirmed character state without live speech delivery in this slice.`
+              : "Backend speech lifecycle snapshot unavailable."
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadState.status, speechLifecycleRefreshKey]);
+
   function handleSelectCharacter(characterId: CharacterId): void {
     if (characterId === selectedCharacterId) {
       return;
@@ -160,6 +251,7 @@ export function App(): JSX.Element {
         const nextSyncState = createSuccessfulActiveCharacterSyncState(loadState.catalog, response);
 
         setSelectedCharacterId(nextSyncState.selectedCharacterId);
+        setSpeechLifecycleRefreshKey((currentKey) => currentKey + 1);
         setBackendSyncState((currentState) => ({
           ...currentState,
           ...nextSyncState
@@ -170,6 +262,7 @@ export function App(): JSX.Element {
           const nextSyncState = createRejectedActiveCharacterSyncState(loadState.catalog, error.response);
 
           setSelectedCharacterId(nextSyncState.selectedCharacterId);
+          setSpeechLifecycleRefreshKey((currentKey) => currentKey + 1);
           setBackendSyncState((currentState) => ({
             ...currentState,
             ...nextSyncState
@@ -186,6 +279,14 @@ export function App(): JSX.Element {
 
   const selectedCharacter = findCharacterEntry(loadState.catalog, selectedCharacterId);
   const backendStatusMessage = describeBackendSyncState(backendSyncState);
+  const speechLifecycleSnapshot = speechLifecycleState.snapshot;
+  const canonicalTranscription = speechLifecycleSnapshot?.canonicalTranscriptionEvent?.transcription ?? null;
+  const canonicalSynthesis = speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.synthesis ?? null;
+  const speechLifecycleCharacterId =
+    speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.character_id ??
+    speechLifecycleSnapshot?.canonicalTranscriptionEvent?.character_id ??
+    selectedCharacter?.summary.characterId ??
+    "Unknown";
 
   return (
     <div className="app-shell">
@@ -202,14 +303,92 @@ export function App(): JSX.Element {
       </header>
 
       <main className="app-shell__content">
-        <CharacterCatalogPanel
-          catalog={loadState.catalog}
-          error={loadState.error}
-          isLoading={loadState.status === "loading"}
-          statusMessage={loadState.status === "ready" ? backendStatusMessage : null}
-          selectedCharacterId={selectedCharacterId}
-          onSelectCharacter={handleSelectCharacter}
-        />
+        <div className="app-shell__sidebar">
+          <CharacterCatalogPanel
+            catalog={loadState.catalog}
+            error={loadState.error}
+            isLoading={loadState.status === "loading"}
+            statusMessage={loadState.status === "ready" ? backendStatusMessage : null}
+            selectedCharacterId={selectedCharacterId}
+            onSelectCharacter={handleSelectCharacter}
+          />
+          <section className="speech-panel" aria-labelledby="speech-panel-title">
+            <div className="speech-panel__header">
+              <div>
+                <p className="eyebrow">Speech lifecycle</p>
+                <h2 id="speech-panel-title">Backend read surface</h2>
+              </div>
+              {speechLifecycleSnapshot ? <span className="speech-panel__count">{speechLifecycleSnapshot.eventCount} events</span> : null}
+            </div>
+
+            {speechLifecycleState.status === "loading" ? (
+              <p className="speech-panel__message">Loading canonical speech lifecycle snapshot...</p>
+            ) : null}
+            {speechLifecycleState.status === "offline" ? (
+              <p className="speech-panel__message speech-panel__message--error">{speechLifecycleState.message}</p>
+            ) : null}
+
+            {speechLifecycleSnapshot ? (
+              <>
+                <p className="speech-panel__message">
+                  The shell is reading the backend-owned snapshot envelope only. Live SSE or WebSocket delivery stays out of scope
+                  for this slice.
+                </p>
+
+                <dl className="speech-panel__summary-list">
+                  <div>
+                    <dt>Session</dt>
+                    <dd>{speechLifecycleSnapshot.sessionId}</dd>
+                  </div>
+                  <div>
+                    <dt>Next cursor</dt>
+                    <dd>{speechLifecycleSnapshot.nextCursor}</dd>
+                  </div>
+                  <div>
+                    <dt>Event order</dt>
+                    <dd>{speechLifecycleSnapshot.orderedEnvelopePreserved ? "preserved" : "unexpected"}</dd>
+                  </div>
+                  <div>
+                    <dt>Character</dt>
+                    <dd>{speechLifecycleCharacterId}</dd>
+                  </div>
+                </dl>
+
+                <div className="speech-panel__event-grid">
+                  <article className="speech-panel__event">
+                    <h3>Transcription</h3>
+                    <p className="speech-panel__event-status">
+                      {canonicalTranscription?.status ?? speechLifecycleSnapshot.canonicalTranscriptionEvent?.status ?? "unavailable"}
+                    </p>
+                    <p className="speech-panel__event-text">
+                      {canonicalTranscription?.transcript ?? "No canonical transcription event is present in the current snapshot."}
+                    </p>
+                    <p className="speech-panel__event-meta">
+                      {canonicalTranscription?.profile_id ?? "profile unavailable"} · {canonicalTranscription?.locale ?? "locale unavailable"}
+                      {" · "}
+                      {formatDurationLabel(canonicalTranscription?.timing?.utterance_duration_ms)}
+                    </p>
+                  </article>
+
+                  <article className="speech-panel__event">
+                    <h3>Synthesis</h3>
+                    <p className="speech-panel__event-status">
+                      {canonicalSynthesis?.status ?? speechLifecycleSnapshot.canonicalSpeechSynthesisEvent?.status ?? "unavailable"}
+                    </p>
+                    <p className="speech-panel__event-text">
+                      {canonicalSynthesis?.text ?? "No canonical synthesis event is present in the current snapshot."}
+                    </p>
+                    <p className="speech-panel__event-meta">
+                      {canonicalSynthesis?.profile_id ?? "profile unavailable"} · {canonicalSynthesis?.locale ?? "locale unavailable"}
+                      {" · "}
+                      {formatDurationLabel(canonicalSynthesis?.timing?.utterance_duration_ms)}
+                    </p>
+                  </article>
+                </div>
+              </>
+            ) : null}
+          </section>
+        </div>
         <AvatarStage runtime={runtime} selectedCharacter={selectedCharacter} />
       </main>
     </div>

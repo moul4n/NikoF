@@ -342,9 +342,11 @@ function Invoke-FrontendStage1BridgeSurfaceSnapshot {
     $backendContracts = Get-Content -LiteralPath $backendContractsPath -Raw | ConvertFrom-Json
     $appPath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
     $characterTypesPath = Join-Path $RepoRoot 'frontend\src\shared\types\character.ts'
+    $backendCharacterFlowPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\backendCharacterFlow.ts'
     $catalogLoaderPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\characterCatalog.ts'
     $appSource = Get-Content -LiteralPath $appPath -Raw
     $characterTypesSource = Get-Content -LiteralPath $characterTypesPath -Raw
+    $backendCharacterFlowSource = Get-Content -LiteralPath $backendCharacterFlowPath -Raw
     $catalogLoaderSource = Get-Content -LiteralPath $catalogLoaderPath -Raw
 
     $expectedCatalogKeys = @($backendSurface.response_surface.character_catalog_keys)
@@ -358,19 +360,35 @@ function Invoke-FrontendStage1BridgeSurfaceSnapshot {
     $catalogInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName $catalogInterfaceName)
     $activeInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName 'BackendActiveCharacterResponseDocument')
     $fetchSummariesReturnType = Get-AsyncFunctionReturnTypeFromSource -SourceText $catalogLoaderSource -FunctionName 'fetchBackendCharacterSummaries'
-    $usesCatalogEnvelopeCharacters = [regex]::IsMatch($catalogLoaderSource, '\.characters\b')
-    $readsCatalogActiveCharacterId = [regex]::IsMatch($catalogLoaderSource, '\.active_character_id\b')
+    $usesCatalogEnvelopeCharacters = [regex]::IsMatch($backendCharacterFlowSource, 'summariesDocument\.characters\b')
+    $readsCatalogActiveCharacterId = [regex]::IsMatch($backendCharacterFlowSource, 'summariesDocument\.active_character_id\b')
     $loaderExportsStructuredSyncError = [regex]::IsMatch($catalogLoaderSource, '(?ms)export class\s+ActiveCharacterSyncError\s+extends\s+Error')
     $loaderPreservesRejectionDocument = [regex]::IsMatch(
         $catalogLoaderSource,
         '(?ms)readonly response:\s*BackendActiveCharacterResponseDocument\s*;.*?throw new ActiveCharacterSyncError\(document,\s*response\.status\)'
     )
     $appHandlesStructuredSyncError = [regex]::IsMatch($appSource, 'error\s+instanceof\s+ActiveCharacterSyncError')
-    $appUsesRejectedSelectionMessage = [regex]::IsMatch($appSource, 'error\.response\.selection\.message')
-    $appReconcilesRejectedSelection = [regex]::IsMatch(
+    $appCallsRejectedSyncHelper = [regex]::IsMatch(
         $appSource,
-        '(?ms)if\s*\(error\s+instanceof\s+ActiveCharacterSyncError\)\s*\{.*?const\s+(?<reconciledId>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*loadState\.catalog\s*\?\s*resolveSelectedCharacterId\(\s*loadState\.catalog\s*,\s*error\.response\.active_character\.character_id\s*\)\s*:\s*selectedCharacterId\s*;.*?setSelectedCharacterId\(\s*\k<reconciledId>\s*\);.*?error\.response\.selection\.message'
+        '(?ms)if\s*\(error\s+instanceof\s+ActiveCharacterSyncError\)\s*\{.*?const\s+(?<nextSyncState>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*createRejectedActiveCharacterSyncState\(\s*loadState\.catalog\s*,\s*error\.response\s*\);.*?setSelectedCharacterId\(\s*\k<nextSyncState>\.selectedCharacterId\s*\);'
     )
+    $helperUsesRejectedSelectionMessage = [regex]::IsMatch(
+        $backendCharacterFlowSource,
+        '(?ms)export function\s+createRejectedActiveCharacterSyncState\s*\([^)]*\)\s*:\s*ActiveCharacterSyncStatePatch\s*\{.*?message:\s*response\.selection\.message\s*\?\?'
+    )
+    $helperReconcilesBackendConfirmedCharacter = [regex]::IsMatch(
+        $backendCharacterFlowSource,
+        '(?ms)export function\s+createRejectedActiveCharacterSyncState\s*\([^)]*\)\s*:\s*ActiveCharacterSyncStatePatch\s*\{.*?selectedCharacterId:\s*resolveBackendConfirmedCharacterId\(\s*catalog\s*,\s*response\.active_character\.character_id\s*\)'
+    )
+    $appUsesRejectedSelectionMessage =
+        [regex]::IsMatch($appSource, 'error\.response\.selection\.message') -or
+        ($appCallsRejectedSyncHelper -and $helperUsesRejectedSelectionMessage)
+    $appReconcilesRejectedSelection =
+        [regex]::IsMatch(
+            $appSource,
+            '(?ms)if\s*\(error\s+instanceof\s+ActiveCharacterSyncError\)\s*\{.*?const\s+(?<reconciledId>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*loadState\.catalog\s*\?\s*resolveSelectedCharacterId\(\s*loadState\.catalog\s*,\s*error\.response\.active_character\.character_id\s*\)\s*:\s*selectedCharacterId\s*;.*?setSelectedCharacterId\(\s*\k<reconciledId>\s*\);.*?error\.response\.selection\.message'
+        ) -or
+        ($appCallsRejectedSyncHelper -and $helperReconcilesBackendConfirmedCharacter)
 
     return [ordered]@{
         scenario_id = $Scenario.id
@@ -427,7 +445,7 @@ function Get-PythonLauncher {
         return [pscustomobject]@{
             executable = $pyLauncher.Source
             arguments = @('-3')
-            runner = 'py -3'
+            runner = 'python'
         }
     }
 
@@ -584,6 +602,285 @@ function Invoke-BackendSpeechContractSnapshot {
         tracked_inputs = @($Scenario.tracked_inputs)
         local_root = $snapshotSource.local_root
         contracts = $snapshotSource.snapshot.contracts
+    }
+}
+
+function Invoke-BackendSpeechEventStoreSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
+    }
+
+    $transportSnapshot = $snapshotSource.snapshot.contracts.speech_lifecycle_transport_snapshot
+    $events = @($transportSnapshot.events)
+    $persistedRecords = @(
+        $events | ForEach-Object {
+            [ordered]@{
+                event_id = $_.event_id
+                sequence = [int]$_.sequence
+                cursor = $_.cursor
+                event = $_.event
+            }
+        }
+    )
+
+    $sequenceGapFree = $true
+    for ($index = 0; $index -lt $persistedRecords.Count; $index++) {
+        if ([int]$persistedRecords[$index].sequence -ne ($index + 1)) {
+            $sequenceGapFree = $false
+            break
+        }
+    }
+
+    $firstCursor = if ($persistedRecords.Count -gt 0) {
+        $persistedRecords[0].cursor
+    }
+    else {
+        $null
+    }
+    $recordsAfterFirstCursor = if ($persistedRecords.Count -gt 1) {
+        @($persistedRecords | Where-Object { [int]$_.sequence -gt 1 })
+    }
+    else {
+        @()
+    }
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $snapshotSource.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        local_root = $snapshotSource.local_root
+        event_store_projection = [ordered]@{
+            stream = $transportSnapshot.stream
+            session_id = $transportSnapshot.session_id
+            delivery = $transportSnapshot.delivery
+            record_count = $persistedRecords.Count
+            ordered_sequences = @($persistedRecords | ForEach-Object { [int]$_.sequence })
+            ordered_event_ids = @($persistedRecords | ForEach-Object { $_.event_id })
+            ordered_event_types = @($persistedRecords | ForEach-Object { $_.event.event_type })
+            next_cursor = $transportSnapshot.next_cursor
+            last_cursor = if ($persistedRecords.Count -gt 0) {
+                $persistedRecords[-1].cursor
+            }
+            else {
+                $null
+            }
+            cursor_prefix = if ($persistedRecords.Count -gt 0) {
+                ($persistedRecords[0].cursor -replace ':[0-9]+$', '')
+            }
+            else {
+                $null
+            }
+            sequence_gap_free = $sequenceGapFree
+            persisted_records = $persistedRecords
+            cursor_reads = [ordered]@{
+                from_origin = [ordered]@{
+                    cursor = $null
+                    returned_event_ids = @($persistedRecords | ForEach-Object { $_.event_id })
+                    returned_event_types = @($persistedRecords | ForEach-Object { $_.event.event_type })
+                    returned_count = $persistedRecords.Count
+                    next_cursor = $transportSnapshot.next_cursor
+                }
+                after_first_cursor = [ordered]@{
+                    cursor = $firstCursor
+                    returned_event_ids = @($recordsAfterFirstCursor | ForEach-Object { $_.event_id })
+                    returned_event_types = @($recordsAfterFirstCursor | ForEach-Object { $_.event.event_type })
+                    returned_count = $recordsAfterFirstCursor.Count
+                    next_cursor = $transportSnapshot.next_cursor
+                }
+            }
+        }
+    }
+}
+
+function Invoke-BackendSpeechRealAdapterDegradedSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $snapshotSource = Invoke-BackendStage1SnapshotSource -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+
+    if (($snapshotSource.PSObject.Properties.Name -contains 'exit_code') -and ([int]$snapshotSource.exit_code -ne 0)) {
+        return $snapshotSource
+    }
+
+    $pythonLauncher = Get-PythonLauncher
+    $scriptPath = Join-Path $RunRoot 'backend-speech-real-adapter-degraded.py'
+    $scenarioTempRoot = Join-Path $RunRoot 'backend-speech-real-adapter-degraded'
+    New-DirectoryIfMissing -Path $scenarioTempRoot
+    $pythonScript = @'
+from __future__ import annotations
+
+import json
+import os
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
+
+def normalize_path(value: Path, scenario_root: Path) -> str:
+    resolved = value.resolve()
+    try:
+        relative = resolved.relative_to(scenario_root)
+        return f"<scenario-temp>/{relative.as_posix()}" if relative.parts else "<scenario-temp>"
+    except ValueError:
+        return resolved.as_posix()
+
+
+repo_root = Path(sys.argv[1]).resolve()
+scenario_root = Path(sys.argv[2]).resolve()
+os.environ["NIKOF_LOCAL_ROOT"] = str(scenario_root)
+os.environ["NIKOF_MODELS_ROOT"] = str(scenario_root / "models")
+os.environ["NIKOF_PROVIDERS_ROOT"] = str(scenario_root / "providers")
+os.environ["NIKOF_CACHE_ROOT"] = str(scenario_root / "cache")
+sys.path.insert(0, str(repo_root / "backend"))
+
+from app.schemas.session import SessionSnapshot
+from app.services.session import InMemorySessionEventStore
+from app.services.speech import (
+    DefaultSessionEventFactory,
+    SpeechSynthesisRequest,
+    SpeechTranscriptionRequest,
+    StubSpeechLifecycleSnapshotService,
+    build_speech_service_registry,
+)
+
+
+registry = build_speech_service_registry()
+transcription_request = SpeechTranscriptionRequest(
+    audio_reference="session://speech-sample/transcription.wav",
+    locale="en-US",
+    transcript_hint="Hey Niko, can you wave after you answer?",
+    confidence_hint=0.98,
+)
+synthesis_request = SpeechSynthesisRequest(
+    text="Sure. I can wave once I finish speaking.",
+    locale="en-US",
+)
+
+transcription_service = registry.resolve_transcription(transcription_request)
+synthesis_service = registry.resolve_synthesis(synthesis_request)
+transcription_binding = transcription_service.binding_for(transcription_request)
+synthesis_binding = synthesis_service.binding_for(synthesis_request)
+
+lifecycle_service = StubSpeechLifecycleSnapshotService(
+    transcription_service=transcription_service,
+    synthesis_service=synthesis_service,
+    session_event_factory=DefaultSessionEventFactory(),
+    event_store=InMemorySessionEventStore(),
+)
+transport_snapshot = asdict(
+    lifecycle_service.get_snapshot(
+        SessionSnapshot(session_id="session-scaffold-01", active_character_id="test-vrm-01"),
+        character_id="test-vrm-01",
+    )
+)
+for envelope in transport_snapshot.get("events", []):
+    envelope["event"]["timestamp"] = "<generated-at>"
+
+result = {
+    "transcription_service_type": type(transcription_service).__name__,
+    "synthesis_service_type": type(synthesis_service).__name__,
+    "bindings": {
+        "transcription": {
+            "profile_id": transcription_binding.profile_id,
+            "modality": transcription_binding.modality,
+            "family": transcription_binding.family,
+            "provider_root": normalize_path(transcription_binding.provider_root, scenario_root),
+            "model_root": normalize_path(transcription_binding.model_root, scenario_root),
+            "invocation_entrypoint": normalize_path(transcription_binding.invocation_entrypoint, scenario_root),
+            "configured": transcription_binding.configured,
+        },
+        "synthesis": {
+            "profile_id": synthesis_binding.profile_id,
+            "modality": synthesis_binding.modality,
+            "family": synthesis_binding.family,
+            "provider_root": normalize_path(synthesis_binding.provider_root, scenario_root),
+            "model_root": normalize_path(synthesis_binding.model_root, scenario_root),
+            "invocation_entrypoint": normalize_path(synthesis_binding.invocation_entrypoint, scenario_root),
+            "configured": synthesis_binding.configured,
+        },
+    },
+    "contracts": {
+        "canonical_transcription_event": transport_snapshot["events"][0]["event"],
+        "canonical_speech_synthesis_event": transport_snapshot["events"][1]["event"],
+        "speech_lifecycle_transport_snapshot": transport_snapshot,
+    },
+}
+
+json.dump(result, sys.stdout, indent=4)
+sys.stdout.write("\n")
+'@
+
+    Set-Content -LiteralPath $scriptPath -Value $pythonScript -Encoding Ascii
+
+    $outputLines = @(
+        & $pythonLauncher.executable @($pythonLauncher.arguments + @($scriptPath, $RepoRoot, $scenarioTempRoot)) 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($exitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $pythonLauncher.runner
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $exitCode
+            error_lines = @($outputLines | ForEach-Object { Normalize-Text -Text $_ -RepoRoot $RepoRoot -RunRoot $RunRoot })
+        }
+    }
+
+    $degradedSnapshot = ($outputLines -join [Environment]::NewLine) | ConvertFrom-Json
+    $canonicalContracts = $snapshotSource.snapshot.contracts
+    $degradedContracts = $degradedSnapshot.contracts
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $pythonLauncher.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        local_root = '<scenario-temp>'
+        real_adapter_degraded_mode = [ordered]@{
+            transcription_service_type = $degradedSnapshot.transcription_service_type
+            synthesis_service_type = $degradedSnapshot.synthesis_service_type
+            bindings = $degradedSnapshot.bindings
+            degraded_mode_expected = [ordered]@{
+                transcription_unconfigured = -not [bool]$degradedSnapshot.bindings.transcription.configured
+                synthesis_unconfigured = -not [bool]$degradedSnapshot.bindings.synthesis.configured
+            }
+            contracts = $degradedContracts
+            contract_equivalence = [ordered]@{
+                canonical_transcription_event_match = (
+                    (ConvertTo-CanonicalComparisonText -Text (ConvertTo-StableJson -InputObject $degradedContracts.canonical_transcription_event)) -eq
+                    (ConvertTo-CanonicalComparisonText -Text (ConvertTo-StableJson -InputObject $canonicalContracts.canonical_transcription_event))
+                )
+                canonical_speech_synthesis_event_match = (
+                    (ConvertTo-CanonicalComparisonText -Text (ConvertTo-StableJson -InputObject $degradedContracts.canonical_speech_synthesis_event)) -eq
+                    (ConvertTo-CanonicalComparisonText -Text (ConvertTo-StableJson -InputObject $canonicalContracts.canonical_speech_synthesis_event))
+                )
+                speech_lifecycle_transport_snapshot_match = (
+                    (ConvertTo-CanonicalComparisonText -Text (ConvertTo-StableJson -InputObject $degradedContracts.speech_lifecycle_transport_snapshot)) -eq
+                    (ConvertTo-CanonicalComparisonText -Text (ConvertTo-StableJson -InputObject $canonicalContracts.speech_lifecycle_transport_snapshot))
+                )
+            }
+        }
     }
 }
 
@@ -884,6 +1181,12 @@ function Invoke-ScenarioSnapshot {
         }
         'backend-speech-contracts' {
             return Invoke-BackendSpeechContractSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'backend-speech-event-store' {
+            return Invoke-BackendSpeechEventStoreSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'backend-speech-real-adapter-degraded' {
+            return Invoke-BackendSpeechRealAdapterDegradedSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         'backend-stage1-payload-surface' {
             return Invoke-BackendStage1PayloadSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
