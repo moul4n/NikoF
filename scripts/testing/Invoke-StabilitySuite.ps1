@@ -1324,9 +1324,11 @@ function Invoke-FrontendSpeechLifecycleRuntimeSnapshot {
     $snapshotPath = Join-Path $scenarioTempRoot 'backend-speech-contracts.json'
     $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendSpeechLifecycle.runtime.ts'
     $runtimeScriptPath = Join-Path $scenarioTempRoot 'scripts\testing\frontendSpeechLifecycle.runtime.js'
+    $speechLifecycleLoaderSourcePath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\speechLifecycle.ts'
+    $appSourcePath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
     $compileTargets = @(
         $runtimeScriptSourcePath
-        (Join-Path $RepoRoot 'frontend\src\avatar\loaders\speechLifecycle.ts')
+        $speechLifecycleLoaderSourcePath
         (Join-Path $RepoRoot 'frontend\src\shared\types\character.ts')
     )
 
@@ -1359,7 +1361,7 @@ function Invoke-FrontendSpeechLifecycleRuntimeSnapshot {
     }
 
     $runtimeOutput = @(
-        & $nodeLauncher.executable $runtimeScriptPath $snapshotPath 2>&1 |
+        & $nodeLauncher.executable $runtimeScriptPath $snapshotPath $speechLifecycleLoaderSourcePath $appSourcePath 2>&1 |
             ForEach-Object { [string]$_ }
     )
     $runtimeExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }

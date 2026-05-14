@@ -13,8 +13,9 @@ import {
   resolveSelectedCharacterId
 } from "../avatar/loaders/backendCharacterFlow";
 import {
-  fetchSpeechLifecycleSnapshot,
-  type ConsumedSpeechLifecycleSnapshot
+  startSpeechLifecycleLiveConsumption,
+  type ConsumedSpeechLifecycleSnapshot,
+  type SpeechLifecycleDeliveryMode
 } from "../avatar/loaders/speechLifecycle";
 import { createAvatarRuntime, type AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
 import type { CharacterCatalog, CharacterCatalogEntry, CharacterId } from "../shared/types/character";
@@ -43,22 +44,12 @@ type BackendSyncState = {
   message: string | null;
 };
 
-type SpeechLifecycleLoadState =
-  | {
-      status: "loading";
-      snapshot: null;
-      message: null;
-    }
-  | {
-      status: "ready";
-      snapshot: ConsumedSpeechLifecycleSnapshot;
-      message: null;
-    }
-  | {
-      status: "offline";
-      snapshot: null;
-      message: string;
-    };
+type SpeechLifecycleLoadState = {
+  status: "loading" | "ready" | "offline";
+  snapshot: ConsumedSpeechLifecycleSnapshot | null;
+  deliveryMode: SpeechLifecycleDeliveryMode;
+  message: string | null;
+};
 
 function findCharacterEntry(catalog: CharacterCatalog | null, characterId: CharacterId | null): CharacterCatalogEntry | null {
   if (!catalog || !characterId) {
@@ -92,6 +83,18 @@ function formatDurationLabel(durationMs: number | null | undefined): string {
   return `${(durationMs / 1000).toFixed(2)}s`;
 }
 
+function describeSpeechLifecycleStateMessage(state: SpeechLifecycleLoadState): string | null {
+  if (state.status !== "ready") {
+    return state.message;
+  }
+
+  if (state.deliveryMode === "live") {
+    return "Live SSE is connected on the backend-owned speech.lifecycle envelope.";
+  }
+
+  return state.message ?? "The shell is reading the backend-owned snapshot envelope while live delivery is unavailable.";
+}
+
 export function App(): JSX.Element {
   const [runtime] = useState<AvatarRuntimeBridge>(() => createAvatarRuntime());
   const [loadState, setLoadState] = useState<CatalogLoadState>({
@@ -108,6 +111,7 @@ export function App(): JSX.Element {
   const [speechLifecycleState, setSpeechLifecycleState] = useState<SpeechLifecycleLoadState>({
     status: "loading",
     snapshot: null,
+    deliveryMode: "snapshot",
     message: null
   });
   const [speechLifecycleRefreshKey, setSpeechLifecycleRefreshKey] = useState(0);
@@ -179,6 +183,7 @@ export function App(): JSX.Element {
       setSpeechLifecycleState({
         status: "offline",
         snapshot: null,
+        deliveryMode: "snapshot",
         message: "Speech lifecycle read surface unavailable until the local manifest catalog loads successfully."
       });
       return;
@@ -189,26 +194,61 @@ export function App(): JSX.Element {
     }
 
     let cancelled = false;
+    let liveConsumption: { close(): void } | null = null;
 
     if (speechLifecycleRefreshKey === 0) {
       setSpeechLifecycleState({
         status: "loading",
         snapshot: null,
+        deliveryMode: "snapshot",
         message: null
       });
     }
 
-    void fetchSpeechLifecycleSnapshot()
-      .then((snapshot) => {
+    void startSpeechLifecycleLiveConsumption({
+      onSnapshot: (snapshot, deliveryMode) => {
         if (cancelled) {
           return;
         }
 
-        setSpeechLifecycleState({
+        setSpeechLifecycleState((currentState) => ({
           status: "ready",
           snapshot,
-          message: null
+          deliveryMode,
+          message: deliveryMode === "live" ? null : currentState.message
+        }));
+      },
+      onDeliveryModeChange: (deliveryMode, error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSpeechLifecycleState((currentState) => {
+          if (currentState.status === "offline") {
+            return currentState;
+          }
+
+          return {
+            status: currentState.snapshot ? "ready" : currentState.status,
+            snapshot: currentState.snapshot,
+            deliveryMode,
+            message:
+              deliveryMode === "live"
+                ? null
+                : error
+                  ? `${error.message} The shell is continuing from the latest backend snapshot.`
+                  : currentState.message
+          };
         });
+      }
+    })
+      .then((subscription) => {
+        if (cancelled) {
+          subscription.close();
+          return;
+        }
+
+        liveConsumption = subscription;
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -218,6 +258,7 @@ export function App(): JSX.Element {
         setSpeechLifecycleState({
           status: "offline",
           snapshot: null,
+          deliveryMode: "snapshot",
           message:
             error instanceof Error
               ? `${error.message} The shell stays on backend-confirmed character state without live speech delivery in this slice.`
@@ -227,6 +268,7 @@ export function App(): JSX.Element {
 
     return () => {
       cancelled = true;
+      liveConsumption?.close();
     };
   }, [loadState.status, speechLifecycleRefreshKey]);
 
@@ -280,6 +322,7 @@ export function App(): JSX.Element {
   const selectedCharacter = findCharacterEntry(loadState.catalog, selectedCharacterId);
   const backendStatusMessage = describeBackendSyncState(backendSyncState);
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
+  const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
   const canonicalTranscription = speechLifecycleSnapshot?.canonicalTranscriptionEvent?.transcription ?? null;
   const canonicalSynthesis = speechLifecycleSnapshot?.canonicalSpeechSynthesisEvent?.synthesis ?? null;
   const speechLifecycleCharacterId =
@@ -330,10 +373,7 @@ export function App(): JSX.Element {
 
             {speechLifecycleSnapshot ? (
               <>
-                <p className="speech-panel__message">
-                  The shell is reading the backend-owned snapshot envelope only. Live SSE or WebSocket delivery stays out of scope
-                  for this slice.
-                </p>
+                {speechLifecycleMessage ? <p className="speech-panel__message">{speechLifecycleMessage}</p> : null}
 
                 <dl className="speech-panel__summary-list">
                   <div>
