@@ -1,0 +1,5 @@
+# Session Log
+
+- **Timestamp:** 2026-05-14T13:48:00+01:00
+- **Requested by:** Jason Fletcher
+- **Summary:** Scribe recorded the batch that kept `frontend/src/app/App.tsx` as the sole consumer of backend-owned `speech.synthesis` activity while handing viseme and timing metadata into a runtime-local speech reaction API for lip-sync behavior. Continuity now reflects that the avatar runtime schedules local viseme reactions when the backend timing metadata is usable, degrades cleanly back to coarse `speak` playback otherwise, and keeps full phoneme inference plus richer facial animation explicitly out of scope. This batch's validation baseline is the already-green `frontend/npm run build` check and the full PowerShell stability suite rerun after the frontend speech lifecycle runtime harness was updated to assert the App-to-runtime viseme handoff markers.

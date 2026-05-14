@@ -15,6 +15,7 @@ Updated: 2026-05-14
 - The backend now persists `text_question` exchanges in a SQLite store under the existing local app root and enriches backend prompts with cheap lexical recall scoped to the current session and active character.
 - The control surface now owns a thin operator-command panel and loader client outside `App.tsx`, and the display surface remains read-only with respect to operator commands.
 - The control surface now shows assistant status and reply text from the backend-owned operator-command response without creating a second reply path or display-side write state.
+- The frontend avatar runtime now consumes backend-owned synthesis timing metadata locally, scheduling viseme reactions from `synthesis.timing.viseme_slots` when present and preserving the existing coarse speak fallback when the timing slice is absent or unusable.
 - Runtime proof coverage now includes the frontend Stage 1 character-flow path and the frontend speech-lifecycle snapshot consumer.
 - Stability coverage now includes an event-store projection over the canonical speech envelope and a degraded-mode snapshot for the real adapter shells, both baseline-friendly and transport-neutral.
 

@@ -346,6 +346,12 @@
 **What:** Upgrade backend-owned `speech.synthesis` activity on the existing `speech.lifecycle` envelope so each synthesis record can carry a backend-authored audio reference plus playback-ready timing metadata. Keep `POST /session/operator-command`, `GET /session/speech-lifecycle`, and the live `speech.lifecycle` stream as the only transport surfaces for this slice. Treat viseme and phoneme slots as optional backend-authored timing data aligned to one synthesis utterance; the frontend may consume them from the canonical synthesis event but must not introduce a second playback or lip-sync transport.
 **Why:** The current seam already routes reply-owned synthesis through the canonical backend lifecycle stream, but the synthesis contract is still text-first even though timing, phoneme, and viseme metadata already exist. Adding an audio reference on the same contract is the smallest shippable step that enables real playback and makes lip-sync integration possible without moving ownership into the frontend or widening the operator path.
 
+### 2026-05-14T13:25:00+01:00: Frontend-local viseme runtime handoff
+
+**By:** Trinity
+**What:** Keep `frontend/src/app/App.tsx` as the sole consumer of backend-authored `speech.synthesis` activity and pass viseme or timing metadata only into a runtime-local speech reaction API. The avatar runtime may schedule local viseme reactions when `synthesis.timing.viseme_slots` is usable and must degrade cleanly to the existing coarse `speak` path when viseme data is absent, malformed, or insufficient. Display status may expose whether playback is viseme-driven or coarse, but full phoneme inference, richer facial animation, new transport ownership, and extra command surfaces remain out of scope.
+**Why:** The coarse speaking seam already works on top of the backend-owned lifecycle event. This narrow frontend-only slice improves lip-sync fidelity without widening backend contracts, duplicating synthesis consumption, or treating experimental facial animation as part of the committed scope.
+
 ## Governance
 
 - All meaningful changes require team consensus

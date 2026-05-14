@@ -2,12 +2,45 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, type VRM } from "@pixiv/three-vrm";
 import type { SemanticAnimationCommand } from "../../shared/types/animation";
-import type { CharacterId, CharacterManifestSummary, CharacterRuntimeState } from "../../shared/types/character";
+import type {
+  BackendSpeechVisemeSlotDocument,
+  CharacterId,
+  CharacterManifestSummary,
+  CharacterRuntimeState
+} from "../../shared/types/character";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
 
 type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
+type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
 
 type AvatarRuntimeListener = () => void;
+
+const VRM_MOUTH_EXPRESSION_NAMES = ["aa", "ih", "ou", "ee", "oh"] as const;
+const VRM_MOUTH_EXPRESSION_NAME_SET = new Set<string>(VRM_MOUTH_EXPRESSION_NAMES);
+const VRM_MOUTH_EXPRESSION_ALIASES: Record<string, (typeof VRM_MOUTH_EXPRESSION_NAMES)[number]> = {
+  a: "aa",
+  aa: "aa",
+  i: "ih",
+  ih: "ih",
+  u: "ou",
+  ou: "ou",
+  e: "ee",
+  ee: "ee",
+  o: "oh",
+  oh: "oh"
+};
+
+interface AvatarSpeechReactionViseme {
+  expressionName: string;
+  label: string;
+  startMs: number;
+  endMs: number;
+}
+
+export interface AvatarSpeechReactionInput {
+  utteranceDurationMs: number | null;
+  visemeSlots?: BackendSpeechVisemeSlotDocument[] | null;
+}
 
 interface LoadedAvatar {
   root: THREE.Object3D;
@@ -22,6 +55,8 @@ export interface AvatarRuntimeSnapshot {
   pendingAnimation: SemanticAnimationCommand | null;
   currentModelUrl: string | null;
   loadState: AvatarRuntimeLoadState;
+  speechReactionMode: AvatarSpeechReactionMode;
+  activeViseme: string | null;
   error: string | null;
 }
 
@@ -30,6 +65,8 @@ export interface AvatarRuntimeBridge {
   unmount: () => void;
   loadCharacter: (character: CharacterManifestSummary) => Promise<void>;
   setState: (state: CharacterRuntimeState) => void;
+  beginSpeechReaction: (input: AvatarSpeechReactionInput) => void;
+  clearSpeechReaction: () => void;
   play: (command: SemanticAnimationCommand) => void;
   subscribe: (listener: AvatarRuntimeListener) => () => void;
   snapshot: () => AvatarRuntimeSnapshot;
@@ -44,6 +81,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     pendingAnimation: null,
     currentModelUrl: null,
     loadState: "idle",
+    speechReactionMode: "idle",
+    activeViseme: null,
     error: null
   };
   let currentCharacter: CharacterManifestSummary | null = null;
@@ -54,6 +93,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let animationFrameId: number | null = null;
   let currentAvatar: LoadedAvatar | null = null;
   let activeLoadRequestId = 0;
+  let speechReactionTimeoutIds: number[] = [];
+  let activeSpeechExpressionName: string | null = null;
   const listeners = new Set<AvatarRuntimeListener>();
   const clock = new THREE.Clock();
 
@@ -72,6 +113,171 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     };
 
     emitChange();
+  }
+
+  function clearSpeechReactionTimers(): void {
+    speechReactionTimeoutIds.forEach((timeoutId) => {
+      window.clearTimeout(timeoutId);
+    });
+    speechReactionTimeoutIds = [];
+  }
+
+  function getExpressionManager() {
+    return currentAvatar?.vrm?.expressionManager ?? null;
+  }
+
+  function resetSpeechExpressions(): void {
+    const expressionManager = getExpressionManager();
+
+    if (!expressionManager) {
+      activeSpeechExpressionName = null;
+      return;
+    }
+
+    VRM_MOUTH_EXPRESSION_NAMES.forEach((expressionName) => {
+      expressionManager.setValue(expressionName, 0);
+    });
+
+    if (activeSpeechExpressionName && !VRM_MOUTH_EXPRESSION_NAME_SET.has(activeSpeechExpressionName)) {
+      expressionManager.setValue(activeSpeechExpressionName, 0);
+    }
+
+    expressionManager.update();
+    activeSpeechExpressionName = null;
+  }
+
+  function resolveSpeechExpressionName(viseme: string): string | null {
+    const expressionManager = getExpressionManager();
+    const trimmedViseme = viseme.trim();
+
+    if (!expressionManager || trimmedViseme.length === 0) {
+      return null;
+    }
+
+    const normalizedViseme = trimmedViseme.toLowerCase().replace(/[\s_-]+/g, "");
+    const aliasExpressionName = VRM_MOUTH_EXPRESSION_ALIASES[normalizedViseme];
+    const candidateNames = [trimmedViseme, trimmedViseme.toLowerCase(), aliasExpressionName].filter(
+      (value): value is string => Boolean(value)
+    );
+
+    for (const candidateName of candidateNames) {
+      if (expressionManager.getExpression(candidateName)) {
+        return candidateName;
+      }
+    }
+
+    return null;
+  }
+
+  function buildSpeechReactionVisemes(input: AvatarSpeechReactionInput): AvatarSpeechReactionViseme[] {
+    const visemeSlots = input.visemeSlots ?? [];
+    const utteranceDurationMs =
+      typeof input.utteranceDurationMs === "number" && input.utteranceDurationMs > 0 ? input.utteranceDurationMs : null;
+
+    return visemeSlots.flatMap((slot) => {
+      if (!Number.isFinite(slot.start_ms) || !Number.isFinite(slot.end_ms)) {
+        return [];
+      }
+
+      const startMs = Math.max(0, slot.start_ms);
+      const unclampedEndMs = Math.max(startMs, slot.end_ms);
+      const endMs = utteranceDurationMs === null ? unclampedEndMs : Math.min(unclampedEndMs, utteranceDurationMs);
+      const expressionName = resolveSpeechExpressionName(slot.viseme);
+
+      if (!expressionName || endMs <= startMs) {
+        return [];
+      }
+
+      return [
+        {
+          expressionName,
+          label: slot.viseme.trim() || expressionName,
+          startMs,
+          endMs
+        }
+      ];
+    });
+  }
+
+  function activateSpeechViseme(expressionName: string, label: string): void {
+    const expressionManager = getExpressionManager();
+
+    if (!expressionManager) {
+      updateSnapshot({
+        currentState: "speak",
+        speechReactionMode: "coarse",
+        activeViseme: null
+      });
+      return;
+    }
+
+    if (activeSpeechExpressionName !== expressionName) {
+      resetSpeechExpressions();
+      expressionManager.setValue(expressionName, 1);
+      expressionManager.update();
+      activeSpeechExpressionName = expressionName;
+    }
+
+    updateSnapshot({
+      currentState: "speak",
+      speechReactionMode: "viseme",
+      activeViseme: label
+    });
+  }
+
+  function beginSpeechReaction(input: AvatarSpeechReactionInput): void {
+    clearSpeechReactionTimers();
+    resetSpeechExpressions();
+
+    const speechReactionVisemes = buildSpeechReactionVisemes(input);
+
+    if (speechReactionVisemes.length === 0) {
+      updateSnapshot({
+        currentState: "speak",
+        speechReactionMode: "coarse",
+        activeViseme: null
+      });
+      return;
+    }
+
+    updateSnapshot({
+      currentState: "speak",
+      speechReactionMode: "viseme",
+      activeViseme: null
+    });
+
+    speechReactionVisemes.forEach((viseme) => {
+      speechReactionTimeoutIds.push(
+        window.setTimeout(() => {
+          activateSpeechViseme(viseme.expressionName, viseme.label);
+        }, viseme.startMs)
+      );
+
+      speechReactionTimeoutIds.push(
+        window.setTimeout(() => {
+          if (activeSpeechExpressionName !== viseme.expressionName) {
+            return;
+          }
+
+          resetSpeechExpressions();
+          updateSnapshot({
+            currentState: "speak",
+            speechReactionMode: "viseme",
+            activeViseme: null
+          });
+        }, viseme.endMs)
+      );
+    });
+  }
+
+  function clearSpeechReaction(): void {
+    clearSpeechReactionTimers();
+    resetSpeechExpressions();
+    updateSnapshot({
+      currentState: "idle",
+      speechReactionMode: "idle",
+      activeViseme: null
+    });
   }
 
   function disposeMaterial(material: THREE.Material): void {
@@ -321,6 +527,14 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       updateSnapshot({
         currentState: state
       });
+    },
+
+    beginSpeechReaction(input) {
+      beginSpeechReaction(input);
+    },
+
+    clearSpeechReaction() {
+      clearSpeechReaction();
     },
 
     play(command) {

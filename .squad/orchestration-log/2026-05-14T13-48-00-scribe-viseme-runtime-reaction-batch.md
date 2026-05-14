@@ -1,0 +1,7 @@
+# Orchestration Log
+
+- **Timestamp:** 2026-05-14T13:48:00+01:00
+- **Requested by:** Jason Fletcher
+- **Agent:** Scribe
+- **Work:** Merged the pending viseme-runtime decision into `.squad/decisions.md`, removed the processed inbox entry, updated `.squad/identity/now.md` to reflect frontend-local lip-sync reaction driven by backend-authored synthesis viseme metadata on the existing lifecycle seam, and wrote the standard session and orchestration records for this batch. Prepared the narrow publish set around `frontend/src/app/App.tsx`, `frontend/src/avatar/runtime/avatarRuntime.ts`, `frontend/src/avatar/components/AvatarStage.tsx`, `scripts/testing/frontendSpeechLifecycle.runtime.ts`, `docs/NEXT_STEPS.md`, and `docs/PROGRESS_REPORT.md` together with the directly related squad continuity files only.
+- **Outcome:** Squad continuity now matches the landed frontend viseme slice: the frontend remains a single canonical synthesis consumer, the avatar runtime can use backend timing viseme metadata for runtime-local lip-sync reaction with coarse playback fallback, and the published scope stays narrow without widening backend ownership or pulling richer facial animation into the committed batch.

@@ -2,7 +2,7 @@
 
 Updated: 2026-05-14
 
-1. Treat backend live `speech.lifecycle` delivery, real backend `text_question` execution, reply-owned synthesis publication on `speech.lifecycle`, and the minimal control-surface assistant-reply readout as landed work; do not move reply ownership into `App.tsx`, the display surface, or a second command path.
+1. Treat backend live `speech.lifecycle` delivery, real backend `text_question` execution, reply-owned synthesis publication on `speech.lifecycle`, the runtime-local viseme reaction driven by synthesis timing metadata, and the minimal control-surface assistant-reply readout as landed work; do not move reply ownership into `App.tsx`, the display surface, a second command path, or a new speech transport.
 2. Keep the immediate queue on hardening the current backend-authored reply seam: preserve `POST /session/operator-command`, the ordered store, and the canonical session plus `speech.lifecycle` envelopes while validating degraded local-LLM behavior on the same contract.
 3. Do not widen this first reply slice into a second reply transport, frontend-owned reply state, provider-profile switching, or new operator commands while the backend-owned assistant path is settling.
 4. Keep the active queue non-debug: animation debug actions such as `wave`, extra control-surface or display diagnostics, and other debug affordances stay deferred until they advance a real product seam.

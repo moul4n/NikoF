@@ -48,6 +48,9 @@ async function main(): Promise<void> {
   const liveTransportMarkers = collectLiveTransportMarkers(loaderSourceText);
   const liveSeamPresent = liveTransportMarkers.length > 0;
 
+  assertFirstVisemeSliceSurvived(snapshot, consumed);
+  assertCanonicalSynthesisRuntimeHandoff(appSourceText);
+
   const result = {
     speech_lifecycle_runtime: {
       stream: consumed.stream,
@@ -155,6 +158,63 @@ function collectLiveTransportMarkers(sourceText: string): string[] {
   ];
 
   return markers.filter((marker) => marker.pattern.test(sourceText)).map((marker) => marker.name);
+}
+
+function assertFirstVisemeSliceSurvived(
+  snapshot: BackendSpeechContractsSnapshot,
+  consumed: ReturnType<typeof consumeSpeechLifecycleSnapshot>
+): void {
+  const contractVisemeSlot = snapshot.contracts.canonical_speech_synthesis_event.synthesis?.timing?.viseme_slots?.[0] ?? null;
+  const consumedVisemeSlot = consumed.canonicalSpeechSynthesisEvent?.synthesis?.timing?.viseme_slots?.[0] ?? null;
+
+  if (!contractVisemeSlot) {
+    throw new Error("Backend speech contract fixture is missing the first synthesis viseme slice.");
+  }
+
+  if (!consumedVisemeSlot) {
+    throw new Error("Frontend speech lifecycle consumption dropped the first backend-owned synthesis viseme slice.");
+  }
+
+  if (canonicalizeJsonValue(consumedVisemeSlot) !== canonicalizeJsonValue(contractVisemeSlot)) {
+    throw new Error("Frontend speech lifecycle consumption changed the first backend-owned synthesis viseme slice.");
+  }
+}
+
+function assertCanonicalSynthesisRuntimeHandoff(appSourceText: string): void {
+  const appHandoffMarkers = [
+    {
+      name: "canonical synthesis selection",
+      pattern: /const\s+canonicalSynthesisEvent\s*=\s*speechLifecycleState\.snapshot\?\.canonicalSpeechSynthesisEvent\s*\?\?\s*null\s*;/
+    },
+    {
+      name: "canonical synthesis playback key",
+      pattern: /buildSpeechSynthesisPlaybackKey\(canonicalSynthesisEvent\)/
+    },
+    {
+      name: "speech reaction input resolution",
+      pattern: /const\s+speechReactionInput\s*=\s*resolveSpeechReactionInput\(canonicalSynthesisEvent\.synthesis\)\s*;/
+    },
+    {
+      name: "speech reaction duration handoff",
+      pattern: /const\s+durationMs\s*=\s*speechReactionInput\.utteranceDurationMs\s*;/
+    },
+    {
+      name: "audio reaction bridge",
+      pattern: /beginAudioSpeechPlayback\(audioSource,\s*durationMs,\s*playbackKey,\s*speechReactionInput\)/
+    },
+    {
+      name: "timing reaction bridge",
+      pattern: /beginTimingSpeechWindow\(durationMs,\s*playbackKey,\s*speechReactionInput\)/
+    }
+  ];
+
+  const missingMarkers = appHandoffMarkers.filter((marker) => !marker.pattern.test(appSourceText)).map((marker) => marker.name);
+
+  if (missingMarkers.length > 0) {
+    throw new Error(
+      `App-to-runtime speech playback handoff no longer preserves the canonical synthesis speech-reaction seam: ${missingMarkers.join(", ")}.`
+    );
+  }
 }
 
 function canonicalizeJsonValue(value: unknown): string {

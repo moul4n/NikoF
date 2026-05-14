@@ -23,6 +23,7 @@ import type {
   BackendSessionEventDocument,
   BackendSpeechSynthesisDocument,
   BackendSpeechTranscriptionDocument,
+  BackendSpeechVisemeSlotDocument,
   CharacterCatalog,
   CharacterCatalogEntry,
   CharacterId
@@ -101,6 +102,16 @@ function formatDurationLabel(durationMs: number | null | undefined): string {
   }
 
   return `${(durationMs / 1000).toFixed(2)}s`;
+}
+
+function resolveSpeechReactionInput(synthesis: BackendSpeechSynthesisDocument): {
+  utteranceDurationMs: number | null;
+  visemeSlots: BackendSpeechVisemeSlotDocument[];
+} {
+  return {
+    utteranceDurationMs: synthesis.timing?.utterance_duration_ms ?? null,
+    visemeSlots: synthesis.timing?.viseme_slots ?? []
+  };
 }
 
 function resolveFrontendBackendApiBaseUrl(): string {
@@ -573,7 +584,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   function stopSpeechPlayback(resetHandledKey: boolean): void {
     clearSpeechPlaybackTimeout();
     releaseSpeechAudio();
-    runtime.setState("idle");
+    runtime.clearSpeechReaction();
     setSpeechPlaybackStatus("idle");
 
     if (resetHandledKey) {
@@ -581,23 +592,32 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     }
   }
 
-  function beginTimingSpeechWindow(durationMs: number, playbackKey: string): void {
+  function beginTimingSpeechWindow(
+    durationMs: number,
+    playbackKey: string,
+    speechReactionInput: ReturnType<typeof resolveSpeechReactionInput>
+  ): void {
     clearSpeechPlaybackTimeout();
     releaseSpeechAudio();
-    runtime.setState("speak");
+    runtime.beginSpeechReaction(speechReactionInput);
     setSpeechPlaybackStatus("timing");
     speechPlaybackBridge.playbackTimeoutId = window.setTimeout(() => {
       if (speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
         return;
       }
 
-      runtime.setState("idle");
+      runtime.clearSpeechReaction();
       setSpeechPlaybackStatus("idle");
       speechPlaybackBridge.playbackTimeoutId = null;
     }, durationMs);
   }
 
-  function beginAudioSpeechPlayback(audioSource: string, durationMs: number | null, playbackKey: string): void {
+  function beginAudioSpeechPlayback(
+    audioSource: string,
+    durationMs: number | null,
+    playbackKey: string,
+    speechReactionInput: ReturnType<typeof resolveSpeechReactionInput>
+  ): void {
     clearSpeechPlaybackTimeout();
     releaseSpeechAudio();
 
@@ -642,7 +662,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
       cleanupPlaybackAudio();
 
       if (typeof durationMs === "number" && durationMs > 0 && speechPlaybackBridge.handledPlaybackKey === playbackKey) {
-        beginTimingSpeechWindow(durationMs, playbackKey);
+        beginTimingSpeechWindow(durationMs, playbackKey, speechReactionInput);
         return;
       }
 
@@ -650,7 +670,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         return;
       }
 
-      runtime.setState("idle");
+      runtime.clearSpeechReaction();
       setSpeechPlaybackStatus("idle");
     };
 
@@ -659,7 +679,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         return;
       }
 
-      runtime.setState("speak");
+      runtime.beginSpeechReaction(speechReactionInput);
       setSpeechPlaybackStatus("audio");
 
       if (typeof durationMs === "number" && durationMs > 0) {
@@ -861,19 +881,20 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     speechPlaybackBridge.handledPlaybackKey = playbackKey;
 
     const audioSource = resolveSpeechSynthesisAudioSource(canonicalSynthesisEvent.synthesis.audio_reference);
-    const durationMs = canonicalSynthesisEvent.synthesis.timing?.utterance_duration_ms ?? null;
+    const speechReactionInput = resolveSpeechReactionInput(canonicalSynthesisEvent.synthesis);
+    const durationMs = speechReactionInput.utteranceDurationMs;
 
     if (audioSource) {
-      beginAudioSpeechPlayback(audioSource, durationMs, playbackKey);
+      beginAudioSpeechPlayback(audioSource, durationMs, playbackKey, speechReactionInput);
       return;
     }
 
     if (typeof durationMs === "number" && durationMs > 0) {
-      beginTimingSpeechWindow(durationMs, playbackKey);
+      beginTimingSpeechWindow(durationMs, playbackKey, speechReactionInput);
       return;
     }
 
-    runtime.setState("idle");
+    runtime.clearSpeechReaction();
     setSpeechPlaybackStatus("idle");
   }, [canonicalSynthesisEvent, runtime, speechPlaybackBridge]);
 

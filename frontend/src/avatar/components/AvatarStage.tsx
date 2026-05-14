@@ -39,8 +39,15 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
           : snapshot.mounted
             ? "mounted"
             : "pending mount";
-  const runtimeActivityLabel = snapshot.currentState === "speak" ? "speaking" : snapshot.currentState;
-  const headerStatusLabel = snapshot.currentState === "speak" ? `${runtimeStatusLabel} · speaking` : runtimeStatusLabel;
+  const runtimeActivityLabel =
+    snapshot.currentState === "speak"
+      ? snapshot.speechReactionMode === "viseme"
+        ? snapshot.activeViseme
+          ? `speaking · viseme ${snapshot.activeViseme}`
+          : "speaking · viseme"
+        : "speaking · coarse"
+      : snapshot.currentState;
+  const headerStatusLabel = snapshot.currentState === "speak" ? `${runtimeStatusLabel} · ${runtimeActivityLabel}` : runtimeStatusLabel;
 
   const shellTitle = variant === "display" ? "Dedicated avatar render window" : "Default character shell";
   const shellEyebrow = variant === "display" ? "Display surface" : "Avatar runtime";
@@ -50,7 +57,11 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
       : "Select the default character to mount the runtime.";
   const readyMessage =
     snapshot.currentState === "speak"
-      ? "Backend synthesis playback is driving a coarse speak window for the mounted avatar."
+      ? snapshot.speechReactionMode === "viseme"
+        ? snapshot.activeViseme
+          ? `Backend synthesis timing is driving a local viseme reaction on ${snapshot.activeViseme}.`
+          : "Backend synthesis timing is driving a local viseme reaction on the mounted avatar."
+        : "Backend synthesis playback is driving the coarse speak fallback for the mounted avatar."
       : variant === "display"
       ? "The display surface is rendering the manifest-resolved VRM."
       : "The default shell is now rendering the imported VRM.";
