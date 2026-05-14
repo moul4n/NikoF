@@ -1,6 +1,6 @@
 # Squad Workstreams
 
-Updated at: 2026-05-14T09:28:00+01:00
+Updated at: 2026-05-14T10:08:00+01:00
 
 This is the active scaffold board for the current stages. It assumes the three test avatar package ids are fixed as `test-vrm-01`, `test-vrm-02`, and `test-vrm-03` until real identity review says otherwise.
 
@@ -26,6 +26,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 ### Trinity Stage 2
 
 - [ ] Review the frontend avatar runtime and catalog contract before Switch broadens beyond the default-character shell.
+- [ ] Review any display-only follow-up work against the landed control and display split so App stays the only backend-sync and `speech.lifecycle` owner.
 - [ ] Keep camera and microphone UX bounded to the frontend shell without letting provider logic leak into components.
 
 ### Trinity Stages 3 Through 7
@@ -46,6 +47,10 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 - [ ] Build the initial avatar stage and one-character shell around manifest-provided data.
 - [ ] Load VRMs from manifest-provided paths only.
+- [x] Split the current frontend shell into a control surface and a display surface while keeping App-level loaders and backend envelope consumption unchanged.
+- [x] Use simple local surface branching for that split instead of adding a routing dependency in this batch.
+- [ ] Deepen display-only composition on top of the landed split without moving backend sync or `speech.lifecycle` consumption out of App.
+- [ ] Decide whether any later seam is richer display composition or true deep-linkable navigation before adding router-level information architecture.
 - [ ] Reserve UI seams for microphone and camera permissions without coupling to provider runtime code.
 
 ### Switch Stage 5
@@ -139,6 +144,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 - [ ] Add tests that reject widened provider payloads leaking past normalized backend events; current widened-payload baselines cover the locked Stage 1 response envelopes, including invalid active-character rejection when present, and the bootstrap report surface.
 - [ ] Keep schema gates aligned with the Stage 1 service boundaries.
 - [ ] Add checks that missing local providers resolve to actionable bootstrap or manual-install guidance instead of opaque failures.
+- [x] Add a narrow frontend shell-structure check that proves backend-confirmed active-character and `speech.lifecycle` state still feed the same envelope-owning loader path after the control and display split lands.
+- [ ] Extend that shell-structure guard only if display-only composition extracts more presentation files under `frontend/src/app/`.
 
 ### Mouse Stages 3 And 4
 
@@ -157,8 +164,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ## Immediate Handoff
 
-- Tank owns the next backend slice: expose live delivery from the existing ordered store and publish canonical `speech.lifecycle` events over one transport surface while keeping the current ordered envelope stable and transport-agnostic.
-- Switch stays queued behind backend live delivery hardening: do not move frontend transport work in the same batch as transport publication; once Tank exposes a stable live feed on the current envelope, extend the runtime from snapshot consumption to transport-backed speech-lifecycle consumption without reopening manifest-local asset resolution.
-- Link supports the next backend slice by keeping the real Faster-Whisper and GPT-SoVITS execution paths on the current normalized contract and by publishing extra timing metadata only if the live-delivery seam exposes a real contract gap.
-- Mouse owns the next stability slice in the same batch as Tank: add backend live-delivery checks now that the snapshot, event-store, and degraded-adapter baselines are green, but keep transport-aware frontend runtime checks queued behind the follow-on frontend slice.
+- Switch owns the next narrow frontend follow-up: deepen the display surface as presentation-only composition while keeping App as the single owner of backend sync and `speech.lifecycle` consumption.
+- Trinity reviews that follow-up for boundary discipline: no router dependency yet, no backend transport changes, and no new asset-serving contract.
+- Mouse is only back on the critical path if the display follow-up changes ownership boundaries under `frontend/src/app/`; otherwise keep the landed shell-split guard as the current frontend stability seam.
+- Tank and Link are not on the critical path for this batch unless Switch finds a real contract gap; keep the backend `speech.lifecycle` and active-character surfaces unchanged.
 - Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.

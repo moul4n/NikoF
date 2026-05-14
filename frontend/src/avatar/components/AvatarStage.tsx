@@ -6,9 +6,10 @@ import { getAvatarRuntimeMountPoints } from "../runtime/mountPoints";
 interface AvatarStageProps {
   runtime: AvatarRuntimeBridge;
   selectedCharacter: CharacterCatalogEntry | null;
+  variant?: "embedded" | "display";
 }
 
-export function AvatarStage({ runtime, selectedCharacter }: AvatarStageProps): JSX.Element {
+export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }: AvatarStageProps): JSX.Element {
   const mountPoints = getAvatarRuntimeMountPoints();
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
 
@@ -39,12 +40,23 @@ export function AvatarStage({ runtime, selectedCharacter }: AvatarStageProps): J
             ? "mounted"
             : "pending mount";
 
+  const shellTitle = variant === "display" ? "Dedicated avatar render window" : "Default character shell";
+  const shellEyebrow = variant === "display" ? "Display surface" : "Avatar runtime";
+  const emptySelectionMessage =
+    variant === "display"
+      ? "The display surface is ready to mount the backend-confirmed character once one is selected."
+      : "Select the default character to mount the runtime.";
+  const readyMessage =
+    variant === "display"
+      ? "The display surface is rendering the manifest-resolved VRM."
+      : "The default shell is now rendering the imported VRM.";
+
   return (
-    <section className="avatar-stage" aria-labelledby="avatar-stage-title">
+    <section className={variant === "display" ? "avatar-stage avatar-stage--display" : "avatar-stage"} aria-labelledby="avatar-stage-title">
       <div className="avatar-stage__header">
         <div>
-          <p className="eyebrow">Avatar runtime</p>
-          <h2 id="avatar-stage-title">Default character shell</h2>
+          <p className="eyebrow">{shellEyebrow}</p>
+          <h2 id="avatar-stage-title">{shellTitle}</h2>
         </div>
         <span className="avatar-stage__status">{runtimeStatusLabel}</span>
       </div>
@@ -52,12 +64,12 @@ export function AvatarStage({ runtime, selectedCharacter }: AvatarStageProps): J
       <div className="avatar-stage__surface">
         <div className="avatar-stage__viewport-shell">
           <div id={mountPoints.viewportElementId} className="avatar-stage__viewport" />
-          {!selectedCharacter ? <p className="avatar-stage__viewport-message">Select the default character to mount the runtime.</p> : null}
+          {!selectedCharacter ? <p className="avatar-stage__viewport-message">{emptySelectionMessage}</p> : null}
           {snapshot.loadState === "loading" ? (
             <p className="avatar-stage__viewport-message avatar-stage__viewport-message--loading">Loading the bundled VRM from the manifest-resolved model URL...</p>
           ) : null}
           {snapshot.error ? <p className="avatar-stage__viewport-message avatar-stage__viewport-message--error">{snapshot.error}</p> : null}
-          {snapshot.loadState === "ready" ? <p className="avatar-stage__viewport-message">The default shell is now rendering the imported VRM.</p> : null}
+          {snapshot.loadState === "ready" ? <p className="avatar-stage__viewport-message">{readyMessage}</p> : null}
         </div>
         <aside id={mountPoints.overlayElementId} className="avatar-stage__overlay">
           <h3>Selected character</h3>

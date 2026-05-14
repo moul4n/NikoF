@@ -61,6 +61,40 @@ function Normalize-Text {
     return ($normalized -replace '\\', '/')
 }
 
+function Get-RepoRelativePath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [string]$RepoRoot
+    )
+
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path -replace '\\', '/'
+    $resolvedRepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path -replace '\\', '/'
+
+    if ($resolvedPath.StartsWith("$resolvedRepoRoot/")) {
+        return $resolvedPath.Substring($resolvedRepoRoot.Length + 1)
+    }
+
+    return $resolvedPath
+}
+
+function Get-SourceMarkerMatches {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceText,
+        [Parameter(Mandatory)]
+        [object[]]$Markers
+    )
+
+    return @(
+        $Markers |
+            Where-Object { [regex]::IsMatch($SourceText, $_.pattern) } |
+            ForEach-Object { $_.name } |
+            Sort-Object
+    )
+}
+
 function ConvertTo-StableJson {
     param(
         [Parameter(Mandatory)]$InputObject
@@ -1204,6 +1238,95 @@ function Invoke-BackendStage1PayloadSurfaceSnapshot {
     }
 }
 
+function Invoke-FrontendShellSplitSurfaceSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $appRoot = Join-Path $RepoRoot 'frontend\src\app'
+    $backendSyncMarkers = @(
+        [pscustomobject]@{ name = 'active-sync-error'; pattern = '\bActiveCharacterSyncError\b' }
+        [pscustomobject]@{ name = 'bridge-character-catalog'; pattern = '\bbridgeCharacterCatalogWithBackend\b' }
+        [pscustomobject]@{ name = 'resolve-selected-character'; pattern = '\bresolveSelectedCharacterId\b' }
+        [pscustomobject]@{ name = 'sync-active-character-selection'; pattern = '\bsyncActiveCharacterSelection\b' }
+    )
+    $speechLifecycleMarkers = @(
+        [pscustomobject]@{ name = 'speech-lifecycle-stream'; pattern = 'speech\.lifecycle' }
+        [pscustomobject]@{ name = 'speech-lifecycle-snapshot-type'; pattern = '\bConsumedSpeechLifecycleSnapshot\b' }
+        [pscustomobject]@{ name = 'speech-lifecycle-delivery-mode'; pattern = '\bSpeechLifecycleDeliveryMode\b' }
+        [pscustomobject]@{ name = 'start-speech-lifecycle-live-consumption'; pattern = '\bstartSpeechLifecycleLiveConsumption\b' }
+    )
+
+    $surfaceFiles = @(
+        Get-ChildItem -LiteralPath $appRoot -Recurse -File -Filter '*.tsx' |
+            Sort-Object FullName
+    )
+    $surfaceRecords = New-Object System.Collections.Generic.List[object]
+
+    foreach ($surfaceFile in $surfaceFiles) {
+        $sourceText = Get-Content -LiteralPath $surfaceFile.FullName -Raw
+        $relativePath = Get-RepoRelativePath -Path $surfaceFile.FullName -RepoRoot $RepoRoot
+        $matchedBackendSyncMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $backendSyncMarkers)
+        $matchedSpeechLifecycleMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $speechLifecycleMarkers)
+        $ownsBackendSyncPath = $matchedBackendSyncMarkers.Count -gt 0
+        $ownsSpeechLifecyclePath = $matchedSpeechLifecycleMarkers.Count -gt 0
+
+        $surfaceRecords.Add(
+            [pscustomobject][ordered]@{
+                path = $relativePath
+                backend_sync_markers = $matchedBackendSyncMarkers
+                speech_lifecycle_markers = $matchedSpeechLifecycleMarkers
+                owns_backend_sync_path = $ownsBackendSyncPath
+                owns_speech_lifecycle_path = $ownsSpeechLifecyclePath
+                presentation_only = (-not $ownsBackendSyncPath) -and (-not $ownsSpeechLifecyclePath)
+            }
+        ) | Out-Null
+    }
+
+    $backendSyncOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_backend_sync_path } | ForEach-Object { $_.path })
+    $speechLifecycleOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_speech_lifecycle_path } | ForEach-Object { $_.path })
+    $presentationOnlySurfaceFiles = @($surfaceRecords | Where-Object { $_.presentation_only } | ForEach-Object { $_.path })
+    $splitSurfacePresent = $surfaceRecords.Count -gt 1
+    $presentationSurfacePresent = $presentationOnlySurfaceFiles.Count -gt 0
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        tracked_inputs = @($Scenario.tracked_inputs)
+        shell_surface_state = [ordered]@{
+            app_files = @($surfaceRecords | ForEach-Object { $_.path })
+            total_surface_file_count = $surfaceRecords.Count
+            split_surface_present = $splitSurfacePresent
+            presentation_surface_present = $presentationSurfacePresent
+            backend_sync_owner_files = $backendSyncOwnerFiles
+            speech_lifecycle_owner_files = $speechLifecycleOwnerFiles
+            secondary_backend_sync_path_present = $backendSyncOwnerFiles.Count -gt 1
+            secondary_speech_lifecycle_path_present = $speechLifecycleOwnerFiles.Count -gt 1
+            presentation_only_surface_files = $presentationOnlySurfaceFiles
+            dependency = if ($splitSurfacePresent) {
+                $null
+            }
+            else {
+                "Switch's control/display split is still absent under frontend/src/app, so this guard is prepared but blocked until separate presentation surfaces exist without duplicating backend sync or speech.lifecycle consumption."
+            }
+        }
+        surface_files = @($surfaceRecords | ForEach-Object { $_ })
+        alignment = [ordered]@{
+            single_backend_sync_owner = $backendSyncOwnerFiles.Count -eq 1
+            single_speech_lifecycle_owner = $speechLifecycleOwnerFiles.Count -eq 1
+            duplicate_backend_sync_path_blocked = $backendSyncOwnerFiles.Count -le 1
+            duplicate_speech_lifecycle_path_blocked = $speechLifecycleOwnerFiles.Count -le 1
+            split_batch_unblocked = $splitSurfacePresent
+            display_surface_present = $presentationSurfacePresent
+        }
+    }
+}
+
 function Invoke-FrontendStage1CharacterFlowRuntimeSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -1435,6 +1558,9 @@ function Invoke-ScenarioSnapshot {
         }
         'frontend-stage1-bridge-surface' {
             return Invoke-FrontendStage1BridgeSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'frontend-shell-split-surface' {
+            return Invoke-FrontendShellSplitSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         'frontend-stage1-character-flow-runtime' {
             return Invoke-FrontendStage1CharacterFlowRuntimeSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot

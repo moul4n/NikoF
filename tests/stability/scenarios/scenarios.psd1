@@ -165,6 +165,19 @@
             )
         }
         @{
+            id = 'frontend-shell-split-surface'
+            name = 'Frontend shell split surface snapshot'
+            harness = 'frontend-shell-split-surface'
+            baseline = 'baselines/frontend-shell-split-surface.json'
+            tracked_inputs = @(
+                'frontend/src/app/'
+                'frontend/src/avatar/loaders/backendCharacterFlow.ts'
+                'frontend/src/avatar/loaders/characterCatalog.ts'
+                'frontend/src/avatar/loaders/speechLifecycle.ts'
+                'frontend/src/shared/types/character.ts'
+            )
+        }
+        @{
             id = 'frontend-speech-lifecycle-runtime'
             name = 'Frontend speech lifecycle runtime snapshot'
             harness = 'frontend-speech-lifecycle-runtime'

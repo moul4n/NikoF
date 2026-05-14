@@ -280,6 +280,12 @@
 **What:** Treat backend turn publication as already landed through the backend-owned ordered store and lock the next batch to backend live delivery plus transport-scoped stability only. Keep frontend live consumption queued for the following slice, and preserve the canonical `speech.lifecycle` event body as the single transport-agnostic envelope reused by snapshot and live delivery.
 **Why:** The repo already contains the publication seam in backend services and tests, while the router and frontend still stop at snapshot-only delivery. Splitting live delivery from frontend live consumption keeps the next batch narrow, lets the team stabilize cursor and transport behavior first, and avoids coupling frontend runtime work to a transport surface that is not yet proven.
 
+### 2026-05-14T10:00:00+01:00: Frontend shell split batch
+
+**By:** Trinity
+**What:** Lock the next frontend batch to splitting the current `App.tsx` shell into explicit control and display surfaces while keeping character catalog loading, active-character synchronization, and `speech.lifecycle` consumption on the existing App-owned loader path and backend-owned envelope. Use simple in-app surface branching in this batch and do not add a routing dependency yet.
+**Why:** The current shell already has one coherent state owner and only two tightly coupled surfaces. Adding router infrastructure now would widen the batch without solving a real navigation problem, while extracting control and display surfaces now will reduce App-level coupling and preserve the current transport and contract boundary.
+
 ## Governance
 
 - All meaningful changes require team consensus

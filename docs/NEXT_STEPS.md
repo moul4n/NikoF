@@ -2,7 +2,7 @@
 
 Updated: 2026-05-14
 
-1. Land one backend-only batch: add live delivery on top of the existing canonical `speech.lifecycle` envelope, using SSE or WebSocket transport that reuses the current cursor ordering and payload shape rather than inventing a second transport document.
-2. Expand stability coverage only for that backend live-delivery seam in the same batch, proving transport publication preserves the canonical ordered envelope while keeping frontend live-consumption checks out of scope until the transport contract is stable.
-3. After backend live delivery lands and stabilizes, extend the frontend and avatar runtime from snapshot consumption to live speech-lifecycle consumption, preserving cursor ordering, backend-confirmed character state, and the current transcription and synthesis event contract.
-4. After frontend live consumption lands, add transport-aware runtime checks that prove reconnect or cursor-resume behavior without widening the canonical `speech.lifecycle` event body.
+1. Use the landed control and display shell split to deepen display-only composition without moving backend-confirmed character state or `speech.lifecycle` consumption out of `App.tsx`.
+2. Keep the current local `surface` branch as the navigation seam until the shell needs real deep-linkable routes; do not add a router just to restate the current two-surface branch.
+3. If the display surface needs more structure, extract presentation-only components first and keep App as the single owner of backend sync, active-character confirmation, and live speech lifecycle state.
+4. Keep backend transport, cursor flow, manifest-local asset resolution, and the canonical `speech.lifecycle` envelope unchanged while that display-only follow-up batch lands.
