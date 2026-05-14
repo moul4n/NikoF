@@ -1,6 +1,6 @@
 # Squad Workstreams
 
-Updated at: 2026-05-14T08:57:41.6820932+01:00
+Updated at: 2026-05-14T09:28:00+01:00
 
 This is the active scaffold board for the current stages. It assumes the three test avatar package ids are fixed as `test-vrm-01`, `test-vrm-02`, and `test-vrm-03` until real identity review says otherwise.
 
@@ -76,8 +76,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Tank Stage 3
 
-- [ ] Add an explicit backend turn-pipeline publication seam that emits canonical `session` and `speech.lifecycle` events into the existing ordered store without leaking provider-specific events or changing the current envelope.
-- [ ] Keep live delivery queued behind publication; when that slice opens, stream transcription, synthesis, and speaking-state updates by reusing the ordered `speech.lifecycle` event envelope rather than transport-specific payload shapes.
+- [ ] Add backend live delivery on top of the existing ordered store, streaming canonical `speech.lifecycle` events without leaking provider-specific events or changing the current envelope.
+- [ ] Keep the transport surface cursor-based and envelope-preserving so SSE or WebSocket delivery reuses the ordered `speech.lifecycle` document rather than transport-specific payload shapes.
 
 ### Tank Stage 4
 
@@ -142,7 +142,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Mouse Stages 3 And 4
 
-- [ ] Add tests for backend turn-pipeline publication ordering, degraded failure states, and timing metadata presence; the current stability harness covers event-store projection ordering plus degraded real-adapter shells, but not the real turn publication seam, live delivery, or transport-backed frontend runtime behavior.
+- [ ] Add tests for backend live-delivery ordering, degraded failure states, and timing metadata presence; the current stability harness covers event-store projection ordering plus degraded real-adapter shells, but not transport publication, reconnect or cursor handoff behavior, or transport-backed frontend runtime behavior.
 - [ ] Add tests for retrieval provenance and vector-store fallback behavior.
 
 ### Mouse Stage 5
@@ -157,8 +157,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ## Immediate Handoff
 
-- Tank owns the next backend slice: add the real turn-pipeline publication seam and append canonical `session` and `speech.lifecycle` events into the existing event store while keeping the current ordered envelope stable.
-- Switch stays queued behind live delivery: do not move frontend transport work in the same batch as publication; once Tank exposes a live feed on the current envelope, extend the runtime from snapshot consumption to transport-backed speech-lifecycle consumption without reopening manifest-local asset resolution.
-- Link supports the next backend slice by keeping the real Faster-Whisper and GPT-SoVITS execution paths on the current normalized contract and by publishing any extra timing metadata only if the publication seam exposes a real contract gap.
-- Mouse owns the next stability slice in the same batch as Tank: add backend turn-pipeline publication checks now that the snapshot, event-store, and degraded-adapter baselines are green, but keep live-delivery and transport-aware frontend runtime checks queued behind the transport slice.
+- Tank owns the next backend slice: expose live delivery from the existing ordered store and publish canonical `speech.lifecycle` events over one transport surface while keeping the current ordered envelope stable and transport-agnostic.
+- Switch stays queued behind backend live delivery hardening: do not move frontend transport work in the same batch as transport publication; once Tank exposes a stable live feed on the current envelope, extend the runtime from snapshot consumption to transport-backed speech-lifecycle consumption without reopening manifest-local asset resolution.
+- Link supports the next backend slice by keeping the real Faster-Whisper and GPT-SoVITS execution paths on the current normalized contract and by publishing extra timing metadata only if the live-delivery seam exposes a real contract gap.
+- Mouse owns the next stability slice in the same batch as Tank: add backend live-delivery checks now that the snapshot, event-store, and degraded-adapter baselines are green, but keep transport-aware frontend runtime checks queued behind the follow-on frontend slice.
 - Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.

@@ -274,6 +274,12 @@
 **What:** Add an explicit backend turn-pipeline publisher that executes the normalized STT and TTS services and appends canonical `session` plus `speech.lifecycle` events in fixed order. Keep `GET /session/speech-lifecycle` as a read-only projection over the existing event store instead of letting the snapshot read path seed events itself.
 **Why:** The next batch needs a backend-owned publication seam that can be reused by later delivery work without changing the current speech lifecycle envelope or inventing transport-specific payloads.
 
+### 2026-05-14T09:28:00+01:00: Team decision
+
+**By:** Trinity
+**What:** Treat backend turn publication as already landed through the backend-owned ordered store and lock the next batch to backend live delivery plus transport-scoped stability only. Keep frontend live consumption queued for the following slice, and preserve the canonical `speech.lifecycle` event body as the single transport-agnostic envelope reused by snapshot and live delivery.
+**Why:** The repo already contains the publication seam in backend services and tests, while the router and frontend still stop at snapshot-only delivery. Splitting live delivery from frontend live consumption keeps the next batch narrow, lets the team stabilize cursor and transport behavior first, and avoids coupling frontend runtime work to a transport surface that is not yet proven.
+
 ## Governance
 
 - All meaningful changes require team consensus

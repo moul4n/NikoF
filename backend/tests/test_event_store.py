@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import types
+from unittest.mock import patch
+import threading
+import time
 from pathlib import Path
 import sys
 import unittest
@@ -10,16 +16,21 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from app.api.router import _build_speech_lifecycle_sse_frame, _serialize_dataclass_payload, build_api_router
 from app.schemas.session import SessionSnapshot, SpeechSynthesisContract, SpeechTranscriptionContract
+from app.services.character import CharacterService, FileSystemCharacterManifestSource
+from app.services.session import InMemorySessionService
 from app.services.session import InMemorySessionEventStore
 from app.services.speech import (
     BackendTurnRequest,
     DefaultSessionEventFactory,
     DefaultTurnPipelinePublisher,
+    PollingSpeechLifecycleLiveDeliveryService,
     SpeechSynthesisService,
     SpeechSynthesisRequest,
     SpeechTranscriptionService,
     SpeechTranscriptionRequest,
+    SPEECH_LIFECYCLE_STREAM,
     StubSpeechLifecycleSnapshotService,
     StubSpeechSynthesisService,
     StubSpeechTranscriptionService,
@@ -40,6 +51,175 @@ class StaticSpeechSynthesisService:
 
     def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
         return self._contract
+
+
+class FiniteSpeechLifecycleLiveDeliveryService:
+    def __init__(self, snapshot_service: StubSpeechLifecycleSnapshotService) -> None:
+        self._snapshot_service = snapshot_service
+        self.cursors: list[str | None] = []
+
+    def iter_live_events(
+        self,
+        snapshot: SessionSnapshot,
+        *,
+        character_id: str,
+        cursor: str | None = None,
+        poll_interval_seconds: float = 0.25,
+    ):
+        del poll_interval_seconds
+        self.cursors.append(cursor)
+        transport_snapshot = self._snapshot_service.get_snapshot(
+            snapshot,
+            character_id=character_id,
+            cursor=cursor,
+        )
+        for envelope in transport_snapshot.events:
+            yield envelope
+
+
+def parse_sse_messages(payload: str) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+
+    for block in payload.replace("\r\n", "\n").strip().split("\n\n"):
+        if not block:
+            continue
+
+        message: dict[str, str] = {}
+        for line in block.split("\n"):
+            field, separator, value = line.partition(":")
+            if not separator:
+                continue
+            message[field] = value.lstrip()
+
+        messages.append(message)
+
+    return messages
+
+
+def canonicalize_transport_payload(value: object) -> object:
+    return json.loads(json.dumps(value))
+
+
+class FakeHTTPException(Exception):
+    def __init__(self, *, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+class FakeRequest:
+    def __init__(self, *, headers: dict[str, str] | None = None, disconnected: bool = False) -> None:
+        self.headers = headers or {}
+        self._disconnected = disconnected
+
+    async def is_disconnected(self) -> bool:
+        return self._disconnected
+
+
+class FakeResponse:
+    def __init__(self) -> None:
+        self.status_code = 200
+
+
+class FakeStreamingResponse:
+    def __init__(self, body_iterator, media_type: str) -> None:
+        self.body_iterator = body_iterator
+        self.media_type = media_type
+
+
+class FakeRoute:
+    def __init__(self, path: str, endpoint, methods: tuple[str, ...]) -> None:
+        self.path = path
+        self.endpoint = endpoint
+        self.methods = methods
+
+
+class FakeAPIRouter:
+    def __init__(self) -> None:
+        self.routes: list[FakeRoute] = []
+
+    def get(self, path: str, **kwargs):
+        del kwargs
+        return self._register(path, "GET")
+
+    def put(self, path: str, **kwargs):
+        del kwargs
+        return self._register(path, "PUT")
+
+    def _register(self, path: str, method: str):
+        def decorator(endpoint):
+            self.routes.append(FakeRoute(path=path, endpoint=endpoint, methods=(method,)))
+            return endpoint
+
+        return decorator
+
+
+def collect_streaming_payload(streaming_response: FakeStreamingResponse) -> str:
+    async def consume() -> str:
+        parts: list[str] = []
+        async for chunk in streaming_response.body_iterator:
+            parts.append(chunk)
+        return "".join(parts)
+
+    return cast(str, asyncio.run(consume()))
+
+
+def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, FiniteSpeechLifecycleLiveDeliveryService]:
+    fake_fastapi = types.ModuleType("fastapi")
+    fake_fastapi.APIRouter = FakeAPIRouter
+    fake_fastapi.HTTPException = FakeHTTPException
+    fake_fastapi.Request = FakeRequest
+    fake_fastapi.Response = FakeResponse
+    fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
+    fake_fastapi_responses = types.ModuleType("fastapi.responses")
+    fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+
+    session_service = InMemorySessionService(default_character_id="test-vrm-01")
+    snapshot = session_service.get_snapshot()
+    transcription_service = StubSpeechTranscriptionService()
+    synthesis_service = StubSpeechSynthesisService()
+    session_event_factory = DefaultSessionEventFactory()
+    turn_pipeline_publisher = DefaultTurnPipelinePublisher(
+        transcription_service=transcription_service,
+        synthesis_service=synthesis_service,
+        session_event_factory=session_event_factory,
+        event_store=session_service.event_store,
+    )
+    publication = turn_pipeline_publisher.publish_turn(snapshot, build_turn_request())
+    character_service = CharacterService(FileSystemCharacterManifestSource())
+    speech_lifecycle_service = StubSpeechLifecycleSnapshotService(event_store=session_service.event_store)
+    speech_lifecycle_live_delivery = FiniteSpeechLifecycleLiveDeliveryService(
+        snapshot_service=speech_lifecycle_service
+    )
+
+    with patch.dict(
+        sys.modules,
+        {
+            "fastapi": fake_fastapi,
+            "fastapi.responses": fake_fastapi_responses,
+        },
+    ):
+        with patch(
+            "app.api.router._build_services",
+            return_value=(
+                session_service,
+                character_service,
+                transcription_service,
+                synthesis_service,
+                speech_lifecycle_service,
+                speech_lifecycle_live_delivery,
+                session_event_factory,
+                turn_pipeline_publisher,
+            ),
+        ):
+            router = build_api_router()
+
+    speech_lifecycle_route = next(
+        route
+        for route in router.routes
+        if route.path == "/session/speech-lifecycle" and "GET" in route.methods
+    )
+    return speech_lifecycle_route.endpoint, publication, speech_lifecycle_live_delivery
 
 
 def build_turn_request() -> BackendTurnRequest:
@@ -191,6 +371,252 @@ class StubSpeechLifecycleSnapshotServiceTests(unittest.TestCase):
             "speech.lifecycle:session-scaffold-01:5",
             changed_character_snapshot.next_cursor,
         )
+
+
+class PollingSpeechLifecycleLiveDeliveryServiceTests(unittest.TestCase):
+    def test_live_delivery_replays_existing_canonical_envelopes(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="session-scaffold-01",
+            active_character_id="test-vrm-01",
+        )
+        store = InMemorySessionEventStore()
+        publisher = DefaultTurnPipelinePublisher(
+            transcription_service=StubSpeechTranscriptionService(),
+            synthesis_service=StubSpeechSynthesisService(),
+            session_event_factory=DefaultSessionEventFactory(),
+            event_store=store,
+        )
+        publisher.publish_turn(snapshot, build_turn_request())
+        live_delivery = PollingSpeechLifecycleLiveDeliveryService(
+            snapshot_service=StubSpeechLifecycleSnapshotService(event_store=store)
+        )
+
+        stream = live_delivery.iter_live_events(
+            snapshot,
+            character_id="test-vrm-01",
+            poll_interval_seconds=0.001,
+        )
+
+        try:
+            first_envelope = next(stream)
+            second_envelope = next(stream)
+        finally:
+            stream.close()
+
+        self.assertEqual([1, 2], [first_envelope.sequence, second_envelope.sequence])
+        self.assertEqual(
+            ["transcription.status", "speech.synthesis"],
+            [first_envelope.event.event_type, second_envelope.event.event_type],
+        )
+
+    def test_live_delivery_waits_for_new_events_after_cursor(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="session-scaffold-01",
+            active_character_id="test-vrm-01",
+        )
+        store = InMemorySessionEventStore()
+        publisher = DefaultTurnPipelinePublisher(
+            transcription_service=StubSpeechTranscriptionService(),
+            synthesis_service=StubSpeechSynthesisService(),
+            session_event_factory=DefaultSessionEventFactory(),
+            event_store=store,
+        )
+        initial_publication = publisher.publish_turn(snapshot, build_turn_request())
+        live_delivery = PollingSpeechLifecycleLiveDeliveryService(
+            snapshot_service=StubSpeechLifecycleSnapshotService(event_store=store)
+        )
+        received_sequences: list[int] = []
+
+        def collect_live_events() -> None:
+            stream = live_delivery.iter_live_events(
+                snapshot,
+                character_id="test-vrm-01",
+                cursor=initial_publication.speech_lifecycle_events[-1].cursor,
+                poll_interval_seconds=0.001,
+            )
+            try:
+                received_sequences.append(next(stream).sequence)
+                received_sequences.append(next(stream).sequence)
+            finally:
+                stream.close()
+
+        collector = threading.Thread(target=collect_live_events)
+        collector.start()
+        time.sleep(0.01)
+        publisher.publish_turn(snapshot, build_turn_request())
+        collector.join(timeout=1)
+
+        self.assertFalse(collector.is_alive())
+        self.assertEqual([3, 4], received_sequences)
+
+
+class SpeechLifecycleSseFormattingTests(unittest.TestCase):
+    def test_sse_frame_reuses_existing_envelope_shape(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="session-scaffold-01",
+            active_character_id="test-vrm-01",
+        )
+        store = InMemorySessionEventStore()
+        publisher = DefaultTurnPipelinePublisher(
+            transcription_service=StubSpeechTranscriptionService(),
+            synthesis_service=StubSpeechSynthesisService(),
+            session_event_factory=DefaultSessionEventFactory(),
+            event_store=store,
+        )
+        publication = publisher.publish_turn(snapshot, build_turn_request())
+
+        frame = _build_speech_lifecycle_sse_frame(publication.speech_lifecycle_events[0])
+
+        self.assertIn(f"event: {SPEECH_LIFECYCLE_STREAM}", frame)
+        self.assertIn(f"id: {publication.speech_lifecycle_events[0].cursor}", frame)
+        self.assertIn('"sequence":1', frame)
+        self.assertIn('"event_type":"transcription.status"', frame)
+
+    def test_snapshot_cursor_reads_keep_the_transport_reuse_envelope_shape(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="session-scaffold-01",
+            active_character_id="test-vrm-01",
+        )
+        store = InMemorySessionEventStore()
+        publisher = DefaultTurnPipelinePublisher(
+            transcription_service=StubSpeechTranscriptionService(),
+            synthesis_service=StubSpeechSynthesisService(),
+            session_event_factory=DefaultSessionEventFactory(),
+            event_store=store,
+        )
+        publisher.publish_turn(snapshot, build_turn_request())
+        service = StubSpeechLifecycleSnapshotService(event_store=store)
+
+        full_snapshot = service.get_snapshot(snapshot, character_id="test-vrm-01")
+        incremental_snapshot = service.get_snapshot(
+            snapshot,
+            character_id="test-vrm-01",
+            cursor=full_snapshot.events[0].cursor,
+        )
+
+        self.assertEqual(
+            ["event_id", "sequence", "cursor", "event"],
+            list(type(full_snapshot.events[0]).__dataclass_fields__.keys()),
+        )
+        self.assertEqual(
+            ["event_id", "sequence", "cursor", "event"],
+            list(type(incremental_snapshot.events[0]).__dataclass_fields__.keys()),
+        )
+        self.assertEqual([1, 2], [event.sequence for event in full_snapshot.events])
+        self.assertEqual(
+            ["speech.lifecycle:session-scaffold-01:1", "speech.lifecycle:session-scaffold-01:2"],
+            [event.cursor for event in full_snapshot.events],
+        )
+        self.assertEqual([2], [event.sequence for event in incremental_snapshot.events])
+        self.assertEqual(
+            ["speech.lifecycle:session-scaffold-01:2"],
+            [event.cursor for event in incremental_snapshot.events],
+        )
+        self.assertEqual(full_snapshot.next_cursor, incremental_snapshot.next_cursor)
+
+
+class SpeechLifecycleRouteTransportTests(unittest.TestCase):
+    def test_route_keeps_snapshot_delivery_without_event_stream_accept(self) -> None:
+        endpoint, publication, _live_delivery = build_transport_route_endpoint()
+
+        response = cast(
+            object,
+            asyncio.run(endpoint(FakeRequest(headers={"accept": "application/json"}), cursor=None)),
+        )
+
+        payload = _serialize_dataclass_payload(response)
+        canonical_payload = cast(dict[str, object], canonicalize_transport_payload(payload))
+        self.assertEqual("snapshot", payload["delivery"])
+        self.assertEqual(
+            [envelope.cursor for envelope in publication.speech_lifecycle_events],
+            [event["cursor"] for event in cast(list[dict[str, object]], canonical_payload["events"])],
+        )
+        self.assertEqual(
+            [envelope.event.event_type for envelope in publication.speech_lifecycle_events],
+            [
+                event["event"]["event_type"]
+                for event in cast(list[dict[str, object]], canonical_payload["events"])
+            ],
+        )
+        self.assertEqual(
+            "speech.lifecycle:session-scaffold-01:3",
+            payload["next_cursor"],
+        )
+
+    def test_route_returns_sse_frames_with_existing_cursor_and_envelope_shape(self) -> None:
+        endpoint, publication, live_delivery = build_transport_route_endpoint()
+
+        response = cast(
+            FakeStreamingResponse,
+            asyncio.run(
+                endpoint(FakeRequest(headers={"accept": "text/event-stream"}), cursor=None)
+            ),
+        )
+
+        self.assertEqual("text/event-stream", response.media_type)
+
+        messages = parse_sse_messages(collect_streaming_payload(response))
+        self.assertEqual([None], live_delivery.cursors)
+        expected_envelopes = [
+            canonicalize_transport_payload(_serialize_dataclass_payload(envelope))
+            for envelope in publication.speech_lifecycle_events
+        ]
+
+        self.assertEqual(2, len(messages))
+        self.assertEqual(
+            [envelope.cursor for envelope in publication.speech_lifecycle_events],
+            [message["id"] for message in messages],
+        )
+        self.assertEqual(
+            [SPEECH_LIFECYCLE_STREAM, SPEECH_LIFECYCLE_STREAM],
+            [message["event"] for message in messages],
+        )
+        self.assertEqual(
+            expected_envelopes,
+            [canonicalize_transport_payload(json.loads(message["data"])) for message in messages],
+        )
+
+    def test_route_sse_resume_reuses_existing_cursor_query_seam(self) -> None:
+        endpoint, publication, live_delivery = build_transport_route_endpoint()
+        resume_cursor = publication.speech_lifecycle_events[0].cursor
+
+        response = cast(
+            FakeStreamingResponse,
+            asyncio.run(
+                endpoint(
+                    FakeRequest(headers={"accept": "text/event-stream"}),
+                    cursor=resume_cursor,
+                )
+            ),
+        )
+
+        self.assertEqual("text/event-stream", response.media_type)
+
+        messages = parse_sse_messages(collect_streaming_payload(response))
+        self.assertEqual([resume_cursor], live_delivery.cursors)
+
+        self.assertEqual(1, len(messages))
+        self.assertEqual(publication.speech_lifecycle_events[1].cursor, messages[0]["id"])
+        self.assertEqual(
+            canonicalize_transport_payload(
+                _serialize_dataclass_payload(publication.speech_lifecycle_events[1])
+            ),
+            canonicalize_transport_payload(json.loads(messages[0]["data"])),
+        )
+
+    def test_route_rejects_invalid_cursor_before_transport_negotiation(self) -> None:
+        endpoint, _publication, _live_delivery = build_transport_route_endpoint()
+
+        with self.assertRaises(FakeHTTPException) as raised:
+            asyncio.run(
+                endpoint(
+                    FakeRequest(headers={"accept": "text/event-stream"}),
+                    cursor="speech.lifecycle:wrong-session:1",
+                )
+            )
+
+        self.assertEqual(400, raised.exception.status_code)
+        self.assertIn("does not belong", raised.exception.detail)
 
 
 class DefaultTurnPipelinePublisherTests(unittest.TestCase):

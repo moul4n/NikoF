@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 from typing import Any, Protocol
 from urllib.parse import unquote, urlparse
 
@@ -90,6 +91,20 @@ class SpeechLifecycleSnapshotService(Protocol):
         character_id: str,
         cursor: str | None = None,
     ) -> SpeechLifecycleTransportSnapshot:
+        raise NotImplementedError
+
+
+class SpeechLifecycleLiveDeliveryService(Protocol):
+    """Boundary for live speech lifecycle delivery built on the canonical snapshot contract."""
+
+    def iter_live_events(
+        self,
+        snapshot: SessionSnapshot,
+        *,
+        character_id: str,
+        cursor: str | None = None,
+        poll_interval_seconds: float = 0.25,
+    ):
         raise NotImplementedError
 
 
@@ -775,6 +790,39 @@ class StubSpeechLifecycleSnapshotService:
             ),
             events=envelopes,
         )
+
+
+@dataclass(slots=True)
+class PollingSpeechLifecycleLiveDeliveryService:
+    """Polls the canonical snapshot surface so live transport reuses the same cursor contract."""
+
+    snapshot_service: SpeechLifecycleSnapshotService
+
+    def iter_live_events(
+        self,
+        snapshot: SessionSnapshot,
+        *,
+        character_id: str,
+        cursor: str | None = None,
+        poll_interval_seconds: float = 0.25,
+    ):
+        next_cursor = cursor
+
+        while True:
+            transport_snapshot = self.snapshot_service.get_snapshot(
+                snapshot,
+                character_id=character_id,
+                cursor=next_cursor,
+            )
+
+            if transport_snapshot.events:
+                for envelope in transport_snapshot.events:
+                    next_cursor = envelope.cursor
+                    yield envelope
+
+                continue
+
+            time.sleep(poll_interval_seconds)
 
 
 @dataclass(slots=True)

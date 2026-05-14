@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -19,6 +21,7 @@ from app.services.session import InvalidEventCursor, InMemorySessionService, Ses
 from app.services.speech import (
     BackendTurnRequest,
     DefaultSessionEventFactory,
+    PollingSpeechLifecycleLiveDeliveryService,
     DefaultTurnPipelinePublisher,
     SPEECH_LIFECYCLE_STREAM,
     SessionEventFactory,
@@ -63,6 +66,11 @@ def _serialize_dataclass_payload(value: Any) -> dict[str, Any]:
     return _strip_none(asdict(value))
 
 
+def _build_speech_lifecycle_sse_frame(envelope: Any) -> str:
+    payload = json.dumps(_serialize_dataclass_payload(envelope), separators=(",", ":"))
+    return f"id: {envelope.cursor}\nevent: {SPEECH_LIFECYCLE_STREAM}\ndata: {payload}\n\n"
+
+
 def _route_definitions() -> list[RouteDefinition]:
     return [
         RouteDefinition(method="GET", path="/health", name="healthcheck"),
@@ -97,6 +105,9 @@ def _build_services() -> tuple[
     speech_lifecycle_service = StubSpeechLifecycleSnapshotService(
         event_store=session_service.event_store,
     )
+    speech_lifecycle_live_delivery = PollingSpeechLifecycleLiveDeliveryService(
+        snapshot_service=speech_lifecycle_service,
+    )
     turn_pipeline_publisher = DefaultTurnPipelinePublisher(
         transcription_service=transcription_service,
         synthesis_service=synthesis_service,
@@ -109,6 +120,7 @@ def _build_services() -> tuple[
         transcription_service,
         synthesis_service,
         speech_lifecycle_service,
+        speech_lifecycle_live_delivery,
         session_event_factory,
         turn_pipeline_publisher,
     )
@@ -240,6 +252,7 @@ def build_api_contract_snapshot() -> dict[str, Any]:
         transcription_service,
         synthesis_service,
         speech_lifecycle_service,
+        _speech_lifecycle_live_delivery,
         session_event_factory,
         turn_pipeline_publisher,
     ) = _build_services()
@@ -359,6 +372,7 @@ def build_api_router() -> Any:
         _transcription_service,
         _synthesis_service,
         speech_lifecycle_service,
+        speech_lifecycle_live_delivery,
         session_event_factory,
         _turn_pipeline_publisher,
     ) = _build_services()
@@ -370,7 +384,8 @@ def build_api_router() -> Any:
         return RouterShell(routes=route_definitions)
 
     router = APIRouter()
-    from fastapi import HTTPException, Response, status
+    from fastapi import HTTPException, Request, Response, status
+    from fastapi.responses import StreamingResponse
 
     @router.get("/health", response_model=HealthPayload)
     def healthcheck() -> HealthPayload:
@@ -409,17 +424,42 @@ def build_api_router() -> Any:
         response_model=SpeechLifecycleTransportSnapshot,
         response_model_exclude_none=True,
     )
-    def get_speech_lifecycle(cursor: str | None = None) -> SpeechLifecycleTransportSnapshot:
+    async def get_speech_lifecycle(
+        request: Request,
+        cursor: str | None = None,
+    ) -> SpeechLifecycleTransportSnapshot | StreamingResponse:
         snapshot = session_service.get_snapshot()
         active_character = character_service.get_character_summary(snapshot.active_character_id)
         try:
-            return speech_lifecycle_service.get_snapshot(
+            transport_snapshot = speech_lifecycle_service.get_snapshot(
                 snapshot,
                 character_id=active_character.character_id,
                 cursor=cursor,
             )
         except InvalidEventCursor as error:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+        if "text/event-stream" not in request.headers.get("accept", ""):
+            return transport_snapshot
+
+        async def event_stream() -> Any:
+            live_events = speech_lifecycle_live_delivery.iter_live_events(
+                snapshot,
+                character_id=active_character.character_id,
+                cursor=cursor,
+            )
+
+            try:
+                for envelope in live_events:
+                    if await request.is_disconnected():
+                        break
+
+                    yield _build_speech_lifecycle_sse_frame(envelope)
+                    await asyncio.sleep(0)
+            finally:
+                live_events.close()
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @router.put(
         "/session/active-character",
