@@ -41,8 +41,10 @@ class FileSystemCharacterManifestSource:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         voice_profile = payload.get("voice_profile", {})
         return CharacterManifest(
+            schema_version=payload["schema_version"],
             character_id=payload["character_id"],
             display_name=payload["display_name"],
+            identity_source=payload["identity_source"],
             asset_version=payload["asset_version"],
             vrm_spec_version=payload["vrm_spec_version"],
             model_file=payload["model_file"],
@@ -81,9 +83,10 @@ class CharacterService:
     @staticmethod
     def _to_summary(manifest: CharacterManifest) -> CharacterSummary:
         return CharacterSummary(
+            schema_version=manifest.schema_version,
             character_id=manifest.character_id,
             display_name=manifest.display_name,
-            asset_version=manifest.asset_version,
+            identity_source=manifest.identity_source,
             vrm_spec_version=manifest.vrm_spec_version,
             shared_animation_set=manifest.shared_animation_set,
             supported_states=manifest.supported_states,

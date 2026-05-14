@@ -1,25 +1,30 @@
 import type {
+  CharacterAssetUrlOverrides,
   CharacterCatalog,
   CharacterCatalogEntry,
   CharacterCatalogSeed,
   CharacterManifestDocument,
   CharacterManifestSummary
 } from "../../shared/types/character";
+import defaultCharacterManifest from "../../../../assets/characters/test-vrm-01/manifest.json";
+import defaultCharacterModelUrl from "../../../../assets/characters/test-vrm-01/model.vrm?url";
 
 const placeholderCharacterCatalog: CharacterCatalogSeed[] = [
   {
     characterId: "test-vrm-01",
     manifestUrl: "/assets/characters/test-vrm-01/manifest.json"
-  },
-  {
-    characterId: "test-vrm-02",
-    manifestUrl: "/assets/characters/test-vrm-02/manifest.json"
-  },
-  {
-    characterId: "test-vrm-03",
-    manifestUrl: "/assets/characters/test-vrm-03/manifest.json"
   }
 ];
+
+const bundledManifestDocuments: Partial<Record<string, CharacterManifestDocument>> = {
+  "test-vrm-01": defaultCharacterManifest as CharacterManifestDocument
+};
+
+const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverrides>> = {
+  "test-vrm-01": {
+    "model.vrm": defaultCharacterModelUrl
+  }
+};
 
 export function getPlaceholderCharacterCatalog(): readonly CharacterCatalogSeed[] {
   return placeholderCharacterCatalog;
@@ -36,6 +41,15 @@ export async function loadCharacterCatalog(fetcher: typeof fetch = fetch): Promi
 }
 
 async function loadCharacterCatalogEntry(seed: CharacterCatalogSeed, fetcher: typeof fetch): Promise<CharacterCatalogEntry> {
+  const bundledManifest = bundledManifestDocuments[seed.characterId];
+
+  if (bundledManifest) {
+    return {
+      manifestUrl: seed.manifestUrl,
+      summary: normalizeCharacterManifest(bundledManifest, seed.manifestUrl, bundledAssetUrlOverrides[seed.characterId])
+    };
+  }
+
   const response = await fetcher(seed.manifestUrl);
 
   if (!response.ok) {
@@ -54,7 +68,11 @@ async function loadCharacterCatalogEntry(seed: CharacterCatalogSeed, fetcher: ty
   };
 }
 
-function normalizeCharacterManifest(document: CharacterManifestDocument, manifestUrl: string): CharacterManifestSummary {
+function normalizeCharacterManifest(
+  document: CharacterManifestDocument,
+  manifestUrl: string,
+  assetUrlOverrides: CharacterAssetUrlOverrides = {}
+): CharacterManifestSummary {
   return {
     schemaVersion: document.schema_version,
     characterId: document.character_id,
@@ -65,21 +83,31 @@ function normalizeCharacterManifest(document: CharacterManifestDocument, manifes
     supportedStates: document.supported_states,
     sharedAnimationSet: document.shared_animation_set,
     assets: {
-      baseUrl: resolveManifestAssetUrl(manifestUrl, "."),
-      manifestUrl: resolveManifestAssetUrl(manifestUrl, ""),
-      modelUrl: resolveManifestAssetUrl(manifestUrl, document.model_file),
-      metadataUrl: resolveManifestAssetUrl(manifestUrl, document.metadata_file),
-      expressionMapUrl: resolveManifestAssetUrl(manifestUrl, document.expression_map),
-      animationOverridesUrl: resolveManifestAssetUrl(manifestUrl, document.animation_overrides),
+      baseUrl: resolveManifestAssetUrl(manifestUrl, ".", assetUrlOverrides),
+      manifestUrl: resolveManifestAssetUrl(manifestUrl, "", assetUrlOverrides),
+      modelUrl: resolveManifestAssetUrl(manifestUrl, document.model_file, assetUrlOverrides),
+      metadataUrl: resolveManifestAssetUrl(manifestUrl, document.metadata_file, assetUrlOverrides),
+      expressionMapUrl: resolveManifestAssetUrl(manifestUrl, document.expression_map, assetUrlOverrides),
+      animationOverridesUrl: resolveManifestAssetUrl(manifestUrl, document.animation_overrides, assetUrlOverrides),
       voiceProfile: {
         profileId: document.voice_profile.profile_id,
-        url: resolveManifestAssetUrl(manifestUrl, document.voice_profile.path)
+        url: resolveManifestAssetUrl(manifestUrl, document.voice_profile.path, assetUrlOverrides)
       }
     }
   };
 }
 
-function resolveManifestAssetUrl(manifestUrl: string, relativePath: string): string {
+function resolveManifestAssetUrl(
+  manifestUrl: string,
+  relativePath: string,
+  assetUrlOverrides: CharacterAssetUrlOverrides = {}
+): string {
+  const overriddenAssetUrl = assetUrlOverrides[relativePath];
+
+  if (overriddenAssetUrl) {
+    return overriddenAssetUrl;
+  }
+
   const origin = typeof window === "undefined" ? "http://localhost" : window.location.origin;
   const baseUrl = new URL(manifestUrl, origin);
 

@@ -24,6 +24,11 @@ declare module "@vitejs/plugin-react" {
   export default function react(): unknown;
 }
 
+declare module "*?url" {
+  const assetUrl: string;
+  export default assetUrl;
+}
+
 declare namespace JSX {
   interface Element {}
 

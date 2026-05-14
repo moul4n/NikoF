@@ -24,5 +24,23 @@
                 'scripts/bootstrap/bootstrap.targets.json'
             )
         }
+        @{
+            id = 'backend-stage1-contracts'
+            name = 'Backend Stage 1 contract snapshot'
+            harness = 'backend-stage1-contracts'
+            baseline = 'baselines/backend-stage1-contracts.json'
+            tracked_inputs = @(
+                'backend/app/api/router.py'
+                'backend/app/core/settings.py'
+                'backend/app/schemas/session.py'
+                'backend/app/schemas/character.py'
+                'backend/app/schemas/health.py'
+                'backend/app/services/character.py'
+                'backend/app/services/session.py'
+                'assets/characters/test-vrm-01/manifest.json'
+                'assets/characters/test-vrm-02/manifest.json'
+                'assets/characters/test-vrm-03/manifest.json'
+            )
+        }
     )
 }

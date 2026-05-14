@@ -1,0 +1,185 @@
+{
+    "scenario_id":  "backend-stage1-contracts",
+    "scenario_name":  "Backend Stage 1 contract snapshot",
+    "runner":  "python",
+    "tracked_inputs":  [
+                           "backend/app/api/router.py",
+                           "backend/app/core/settings.py",
+                           "backend/app/schemas/session.py",
+                           "backend/app/schemas/character.py",
+                           "backend/app/schemas/health.py",
+                           "backend/app/services/character.py",
+                           "backend/app/services/session.py",
+                           "assets/characters/test-vrm-01/manifest.json",
+                           "assets/characters/test-vrm-02/manifest.json",
+                           "assets/characters/test-vrm-03/manifest.json"
+                       ],
+    "local_root":  "\u003cscenario-temp\u003e",
+    "routes":  [
+                   {
+                       "method":  "GET",
+                       "path":  "/health",
+                       "name":  "healthcheck"
+                   },
+                   {
+                       "method":  "GET",
+                       "path":  "/characters",
+                       "name":  "list_characters"
+                   },
+                   {
+                       "method":  "GET",
+                       "path":  "/session/active-character",
+                       "name":  "get_active_character"
+                   },
+                   {
+                       "method":  "PUT",
+                       "path":  "/session/active-character",
+                       "name":  "set_active_character"
+                   }
+               ],
+    "responses":  {
+                      "health":  {
+                                     "status":  "ok",
+                                     "mode":  "scaffold",
+                                     "diagnostics":  {
+                                                         "character_packages_available":  3,
+                                                         "storage_probes":  [
+                                                                                {
+                                                                                    "name":  "character-assets",
+                                                                                    "configured_by":  "repo-layout",
+                                                                                    "required_for_stage":  "stage-1",
+                                                                                    "available":  true
+                                                                                },
+                                                                                {
+                                                                                    "name":  "models-root",
+                                                                                    "configured_by":  "NIKOF_MODELS_ROOT",
+                                                                                    "required_for_stage":  "stage-3",
+                                                                                    "available":  false
+                                                                                },
+                                                                                {
+                                                                                    "name":  "providers-root",
+                                                                                    "configured_by":  "NIKOF_PROVIDERS_ROOT",
+                                                                                    "required_for_stage":  "stage-3",
+                                                                                    "available":  false
+                                                                                },
+                                                                                {
+                                                                                    "name":  "cache-root",
+                                                                                    "configured_by":  "NIKOF_CACHE_ROOT",
+                                                                                    "required_for_stage":  "stage-3",
+                                                                                    "available":  false
+                                                                                }
+                                                                            ],
+                                                         "notes":  [
+                                                                       "Scaffold diagnostics are provider-agnostic in Stage 1.",
+                                                                       "Create the local model and provider roots through bootstrap before Stage 3 integrations."
+                                                                   ]
+                                                     }
+                                 },
+                      "characters":  [
+                                         {
+                                             "schema_version":  1,
+                                             "character_id":  "test-vrm-01",
+                                             "display_name":  "Test Character 01",
+                                             "identity_source":  "scaffolded",
+                                             "vrm_spec_version":  "1.0",
+                                             "shared_animation_set":  "core-v1",
+                                             "supported_states":  [
+                                                                      "idle",
+                                                                      "listen",
+                                                                      "speak",
+                                                                      "emote"
+                                                                  ]
+                                         },
+                                         {
+                                             "schema_version":  1,
+                                             "character_id":  "test-vrm-02",
+                                             "display_name":  "Test Character 02",
+                                             "identity_source":  "scaffolded",
+                                             "vrm_spec_version":  "1.0",
+                                             "shared_animation_set":  "core-v1",
+                                             "supported_states":  [
+                                                                      "idle",
+                                                                      "listen",
+                                                                      "speak",
+                                                                      "emote"
+                                                                  ]
+                                         },
+                                         {
+                                             "schema_version":  1,
+                                             "character_id":  "test-vrm-03",
+                                             "display_name":  "Test Character 03",
+                                             "identity_source":  "scaffolded",
+                                             "vrm_spec_version":  "1.0",
+                                             "shared_animation_set":  "core-v1",
+                                             "supported_states":  [
+                                                                      "idle",
+                                                                      "listen",
+                                                                      "speak",
+                                                                      "emote"
+                                                                  ]
+                                         }
+                                     ],
+                      "get_active_character":  {
+                                                   "schema_version":  1,
+                                                   "session_id":  "session-scaffold-01",
+                                                   "lifecycle_state":  "idle",
+                                                   "active_character":  {
+                                                                            "schema_version":  1,
+                                                                            "character_id":  "test-vrm-01",
+                                                                            "display_name":  "Test Character 01",
+                                                                            "identity_source":  "scaffolded",
+                                                                            "vrm_spec_version":  "1.0",
+                                                                            "shared_animation_set":  "core-v1",
+                                                                            "supported_states":  [
+                                                                                                     "idle",
+                                                                                                     "listen",
+                                                                                                     "speak",
+                                                                                                     "emote"
+                                                                                                 ]
+                                                                        },
+                                                   "session_event":  {
+                                                                         "schema_version":  1,
+                                                                         "event_type":  "session.state",
+                                                                         "session_id":  "session-scaffold-01",
+                                                                         "character_id":  "test-vrm-01",
+                                                                         "status":  "idle",
+                                                                         "timestamp":  "\u003cgenerated-at\u003e",
+                                                                         "reason":  null
+                                                                     }
+                                               },
+                      "put_active_character":  {
+                                                   "request":  {
+                                                                   "character_id":  "test-vrm-03",
+                                                                   "reason":  "user_selected"
+                                                               },
+                                                   "response":  {
+                                                                    "schema_version":  1,
+                                                                    "session_id":  "session-scaffold-01",
+                                                                    "lifecycle_state":  "idle",
+                                                                    "active_character":  {
+                                                                                             "schema_version":  1,
+                                                                                             "character_id":  "test-vrm-03",
+                                                                                             "display_name":  "Test Character 03",
+                                                                                             "identity_source":  "scaffolded",
+                                                                                             "vrm_spec_version":  "1.0",
+                                                                                             "shared_animation_set":  "core-v1",
+                                                                                             "supported_states":  [
+                                                                                                                      "idle",
+                                                                                                                      "listen",
+                                                                                                                      "speak",
+                                                                                                                      "emote"
+                                                                                                                  ]
+                                                                                         },
+                                                                    "session_event":  {
+                                                                                          "schema_version":  1,
+                                                                                          "event_type":  "session.character.selected",
+                                                                                          "session_id":  "session-scaffold-01",
+                                                                                          "character_id":  "test-vrm-03",
+                                                                                          "status":  "applied",
+                                                                                          "timestamp":  "\u003cgenerated-at\u003e",
+                                                                                          "reason":  "user_selected"
+                                                                                      }
+                                                                }
+                                               }
+                  }
+}

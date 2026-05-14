@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
-from app.api.router import RouteDefinition, build_api_router
+from app.api.router import RouteDefinition, build_api_contract_snapshot, build_api_router
 
 
 @dataclass(slots=True)
@@ -38,3 +39,5 @@ if __name__ == "__main__":
     if isinstance(shell, ApplicationShell):
         for route in shell.routes:
             print(f"{route.method} {route.path} :: {route.name}")
+
+    print(json.dumps(build_api_contract_snapshot(), indent=2))

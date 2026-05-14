@@ -136,6 +136,30 @@
 **What:** Set `gpt-5.4-mini` as the persistent squad default for low-cost routine work such as logging, coordination, and other cheap operational tasks, and pin `gpt-5.4` for Trinity, Switch, Tank, Link, and Mouse as the standard core-work model. Keep the broader rule cost-aware and latest-family first, and reserve premium or extreme models for explicit, rare exceptions only. In this environment, the persistent config names exposed to the squad are `gpt-5.4` and `gpt-5.4-mini`, so do not encode literal medium or high SKU labels in squad config.
 **Why:** The user wants GPT-5.4 family defaults reflected in persistent squad routing with low routine cost, stronger standard reasoning for the core working roles, and no ambiguity about the actual model identifiers available on this surface.
 
+### 2026-05-14T08:57:41.6820932+01:00: Stage 1 backend contract normalization
+
+**By:** Tank
+**What:** Keep the Stage 1 backend surface limited to `GET /health`, `GET /characters`, and `GET` or `PUT /session/active-character`. Character responses expose normalized manifest summaries only, active-character control returns a reusable `session_event` envelope, and scaffold health diagnostics report provider-agnostic storage probes keyed by contract names rather than raw filesystem paths.
+**Why:** This keeps raw manifests and machine-local quirks out of route payloads while establishing a transport-ready control contract the frontend and later streaming layer can reuse.
+
+### 2026-05-14T08:57:41.6820932+01:00: Stage 2 default-character VRM bundling
+
+**By:** Switch
+**What:** Keep the Stage 2 frontend catalog pinned to the default `test-vrm-01` character for now and satisfy the real-model shell by resolving only the manifest-declared `model.vrm` path through a Vite-imported asset URL.
+**Why:** This preserves the manifest-first contract for identity and asset resolution while avoiding premature frontend dependence on backend catalog APIs, repo-root static serving, or multi-character hot-swap behavior before those later slices are unlocked.
+
+### 2026-05-14T08:57:41.6820932+01:00: Stage 1 backend stability normalization
+
+**By:** Mouse
+**What:** Stage 1 backend stability snapshots will use the backend-owned `build_api_contract_snapshot()` helper, sandbox `NIKOF_*` local-root environment variables for deterministic health diagnostics, and normalize session-event timestamps to `<generated-at>` before baseline comparison.
+**Why:** The locked Stage 1 route payloads now exist in backend code, but raw wall-clock timestamps and machine-local storage roots would cause false diffs unrelated to contract changes.
+
+### 2026-05-14T08:57:41.6820932+01:00: Stage 1 batch contract handoff
+
+**By:** Trinity
+**What:** Lock the next Stage 1 batch to four provider-agnostic backend contract surfaces only: `GET /health` expands into a stable diagnostics-lite payload, `GET /characters` stays the manifest-summary list contract, active-character selection remains the only writable session control via `GET` and `PUT /session/active-character`, and normalized session-event payloads are introduced as a backend-owned schema for lifecycle reporting without exposing provider-specific detail. Frontend work remains manifest-first and may load one real default VRM from manifest-derived URLs only, while backend session events, bootstrap/provider remediation detail, live audio streaming, and multi-character UI remain out of scope for this batch. Stability work snapshots only the new health, manifest-summary, and session-selection/session-event contracts and does not baseline animation command behavior, provider diagnostics depth, or any transport intended for later streaming phases.
+**Why:** The current scaffold already proves the right seam: the backend router exposes minimal provider-agnostic routes and the frontend catalog resolves runtime asset URLs from manifests only. This batch should deepen that seam without letting Stage 1 broaden into provider integration, transport work, or frontend swap behavior that belongs to later stages.
+
 ## Governance
 
 - All meaningful changes require team consensus

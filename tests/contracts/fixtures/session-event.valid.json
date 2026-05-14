@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "event_type": "assistant.message",
+  "event_type": "session.character.selected",
   "session_id": "session-demo-01",
   "character_id": "test-vrm-01",
-  "status": "final",
+  "status": "applied",
+  "reason": "user_selected",
   "timestamp": "2026-05-14T08:57:41Z"
 }

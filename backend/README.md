@@ -7,9 +7,10 @@ implemented.
 ## Current scope
 
 - `app/main.py` exposes an application shell and an optional FastAPI-compatible entrypoint.
-- `app/api/router.py` lists the planned HTTP surface without binding the project to a web framework yet.
+- `app/api/router.py` lists the Stage 1 HTTP surface without binding the project to a web framework yet.
 - `app/services/character.py` is the first real service stub and reads character manifests from `assets/characters/`.
 - `app/services/session.py` and `app/services/animation.py` define coherent seams for later orchestration work.
+- `GET /health`, `GET /characters`, and `GET` or `PUT /session/active-character` all stay provider-agnostic and can be inspected without local model installs.
 
 ## Later integration points
 
@@ -22,5 +23,9 @@ implemented.
 From the repo root:
 
 ```powershell
-python -m compileall backend\app
+Set-Location backend
+python -m app.main
+python -m compileall app
 ```
+
+`python -m app.main` prints a normalized contract snapshot for the current scaffold so you can inspect Stage 1 responses without FastAPI or any STT, TTS, LLM, or memory providers installed.

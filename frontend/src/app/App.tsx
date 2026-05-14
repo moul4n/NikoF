@@ -80,7 +80,7 @@ export function App(): JSX.Element {
       return;
     }
 
-    runtime.loadCharacter(activeCharacter.summary);
+    void runtime.loadCharacter(activeCharacter.summary);
     runtime.setState("idle");
   }, [loadState.catalog, runtime, selectedCharacterId]);
 

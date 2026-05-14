@@ -20,6 +20,8 @@
     "event_type": {
       "type": "string",
       "enum": [
+        "session.state",
+        "session.character.selected",
         "session.started",
         "session.stopped",
         "transcription.status",
@@ -37,6 +39,10 @@
       "minLength": 1
     },
     "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
       "type": "string",
       "minLength": 1
     },

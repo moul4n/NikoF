@@ -48,6 +48,20 @@ function Assert-NonEmptyString {
     }
 }
 
+function Assert-NonEmptyTimestampValue {
+    param(
+        [System.Collections.Generic.List[string]]$Failures,
+        [string]$Label,
+        $Value
+    )
+
+    if ($Value -is [datetime] -or $Value -is [datetimeoffset]) {
+        return
+    }
+
+    Assert-NonEmptyString -Failures $Failures -Label $Label -Value $Value
+}
+
 function Assert-Property {
     param(
         [System.Collections.Generic.List[string]]$Failures,
@@ -169,9 +183,11 @@ function Assert-SessionEventShape {
         Add-Failure -Failures $Failures -Message "$Label schema_version must equal 1."
     }
 
-    foreach ($propertyName in @('event_type', 'session_id', 'character_id', 'status', 'timestamp')) {
+    foreach ($propertyName in @('event_type', 'session_id', 'character_id', 'status')) {
         Assert-NonEmptyString -Failures $Failures -Label "$Label.$propertyName" -Value $Event.$propertyName
     }
+
+    Assert-NonEmptyTimestampValue -Failures $Failures -Label "$Label.timestamp" -Value $Event.timestamp
 }
 
 function Assert-PathExists {

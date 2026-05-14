@@ -142,13 +142,58 @@ select {
   gap: 1rem;
 }
 
-.avatar-stage__viewport,
+.avatar-stage__viewport-shell,
 .avatar-stage__overlay {
   border-radius: 18px;
   min-height: 360px;
   padding: 1rem;
   border: 1px dashed rgba(160, 175, 200, 0.22);
   background: rgba(13, 20, 34, 0.72);
+}
+
+.avatar-stage__viewport-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.avatar-stage__viewport {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  border-radius: 14px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(80, 136, 196, 0.24), transparent 52%),
+    linear-gradient(180deg, rgba(14, 22, 36, 0.96), rgba(8, 15, 26, 0.98));
+}
+
+.avatar-stage__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.avatar-stage__viewport-message {
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(8, 13, 22, 0.76);
+  border: 1px solid rgba(140, 160, 191, 0.22);
+  color: #dce6f5;
+  backdrop-filter: blur(8px);
+}
+
+.avatar-stage__viewport-message--loading {
+  border-color: rgba(120, 199, 218, 0.32);
+}
+
+.avatar-stage__viewport-message--error {
+  border-color: rgba(255, 155, 155, 0.4);
+  color: #ffd1d1;
 }
 
 .avatar-stage__overlay dl {

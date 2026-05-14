@@ -43,6 +43,8 @@ export interface CharacterAssetPaths {
   voiceProfile: CharacterVoiceProfileSummary;
 }
 
+export type CharacterAssetUrlOverrides = Partial<Record<string, string>>;
+
 export interface CharacterManifestSummary {
   schemaVersion: number;
   characterId: CharacterId;

@@ -1,10 +1,10 @@
 ---
 updated_at: 2026-05-14T08:57:41.6820932+01:00
-focus_area: Refined 2026 model baseline, voice workflow, and vision-path planning
+focus_area: Stage 1 backend, frontend default-character shell, and stability execution
 active_issues: []
 ---
 
 # What We're Focused On
 
-Documenting and executing the refined 2026 blueprint baseline for the local-only companion app. Current emphasis is the named local model stack, the `Mic -> STT -> Memory -> LLM -> TTS -> Avatar` voice workflow, and the optional `Camera -> MediaPipe -> optional CLIP -> backend context -> avatar reactions` vision path that stays outside the critical conversation loop.
-Updated by Scribe after the blueprint baseline consolidation.
+Executing the locked Stage 1 batch across backend contracts, the frontend default-character VRM shell, and deterministic stability snapshots. Current emphasis is the provider-agnostic backend surface around health, manifest-summary character data, and active-character control, plus the manifest-first frontend shell loading one real `test-vrm-01` VRM and the PowerShell harness capturing stable normalized snapshots for the new route payloads.
+Updated by Scribe after the Stage 1 execution batch handoff.

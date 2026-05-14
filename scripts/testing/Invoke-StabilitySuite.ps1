@@ -183,6 +183,111 @@ function Invoke-BootstrapPrerequisiteSnapshot {
     }
 }
 
+function Get-PythonLauncher {
+    $pythonCommand = Get-Command -Name python -ErrorAction SilentlyContinue
+    if ($pythonCommand) {
+        return [pscustomobject]@{
+            executable = $pythonCommand.Source
+            arguments = @()
+            runner = 'python'
+        }
+    }
+
+    $pyLauncher = Get-Command -Name py -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        return [pscustomobject]@{
+            executable = $pyLauncher.Source
+            arguments = @('-3')
+            runner = 'py -3'
+        }
+    }
+
+    throw 'Python launcher not found. Install Python or add it to PATH before running backend stability scenarios.'
+}
+
+function Invoke-BackendStage1ContractSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $pythonLauncher = Get-PythonLauncher
+    $scriptPath = Join-Path $RunRoot 'backend-stage1-contracts.py'
+    $scenarioTempRoot = Join-Path $RunRoot 'backend-stage1-sandbox'
+    New-DirectoryIfMissing -Path $scenarioTempRoot
+    $pythonScript = @'
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+
+repo_root = Path(sys.argv[1]).resolve()
+scenario_root = Path(sys.argv[2]).resolve()
+os.environ["NIKOF_LOCAL_ROOT"] = str(scenario_root)
+os.environ["NIKOF_MODELS_ROOT"] = str(scenario_root / "models")
+os.environ["NIKOF_PROVIDERS_ROOT"] = str(scenario_root / "providers")
+os.environ["NIKOF_CACHE_ROOT"] = str(scenario_root / "cache")
+sys.path.insert(0, str(repo_root / "backend"))
+
+from app.api.router import build_api_contract_snapshot
+
+
+snapshot = build_api_contract_snapshot()
+snapshot["responses"]["get_active_character"]["session_event"]["timestamp"] = "<generated-at>"
+snapshot["responses"]["put_active_character"]["response"]["session_event"]["timestamp"] = "<generated-at>"
+
+json.dump(snapshot, sys.stdout, indent=4)
+sys.stdout.write("\n")
+'@
+
+    Set-Content -LiteralPath $scriptPath -Value $pythonScript -Encoding Ascii
+
+    $outputLines = @(
+        & $pythonLauncher.executable @($pythonLauncher.arguments + @($scriptPath, $RepoRoot, $scenarioTempRoot)) 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($exitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $pythonLauncher.runner
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $exitCode
+            error_lines = @($outputLines | ForEach-Object { Normalize-Text -Text $_ -RepoRoot $RepoRoot -RunRoot $RunRoot })
+        }
+    }
+
+    $snapshotPayload = $outputLines -join [Environment]::NewLine
+    $snapshotObject = $snapshotPayload | ConvertFrom-Json
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $pythonLauncher.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        local_root = '<scenario-temp>'
+        routes = @(
+            $snapshotObject.routes | ForEach-Object {
+                [ordered]@{
+                    method = $_.method
+                    path = $_.path
+                    name = $_.name
+                }
+            }
+        )
+        responses = $snapshotObject.responses
+    }
+}
+
 function Invoke-ScenarioSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -199,6 +304,9 @@ function Invoke-ScenarioSnapshot {
         }
         'bootstrap-prerequisites' {
             return Invoke-BootstrapPrerequisiteSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'backend-stage1-contracts' {
+            return Invoke-BackendStage1ContractSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         default {
             throw "Unsupported harness '$($Scenario.harness)' for scenario '$($Scenario.id)'."

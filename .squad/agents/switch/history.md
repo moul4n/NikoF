@@ -11,3 +11,5 @@
 - Expression, viseme, and idle animation channels need clean APIs so the backend can drive them predictably.
 - Placeholder frontend catalog data should stop at manifest entry points; resolve model, metadata, voice, and override URLs relative to each manifest so Phase 1 does not bake filesystem branching into UI code.
 - Avatar viewer work should hang off stable mount point ids and a small runtime bridge now, leaving the React shell and selection flow intact when three.js plus three-vrm arrives.
+- Stage 2 default-character work can keep the manifest contract authoritative while still bundling one real VRM by overriding only the manifest-declared `model.vrm` path with a Vite-imported asset URL for `test-vrm-01`.
+- `getAvatarRuntimeMountPoints()` must return a stable object identity because the stage mount effect depends on it; otherwise React re-renders remount the canvas and reset runtime state.

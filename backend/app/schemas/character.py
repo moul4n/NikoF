@@ -5,8 +5,10 @@ from dataclasses import dataclass
 
 @dataclass(slots=True, frozen=True)
 class CharacterManifest:
+    schema_version: int
     character_id: str
     display_name: str
+    identity_source: str
     asset_version: str
     vrm_spec_version: str
     model_file: str
@@ -21,9 +23,10 @@ class CharacterManifest:
 
 @dataclass(slots=True, frozen=True)
 class CharacterSummary:
+    schema_version: int
     character_id: str
     display_name: str
-    asset_version: str
+    identity_source: str
     vrm_spec_version: str
     shared_animation_set: str
     supported_states: list[str]
