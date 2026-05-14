@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "defaultModel": "claude-haiku-4.5",
+  "defaultModel": "gpt-5.4-mini",
   "agentModelOverrides": {
-    "trinity": "claude-sonnet-4.6",
-    "switch": "claude-sonnet-4.6",
-    "tank": "claude-sonnet-4.6",
-    "link": "claude-sonnet-4.6",
-    "mouse": "claude-sonnet-4.6"
+    "trinity": "gpt-5.4",
+    "switch": "gpt-5.4",
+    "tank": "gpt-5.4",
+    "link": "gpt-5.4",
+    "mouse": "gpt-5.4"
   }
 }

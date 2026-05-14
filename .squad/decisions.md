@@ -130,6 +130,12 @@
 **What:** The repository stores source, contracts, manifests, scripts, and documentation, but not LLM weights, model payloads, provider runtimes, or other heavyweight prerequisites. Bootstrap scripts should acquire prerequisites where licensing and installer behavior allow automation; otherwise the repo must carry explicit manual install fallbacks, expected local storage roots, and validation guidance. Cross-machine continuity is a required deliverable, so checked-in docs plus `.squad/` state must be sufficient for Jason or another developer to resume the project on a fresh Windows machine.
 **Why:** The project targets local AI runtimes whose artifacts are too large, machine-specific, or license-constrained to treat as normal source files. Making storage, bootstrap, and continuity explicit now prevents accidental Git bloat and avoids hidden setup knowledge.
 
+### 2026-05-14T08:57:41.6820932+01:00: GPT-5.4 persistent squad model policy
+
+**By:** Trinity
+**What:** Set `gpt-5.4-mini` as the persistent squad default for low-cost routine work such as logging, coordination, and other cheap operational tasks, and pin `gpt-5.4` for Trinity, Switch, Tank, Link, and Mouse as the standard core-work model. Keep the broader rule cost-aware and latest-family first, and reserve premium or extreme models for explicit, rare exceptions only. In this environment, the persistent config names exposed to the squad are `gpt-5.4` and `gpt-5.4-mini`, so do not encode literal medium or high SKU labels in squad config.
+**Why:** The user wants GPT-5.4 family defaults reflected in persistent squad routing with low routine cost, stronger standard reasoning for the core working roles, and no ambiguity about the actual model identifiers available on this surface.
+
 ## Governance
 
 - All meaningful changes require team consensus
