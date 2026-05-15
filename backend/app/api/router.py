@@ -845,6 +845,10 @@ def build_api_router() -> Any:
     async def animation_viewer(websocket: WebSocket) -> None:
         await animation_broadcaster.connect(websocket)
         try:
+            # This is a broadcast-only channel: the backend pushes animation commands
+            # to connected viewers and does not process inbound messages. receive_text()
+            # is called in a loop solely to keep the connection alive and detect
+            # client disconnects via WebSocketDisconnect.
             while True:
                 await websocket.receive_text()
         except WebSocketDisconnect:

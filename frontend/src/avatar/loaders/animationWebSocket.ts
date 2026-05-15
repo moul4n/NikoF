@@ -69,6 +69,11 @@ export function startAnimationWebSocketConsumption(
 
       try {
         const doc = JSON.parse(event.data as string) as BackendAnimationCommandDocument;
+
+        if (!doc || typeof doc.animation_id !== "string" || doc.animation_id === "") {
+          return;
+        }
+
         const command = mapBackendCommandToSemantic(doc);
         callbacks.onCommand(command);
       } catch {
@@ -96,7 +101,9 @@ export function startAnimationWebSocketConsumption(
       return;
     }
 
-    const delayMs = Math.min(1_000 * Math.pow(1.5, reconnectAttempts), maxReconnectDelayMs);
+    // Cap reconnectAttempts to prevent Math.pow overflow on very long disconnects.
+    const safeAttempts = Math.min(reconnectAttempts, 20);
+    const delayMs = Math.min(1_000 * Math.pow(1.5, safeAttempts), maxReconnectDelayMs);
     reconnectAttempts += 1;
 
     reconnectTimeoutId = window.setTimeout(() => {
@@ -128,15 +135,21 @@ export function startAnimationWebSocketConsumption(
 }
 
 export function mapBackendCommandToSemantic(doc: BackendAnimationCommandDocument): SemanticAnimationCommand {
+  let durationMs: number | undefined;
+
+  if (doc.parameters?.duration_ms != null && doc.parameters.duration_ms !== "") {
+    const parsed = Number(doc.parameters.duration_ms);
+    if (!Number.isNaN(parsed)) {
+      durationMs = parsed;
+    }
+  }
+
   return {
     id: doc.animation_id,
     source: doc.parameters?.source === "override" ? "override" : "shared",
     playback: doc.parameters?.playback === "once" ? "once" : "loop",
     intensity: typeof doc.intensity === "number" ? doc.intensity : undefined,
-    durationMs:
-      doc.parameters?.duration_ms != null && doc.parameters.duration_ms !== ""
-        ? Number(doc.parameters.duration_ms)
-        : undefined
+    durationMs
   };
 }
 
