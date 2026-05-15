@@ -23,4 +23,6 @@ nikof_backend.egg-info/SOURCES.txt
 nikof_backend.egg-info/dependency_links.txt
 nikof_backend.egg-info/requires.txt
 nikof_backend.egg-info/top_level.txt
+tests/test_animation_service.py
 tests/test_event_store.py
+tests/test_operator_command_surface.py

@@ -1,6 +1,19 @@
 @{
     scenarios = @(
         @{
+            id = 'animation-contract-boundaries'
+            name = 'Animation contract and staged DSL boundary snapshot'
+            harness = 'animation-contract-boundaries'
+            baseline = 'baselines/animation-contract-boundaries.json'
+            tracked_inputs = @(
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'backend/app/schemas/animation.py'
+                'backend/app/services/animation.py'
+                'assets/animations/dsl/shared/animations.json'
+                'assets/animations/dsl/shared/idle.default.json'
+            )
+        }
+        @{
             id = 'contracts-validation'
             name = 'Contract validation snapshot'
             harness = 'contract-validator'
@@ -70,40 +83,17 @@
             )
         }
         @{
-            id = 'backend-speech-event-store'
-            name = 'Backend speech event-store projection snapshot'
-            harness = 'backend-speech-event-store'
-            baseline = 'baselines/backend-speech-event-store.json'
+            id = 'backend-session-animation-live-delivery'
+            name = 'Backend session animation live-delivery snapshot'
+            harness = 'backend-session-animation-live-delivery'
+            baseline = 'baselines/backend-session-animation-live-delivery.json'
             tracked_inputs = @(
                 'scripts/testing/Invoke-StabilitySuite.ps1'
                 'backend/app/api/router.py'
+                'backend/app/schemas/animation.py'
                 'backend/app/schemas/session.py'
-                'backend/app/services/speech.py'
-                'assets/characters/test-vrm-01/manifest.json'
-            )
-        }
-        @{
-            id = 'backend-turn-publication'
-            name = 'Backend turn publication seam snapshot'
-            harness = 'backend-turn-publication'
-            baseline = 'baselines/backend-turn-publication.json'
-            tracked_inputs = @(
-                'scripts/testing/Invoke-StabilitySuite.ps1'
-                'backend/app/schemas/session.py'
-                'backend/app/services/session.py'
-                'backend/app/services/speech.py'
-            )
-        }
-        @{
-            id = 'backend-speech-real-adapter-degraded'
-            name = 'Backend speech real-adapter degraded-mode snapshot'
-            harness = 'backend-speech-real-adapter-degraded'
-            baseline = 'baselines/backend-speech-real-adapter-degraded.json'
-            tracked_inputs = @(
-                'scripts/testing/Invoke-StabilitySuite.ps1'
-                'backend/app/core/settings.py'
-                'backend/app/schemas/session.py'
-                'backend/app/services/speech.py'
+                'backend/app/services/animation.py'
+                'backend/tests/test_event_store.py'
             )
         }
         @{
@@ -144,7 +134,6 @@
             baseline = 'baselines/frontend-stage1-bridge-surface.json'
             tracked_inputs = @(
                 'frontend/src/app/App.tsx'
-                'frontend/src/avatar/loaders/backendCharacterFlow.ts'
                 'frontend/src/avatar/loaders/characterCatalog.ts'
                 'frontend/src/shared/types/character.ts'
                 'tests/stability/baselines/backend-stage1-contracts.json'
@@ -177,22 +166,6 @@
             )
         }
         @{
-            id = 'frontend-shell-split-surface'
-            name = 'Frontend shell split surface snapshot'
-            harness = 'frontend-shell-split-surface'
-            baseline = 'baselines/frontend-shell-split-surface.json'
-            tracked_inputs = @(
-                'frontend/src/main.tsx'
-                'frontend/src/app/App.tsx'
-                'frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx'
-                'frontend/src/avatar/loaders/backendCharacterFlow.ts'
-                'frontend/src/avatar/loaders/characterCatalog.ts'
-                'frontend/src/avatar/loaders/operatorCommand.ts'
-                'frontend/src/avatar/loaders/speechLifecycle.ts'
-                'frontend/src/shared/types/character.ts'
-            )
-        }
-        @{
             id = 'frontend-speech-lifecycle-runtime'
             name = 'Frontend speech lifecycle runtime snapshot'
             harness = 'frontend-speech-lifecycle-runtime'
@@ -200,14 +173,63 @@
             tracked_inputs = @(
                 'scripts/testing/frontendSpeechLifecycle.runtime.ts'
                 'scripts/testing/Invoke-StabilitySuite.ps1'
-                'frontend/src/app/App.tsx'
-                'frontend/src/avatar/runtime/avatarRuntime.ts'
                 'frontend/src/avatar/loaders/speechLifecycle.ts'
                 'frontend/src/shared/types/character.ts'
                 'backend/app/api/router.py'
                 'backend/app/schemas/session.py'
                 'backend/app/services/speech.py'
                 'tests/stability/baselines/backend-speech-contracts.json'
+            )
+        }
+        @{
+            id = 'frontend-avatar-idle-default-runtime'
+            name = 'Frontend avatar idle.default runtime seam snapshot'
+            harness = 'frontend-avatar-idle-default-runtime'
+            baseline = 'baselines/frontend-avatar-idle-default-runtime.json'
+            tracked_inputs = @(
+                'scripts/testing/frontendAvatarIdleDefault.runtime.ts'
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'backend/app/api/router.py'
+                'backend/app/schemas/animation.py'
+                'backend/app/services/animation.py'
+                'frontend/src/avatar/loaders/sessionAnimation.ts'
+                'frontend/src/avatar/runtime/baseAnimationMotionProfile.ts'
+                'frontend/src/avatar/runtime/defaultBaseAnimation.ts'
+                'frontend/src/avatar/runtime/avatarRuntime.ts'
+                'frontend/src/avatar/runtime/humanoidChannelPlayback.ts'
+                'frontend/src/app/App.tsx'
+                'frontend/src/shared/types/animation.ts'
+                'frontend/src/shared/types/character.ts'
+                'assets/animations/dsl/shared/animations.json'
+                'assets/animations/dsl/shared/idle.default.json'
+                'assets/animations/generated/shared/idle.default/idle.default.runtime.json'
+                'assets/animations/generated/shared/speak.loop/speak.loop.runtime.json'
+                'docs/ANIMATION_DSL_SCHEMA.md'
+            )
+        }
+        @{
+            id = 'frontend-semantic-loop-assets-runtime'
+            name = 'Frontend semantic loop asset runtime snapshot'
+            harness = 'frontend-semantic-loop-assets-runtime'
+            baseline = 'baselines/frontend-semantic-loop-assets-runtime.json'
+            tracked_inputs = @(
+                'scripts/testing/frontendSemanticLoopAssets.runtime.ts'
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'backend/app/services/animation.py'
+                'backend/app/schemas/session.py'
+                'frontend/src/avatar/runtime/avatarRuntime.ts'
+                'frontend/src/avatar/runtime/baseAnimationMotionProfile.ts'
+                'frontend/src/avatar/runtime/defaultBaseAnimation.ts'
+                'frontend/src/shared/types/animation.ts'
+                'frontend/src/vite-env.d.ts'
+                'assets/animations/dsl/shared/animations.json'
+                'assets/animations/dsl/shared/listen.loop.json'
+                'assets/animations/dsl/shared/speak.loop.json'
+                'assets/animations/dsl/generated/shared/listen.loop.json'
+                'assets/animations/dsl/generated/shared/speak.loop.json'
+                'assets/animations/generated/shared/idle.default/idle.default.runtime.json'
+                'assets/animations/generated/shared/listen.loop/listen.loop.runtime.json'
+                'assets/animations/generated/shared/speak.loop/speak.loop.runtime.json'
             )
         }
     )

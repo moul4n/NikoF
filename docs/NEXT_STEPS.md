@@ -2,15 +2,8 @@
 
 Updated: 2026-05-14
 
-1. Treat the display surface regression as fixed and keep the repaired display shell on the existing read-only frontend path.
-2. Make the next session about applying the base idle animation to the model; keep that step narrow and grounded in the current asset pipeline.
-3. Do not widen this first reply slice into a second reply transport, frontend-owned reply state, provider-profile switching, or new operator commands while the backend-owned assistant path is settling.
-4. Keep the active queue non-debug: animation debug actions such as `wave`, extra control-surface or display diagnostics, and other debug affordances stay deferred until they advance a real product seam.
-
-## Deferred Todo
-
-- Additional operator or debug controls beyond the landed `text_question` reply-plus-synthesis flow and `tts_preview` flow.
-- Provider-profile switching.
-- Animation debug actions such as `wave`.
-- Extra control-surface or display-side debug toggles, diagnostics panels, or similar operator affordances that do not advance the backend reply path.
-- Richer memory ranking, summaries, or vector retrieval beyond the landed SQLite-backed lexical recall for `text_question`.
+1. Add a backend-owned event store for canonical session and `speech.lifecycle` events, with ordered persistence and cursor-based reads that keep the current snapshot contract stable.
+2. Replace the current speech adapter shells with real Faster-Whisper and GPT-SoVITS execution behind the existing provider-agnostic interfaces, while keeping provider-specific details out of route payloads.
+3. Add live delivery on top of the existing `speech.lifecycle` envelope, using SSE or WebSocket transport that reuses the backend-owned event contract instead of inventing a second payload shape.
+4. Extend the frontend and avatar runtime from snapshot proofs to real integration by consuming live speech lifecycle delivery, real synthesis metadata, and backend-confirmed character state without regressing the repaired Stage 1 bridge path.
+5. Expand stability coverage with event-store, live-delivery, and real-adapter scenarios so each new seam is baseline-checked before broader UX work lands.

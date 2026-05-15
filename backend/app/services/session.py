@@ -117,6 +117,9 @@ class SessionService(Protocol):
     def set_active_character(self, selection: ActiveCharacterSelection) -> SessionSnapshot:
         raise NotImplementedError
 
+    def set_lifecycle_state(self, lifecycle_state: str) -> SessionSnapshot:
+        raise NotImplementedError
+
 
 @dataclass(slots=True)
 class InMemorySessionService:
@@ -140,4 +143,8 @@ class InMemorySessionService:
 
     def set_active_character(self, selection: ActiveCharacterSelection) -> SessionSnapshot:
         self._active_character_id = selection.character_id
+        return self.get_snapshot()
+
+    def set_lifecycle_state(self, lifecycle_state: str) -> SessionSnapshot:
+        self.lifecycle_state = lifecycle_state
         return self.get_snapshot()

@@ -37,5 +37,11 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 
+# Machine-local Unity export workspace spillover
+.tmp-unity-temp/
+Library/
+ProjectSettings/
+UserSettings/
+
 # Raw animation sources are tracked for now; keep JSON/DSL outputs in git as the
 # semantic staging path for provenance and later promotion work.

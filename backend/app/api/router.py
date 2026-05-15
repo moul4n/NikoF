@@ -1,59 +1,51 @@
 from __future__ import annotations
 
-import asyncio
-import json
 from dataclasses import asdict, dataclass
+import json
 from typing import Any
 
-try:
-    from fastapi import APIRouter, HTTPException, Request, Response, status
-    from fastapi.responses import StreamingResponse
-except ImportError:
-    APIRouter = None
-    HTTPException = None
-    Request = None
-    Response = None
-    status = None
-    StreamingResponse = None
-
 from app.core.settings import get_app_paths
+from app.schemas.animation import SessionAnimationSnapshot
 from app.schemas.character import ActiveCharacterSelection, CharacterCatalogResponse, CharacterSummary
 from app.schemas.health import DiagnosticProbe, HealthDiagnostics, HealthPayload
 from app.schemas.session import (
-    AssistantMessageContract,
     ActiveCharacterResponse,
     ActiveCharacterSelectionResult,
     OperatorCommandRequest,
     OperatorCommandResponse,
-    SessionEvent,
+    SessionLifecycleUpdateRequest,
     SessionSnapshot,
-    SpeechLifecycleEventEnvelope,
-    SpeechSynthesisContract,
-    SpeechTranscriptionContract,
     SpeechLifecycleTransportSnapshot,
-    STT_BASELINE_PROFILE_IDS,
     build_baseline_speech_adapter_profiles,
+)
+from app.services.animation import (
+    AnimationService,
+    DefaultAnimationService,
+    InMemorySessionAnimationLiveDeliveryService,
+    SESSION_ANIMATION_STREAM,
+    SessionAnimationLiveDeliveryService,
+    SessionAnimationUpdate,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource, UnknownCharacterError
 from app.services.llm import TextGenerationRequest, TextGenerationService, build_text_generation_service_registry
-from app.services.memory import MemoryExchange, SessionMemoryService, build_session_memory_service
-from app.services.session import InvalidEventCursor, InMemorySessionService, SessionService
+from app.services.session import InMemorySessionService, SessionService
 from app.services.speech import (
-    BackendTurnRequest,
+    DefaultTurnPipelinePublisher,
     DefaultSessionEventFactory,
     PollingSpeechLifecycleLiveDeliveryService,
-    DefaultTurnPipelinePublisher,
     SPEECH_LIFECYCLE_STREAM,
+    SpeechLifecycleLiveDeliveryService,
     SessionEventFactory,
     SpeechLifecycleSnapshotService,
-    SpeechSynthesisRequest,
     SpeechSynthesisService,
-    SpeechTranscriptionRequest,
+    SpeechSynthesisRequest,
     SpeechTranscriptionService,
     StubSpeechLifecycleSnapshotService,
+    StubSpeechSynthesisService,
+    StubSpeechTranscriptionService,
     TurnPipelinePublisher,
-    build_speech_service_registry,
 )
+from app.services.session import InvalidEventCursor
 
 
 @dataclass(slots=True, frozen=True)
@@ -86,18 +78,15 @@ def _serialize_dataclass_payload(value: Any) -> dict[str, Any]:
     return _strip_none(asdict(value))
 
 
-def _build_speech_lifecycle_sse_frame(envelope: Any) -> str:
-    payload = json.dumps(_serialize_dataclass_payload(envelope), separators=(",", ":"))
-    return f"id: {envelope.cursor}\nevent: {SPEECH_LIFECYCLE_STREAM}\ndata: {payload}\n\n"
-
-
 def _route_definitions() -> list[RouteDefinition]:
     return [
         RouteDefinition(method="GET", path="/health", name="healthcheck"),
         RouteDefinition(method="GET", path="/characters", name="list_characters"),
         RouteDefinition(method="GET", path="/session/active-character", name="get_active_character"),
+        RouteDefinition(method="GET", path="/session/animation", name="get_session_animation"),
+        RouteDefinition(method="PUT", path="/session/lifecycle-state", name="set_session_lifecycle_state"),
         RouteDefinition(method="GET", path="/session/speech-lifecycle", name="get_speech_lifecycle"),
-        RouteDefinition(method="POST", path="/session/operator-command", name="submit_operator_command"),
+        RouteDefinition(method="POST", path="/session/operator-command", name="post_operator_command"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
     ]
 
@@ -109,31 +98,27 @@ def _build_services() -> tuple[
     SpeechSynthesisService,
     TextGenerationService,
     SpeechLifecycleSnapshotService,
+    SpeechLifecycleLiveDeliveryService,
     SessionEventFactory,
     TurnPipelinePublisher,
 ]:
     character_service = CharacterService(FileSystemCharacterManifestSource())
     session_service = InMemorySessionService(default_character_id="test-vrm-01")
-    speech_registry = build_speech_service_registry(get_app_paths())
-    transcription_service = speech_registry.transcription_services.get(
-        "faster-whisper",
-        speech_registry.fallback_transcription_service,
-    )
-    synthesis_service = speech_registry.synthesis_services.get(
-        "gpt-sovits",
-        speech_registry.fallback_synthesis_service,
-    )
-    text_generation_registry = build_text_generation_service_registry(get_app_paths())
-    text_generation_service = text_generation_registry.text_generation_services.get(
-        "ollama",
-        text_generation_registry.fallback_text_generation_service,
+    transcription_service = StubSpeechTranscriptionService()
+    synthesis_service = StubSpeechSynthesisService()
+    text_generation_service = build_text_generation_service_registry().resolve(
+        TextGenerationRequest(prompt="", locale="en-US")
     )
     session_event_factory = DefaultSessionEventFactory()
     speech_lifecycle_service = StubSpeechLifecycleSnapshotService(
         event_store=session_service.event_store,
+        transcription_service=transcription_service,
+        synthesis_service=synthesis_service,
+        session_event_factory=session_event_factory,
+        fallback_on_empty=True,
     )
     speech_lifecycle_live_delivery = PollingSpeechLifecycleLiveDeliveryService(
-        snapshot_service=speech_lifecycle_service,
+        snapshot_service=speech_lifecycle_service
     )
     turn_pipeline_publisher = DefaultTurnPipelinePublisher(
         transcription_service=transcription_service,
@@ -151,6 +136,26 @@ def _build_services() -> tuple[
         speech_lifecycle_live_delivery,
         session_event_factory,
         turn_pipeline_publisher,
+    )
+
+
+def _build_animation_service() -> AnimationService:
+    return DefaultAnimationService()
+
+
+def _build_session_animation_live_delivery_service() -> SessionAnimationLiveDeliveryService:
+    return InMemorySessionAnimationLiveDeliveryService()
+
+
+def _build_session_animation_response(
+    snapshot: SessionSnapshot,
+    animation_service: AnimationService,
+) -> SessionAnimationSnapshot:
+    return SessionAnimationSnapshot(
+        session_id=snapshot.session_id,
+        lifecycle_state=snapshot.lifecycle_state,
+        active_character_id=snapshot.active_character_id,
+        command=animation_service.resolve_session_command(snapshot),
     )
 
 
@@ -225,12 +230,16 @@ def _build_character_catalog_response(
 def _build_active_character_response(
     snapshot: SessionSnapshot,
     active_character: CharacterSummary,
+    session_event_factory: SessionEventFactory,
     *,
     requested_character_id: str,
     selection_applied: bool,
-    session_event: SessionEvent,
+    event_type: str,
+    status: str,
     error_code: str | None = None,
     message: str | None = None,
+    event_character_id: str | None = None,
+    reason: str | None = None,
 ) -> ActiveCharacterResponse:
     return ActiveCharacterResponse(
         schema_version=1,
@@ -243,250 +252,40 @@ def _build_active_character_response(
             error_code=error_code,
             message=message,
         ),
-        session_event=session_event,
-    )
-
-
-def _build_session_event(
-    snapshot: SessionSnapshot,
-    session_event_factory: SessionEventFactory,
-    *,
-    character_id: str,
-    event_type: str,
-    status: str,
-    reason: str | None = None,
-    transcription: SpeechTranscriptionContract | None = None,
-    synthesis: SpeechSynthesisContract | None = None,
-    assistant: AssistantMessageContract | None = None,
-) -> SessionEvent:
-    return session_event_factory.build_event(
-        snapshot,
-        character_id=character_id,
-        event_type=event_type,
-        status=status,
-        reason=reason,
-        transcription=transcription,
-        synthesis=synthesis,
-        assistant=assistant,
-    )
-
-
-def _append_session_event(
-    session_service: SessionService,
-    session_event: SessionEvent,
-) -> SessionEvent:
-    session_service.event_store.append("session", session_event)
-    return session_event
-
-
-def _append_speech_lifecycle_event(
-    session_service: SessionService,
-    session_event: SessionEvent,
-) -> SpeechLifecycleEventEnvelope:
-    return session_service.event_store.append(SPEECH_LIFECYCLE_STREAM, session_event)
-
-
-def _append_synthesis_speech_lifecycle_event(
-    session_service: SessionService,
-    session_event_factory: SessionEventFactory,
-    synthesis_service: SpeechSynthesisService,
-    snapshot: SessionSnapshot,
-    *,
-    character_id: str,
-    text: str,
-    locale: str,
-    reason: str,
-) -> SpeechLifecycleEventEnvelope:
-    synthesis = synthesis_service.synthesize(
-        SpeechSynthesisRequest(
-            text=text,
-            locale=locale,
-        )
-    )
-    return _append_speech_lifecycle_event(
-        session_service,
-        _build_session_event(
+        session_event=session_event_factory.build_event(
             snapshot,
-            session_event_factory,
-            character_id=character_id,
-            event_type="speech.synthesis",
-            status=synthesis.status,
+            character_id=event_character_id or active_character.character_id,
+            event_type=event_type,
+            status=status,
             reason=reason,
-            synthesis=synthesis,
         ),
     )
 
 
-def _normalize_operator_command_text(text: str) -> str:
-    normalized = text.strip()
-    if not normalized:
-        raise ValueError("Operator command text must not be blank.")
-
-    return normalized
-
-
-def _build_operator_command_response(
-    snapshot: SessionSnapshot,
-    *,
-    command_type: str,
-    character_id: str,
-    status: str,
-    session_event: SessionEvent,
-    speech_lifecycle_events: tuple[SpeechLifecycleEventEnvelope, ...],
-    session_service: SessionService,
-) -> OperatorCommandResponse:
-    return OperatorCommandResponse(
-        schema_version=1,
-        session_id=snapshot.session_id,
-        command_type=command_type,
-        character_id=character_id,
-        status=status,
-        session_event=session_event,
-        speech_lifecycle_events=speech_lifecycle_events,
-        next_speech_cursor=session_service.event_store.next_cursor(
-            SPEECH_LIFECYCLE_STREAM,
-            session_id=snapshot.session_id,
-        ),
+def _build_speech_lifecycle_sse_frame(envelope: Any) -> str:
+    payload = json.dumps(
+        _serialize_dataclass_payload(envelope),
+        separators=(",", ":"),
     )
+    return f"event: {SPEECH_LIFECYCLE_STREAM}\nid: {envelope.cursor}\ndata: {payload}\n\n"
 
 
-def _build_memory_enriched_prompt(
-    text: str,
-    prior_exchanges: tuple[MemoryExchange, ...],
-) -> str:
-    if not prior_exchanges:
-        return text
-
-    memory_lines: list[str] = [
-        "Use the following prior exchanges from the same session and active character only when they are relevant.",
-        "",
-    ]
-
-    for index, exchange in enumerate(prior_exchanges, start=1):
-        memory_lines.extend(
-            (
-                f"Prior exchange {index}:",
-                f"User: {exchange.user_text}",
-                f"Assistant: {exchange.assistant_text}",
-                "",
-            )
-        )
-
-    memory_lines.extend(("Current user question:", text))
-    return "\n".join(memory_lines)
+def _build_session_animation_sse_frame(update: SessionAnimationUpdate) -> str:
+    payload = json.dumps(
+        _serialize_dataclass_payload(update.snapshot),
+        separators=(",", ":"),
+    )
+    return f"event: {SESSION_ANIMATION_STREAM}\nid: {update.cursor}\ndata: {payload}\n\n"
 
 
-def _publish_operator_command(
-    session_service: SessionService,
-    session_event_factory: SessionEventFactory,
-    text_generation_service: TextGenerationService,
-    memory_service: SessionMemoryService,
-    synthesis_service: SpeechSynthesisService,
-    snapshot: SessionSnapshot,
-    *,
-    character_id: str,
-    command: OperatorCommandRequest,
-) -> OperatorCommandResponse:
-    text = _normalize_operator_command_text(command.text)
+def _derive_operator_command_status(*statuses: str) -> str:
+    if any(status == "error" for status in statuses):
+        return "error"
 
-    if command.command_type == "text_question":
-        prior_exchanges = memory_service.retrieve_relevant_exchanges(
-            session_id=snapshot.session_id,
-            character_id=character_id,
-            query_text=text,
-        )
-        assistant = text_generation_service.generate(
-            TextGenerationRequest(
-                prompt=_build_memory_enriched_prompt(text, prior_exchanges),
-                locale=command.locale,
-            )
-        )
-        memory_service.store_exchange(
-            session_id=snapshot.session_id,
-            character_id=character_id,
-            user_text=text,
-            assistant_text=assistant.text,
-            assistant_status=assistant.status,
-            locale=command.locale,
-        )
-        speech_lifecycle_event = _append_speech_lifecycle_event(
-            session_service,
-            _build_session_event(
-                snapshot,
-                session_event_factory,
-                character_id=character_id,
-                event_type="assistant.message",
-                status=assistant.status,
-                reason="operator.text-question",
-                assistant=assistant,
-            ),
-        )
-        synthesis_speech_lifecycle_event = _append_synthesis_speech_lifecycle_event(
-            session_service,
-            session_event_factory,
-            synthesis_service,
-            snapshot,
-            character_id=character_id,
-            text=assistant.text,
-            locale=command.locale,
-            reason="operator.text-question",
-        )
-        session_event = _append_session_event(
-            session_service,
-            _build_session_event(
-                snapshot,
-                session_event_factory,
-                character_id=character_id,
-                event_type="session.operator.text-question",
-                status=assistant.status,
-                reason="operator.text-question",
-                assistant=assistant,
-            ),
-        )
-        return _build_operator_command_response(
-            snapshot,
-            command_type=command.command_type,
-            character_id=character_id,
-            status=session_event.status,
-            session_event=session_event,
-            speech_lifecycle_events=(speech_lifecycle_event, synthesis_speech_lifecycle_event),
-            session_service=session_service,
-        )
+    if any(status in {"degraded", "unavailable"} for status in statuses):
+        return next(status for status in statuses if status in {"degraded", "unavailable"})
 
-    if command.command_type == "tts_preview":
-        speech_lifecycle_event = _append_synthesis_speech_lifecycle_event(
-            session_service,
-            session_event_factory,
-            synthesis_service,
-            snapshot,
-            character_id=character_id,
-            text=text,
-            locale=command.locale,
-            reason="operator.tts-preview",
-        )
-        session_event = _append_session_event(
-            session_service,
-            _build_session_event(
-                snapshot,
-                session_event_factory,
-                character_id=character_id,
-                event_type="session.operator.tts-preview",
-                status=speech_lifecycle_event.event.status,
-                reason="operator.tts-preview",
-                synthesis=speech_lifecycle_event.event.synthesis,
-            ),
-        )
-        return _build_operator_command_response(
-            snapshot,
-            command_type=command.command_type,
-            character_id=character_id,
-            status=session_event.status,
-            session_event=session_event,
-            speech_lifecycle_events=(speech_lifecycle_event,),
-            session_service=session_service,
-        )
-
-    raise ValueError(f"Unsupported operator command type: {command.command_type}")
+    return "ready"
 
 
 def build_api_contract_snapshot() -> dict[str, Any]:
@@ -495,46 +294,20 @@ def build_api_contract_snapshot() -> dict[str, Any]:
         character_service,
         transcription_service,
         synthesis_service,
-        text_generation_service,
+        _text_generation_service,
         speech_lifecycle_service,
         _speech_lifecycle_live_delivery,
         session_event_factory,
-        turn_pipeline_publisher,
+        _turn_pipeline_publisher,
     ) = _build_services()
+    animation_service = _build_animation_service()
     characters = character_service.list_character_summaries()
     current_snapshot = session_service.get_snapshot()
     current_character = character_service.get_character_summary(current_snapshot.active_character_id)
-    turn_pipeline_publisher.publish_turn(
-        current_snapshot,
-        BackendTurnRequest(
-            character_id=current_character.character_id,
-            transcription=SpeechTranscriptionRequest(
-                audio_reference="session://speech-sample/transcription.wav",
-                locale="en-US",
-                transcript_hint="Hey Niko, can you wave after you answer?",
-                confidence_hint=0.98,
-            ),
-            synthesis=SpeechSynthesisRequest(
-                text="Sure. I can wave once I finish speaking.",
-                locale="en-US",
-            ),
-        ),
-    )
     speech_lifecycle_snapshot = speech_lifecycle_service.get_snapshot(
         current_snapshot,
         character_id=current_character.character_id,
     )
-    operator_text_question = OperatorCommandRequest(
-        command_type="text_question",
-        text="What should I do next?",
-        locale="en-US",
-    )
-    operator_tts_preview = OperatorCommandRequest(
-        command_type="tts_preview",
-        text="This is a voice preview.",
-        locale="en-US",
-    )
-    memory_service = build_session_memory_service(get_app_paths())
     invalid_selection = ActiveCharacterSelection(
         character_id="missing-character",
         reason="user_selected",
@@ -556,69 +329,40 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                 _build_active_character_response(
                     current_snapshot,
                     current_character,
+                    session_event_factory,
                     requested_character_id=current_character.character_id,
                     selection_applied=True,
-                    session_event=_build_session_event(
-                        current_snapshot,
-                        session_event_factory,
-                        character_id=current_character.character_id,
-                        event_type="session.state",
-                        status=current_snapshot.lifecycle_state,
-                    ),
+                    event_type="session.state",
+                    status=current_snapshot.lifecycle_state,
                     message="Active character resolved.",
                 )
             ),
+            "get_session_animation": _serialize_dataclass_payload(
+                _build_session_animation_response(current_snapshot, animation_service)
+            ),
+            "put_session_lifecycle_state": {
+                "request": asdict(SessionLifecycleUpdateRequest(lifecycle_state="speak", reason="speech_playback_started")),
+                "response": _serialize_dataclass_payload(
+                    _build_session_animation_response(
+                        session_service.set_lifecycle_state("speak"),
+                        animation_service,
+                    )
+                ),
+            },
             "get_speech_lifecycle": _serialize_dataclass_payload(speech_lifecycle_snapshot),
-            "post_operator_command_text_question": {
-                "request": asdict(operator_text_question),
-                "response": _serialize_dataclass_payload(
-                    _publish_operator_command(
-                        session_service,
-                        session_event_factory,
-                        text_generation_service,
-                        memory_service,
-                        synthesis_service,
-                        current_snapshot,
-                        character_id=current_character.character_id,
-                        command=operator_text_question,
-                    )
-                ),
-            },
-            "post_operator_command_tts_preview": {
-                "request": asdict(operator_tts_preview),
-                "response": _serialize_dataclass_payload(
-                    _publish_operator_command(
-                        session_service,
-                        session_event_factory,
-                        text_generation_service,
-                        memory_service,
-                        synthesis_service,
-                        current_snapshot,
-                        character_id=current_character.character_id,
-                        command=operator_tts_preview,
-                    )
-                ),
-            },
             "put_active_character": {
                 "request": asdict(selection),
                 "response": _serialize_dataclass_payload(
                     _build_active_character_response(
                         updated_snapshot,
                         selected_character,
+                        session_event_factory,
                         requested_character_id=selection.character_id,
                         selection_applied=True,
-                        session_event=_append_session_event(
-                            session_service,
-                            _build_session_event(
-                                updated_snapshot,
-                                session_event_factory,
-                                character_id=selected_character.character_id,
-                                event_type="session.character.selected",
-                                status="applied",
-                                reason=selection.reason,
-                            ),
-                        ),
+                        event_type="session.character.selected",
+                        status="applied",
                         message="Active character updated.",
+                        reason=selection.reason,
                     )
                 ),
             },
@@ -629,21 +373,15 @@ def build_api_contract_snapshot() -> dict[str, Any]:
                     _build_active_character_response(
                         current_snapshot,
                         current_character,
+                        session_event_factory,
                         requested_character_id=invalid_selection.character_id,
                         selection_applied=False,
-                        session_event=_append_session_event(
-                            session_service,
-                            _build_session_event(
-                                current_snapshot,
-                                session_event_factory,
-                                character_id=invalid_selection.character_id,
-                                event_type="session.character.rejected",
-                                status="rejected",
-                                reason=invalid_selection.reason,
-                            ),
-                        ),
+                        event_type="session.character.rejected",
+                        status="rejected",
                         error_code="unknown_character",
                         message="Requested character is unavailable.",
+                        event_character_id=invalid_selection.character_id,
+                        reason=invalid_selection.reason,
                     )
                 ),
             },
@@ -663,13 +401,18 @@ def build_api_router() -> Any:
         session_event_factory,
         _turn_pipeline_publisher,
     ) = _build_services()
-    memory_service = build_session_memory_service(get_app_paths())
+    animation_service = _build_animation_service()
+    session_animation_live_delivery = _build_session_animation_live_delivery_service()
     route_definitions = _route_definitions()
 
-    if APIRouter is None:
+    try:
+        from fastapi import APIRouter
+    except ImportError:
         return RouterShell(routes=route_definitions)
 
     router = APIRouter()
+    from fastapi import HTTPException, Request, Response, status
+    from fastapi.responses import StreamingResponse
 
     @router.get("/health", response_model=HealthPayload)
     def healthcheck() -> HealthPayload:
@@ -691,17 +434,60 @@ def build_api_router() -> Any:
         return _build_active_character_response(
             snapshot,
             active_character,
+            session_event_factory,
             requested_character_id=active_character.character_id,
             selection_applied=True,
-            session_event=_build_session_event(
-                snapshot,
-                session_event_factory,
-                character_id=active_character.character_id,
-                event_type="session.state",
-                status=snapshot.lifecycle_state,
-            ),
+            event_type="session.state",
+            status=snapshot.lifecycle_state,
             message="Active character resolved.",
         )
+
+    @router.get(
+        "/session/animation",
+        response_model=SessionAnimationSnapshot,
+        response_model_exclude_none=True,
+    )
+    async def get_session_animation(
+        request: Request,
+        cursor: str | None = None,
+    ) -> Any:
+        snapshot = session_service.get_snapshot()
+        animation_snapshot = _build_session_animation_response(snapshot, animation_service)
+
+        try:
+            session_animation_live_delivery.read_updates(
+                animation_snapshot.session_id,
+                after_cursor=cursor,
+            )
+        except InvalidEventCursor as error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+        accepts = request.headers.get("accept", "")
+        if "text/event-stream" in accepts:
+
+            async def stream_updates():
+                for update in session_animation_live_delivery.iter_live_updates(
+                    animation_snapshot.session_id,
+                    cursor=cursor,
+                ):
+                    if await request.is_disconnected():
+                        break
+                    yield _build_session_animation_sse_frame(update)
+
+            return StreamingResponse(stream_updates(), media_type="text/event-stream")
+
+        return animation_snapshot
+
+    @router.put(
+        "/session/lifecycle-state",
+        response_model=SessionAnimationSnapshot,
+        response_model_exclude_none=True,
+    )
+    def set_session_lifecycle_state(update: SessionLifecycleUpdateRequest) -> SessionAnimationSnapshot:
+        snapshot = session_service.set_lifecycle_state(update.lifecycle_state)
+        animation_snapshot = _build_session_animation_response(snapshot, animation_service)
+        session_animation_live_delivery.publish_snapshot(animation_snapshot)
+        return animation_snapshot
 
     @router.get(
         "/session/speech-lifecycle",
@@ -711,62 +497,141 @@ def build_api_router() -> Any:
     async def get_speech_lifecycle(
         request: Request,
         cursor: str | None = None,
-    ) -> SpeechLifecycleTransportSnapshot | StreamingResponse:
+    ) -> Any:
         snapshot = session_service.get_snapshot()
         active_character = character_service.get_character_summary(snapshot.active_character_id)
         try:
-            transport_snapshot = speech_lifecycle_service.get_snapshot(
-                snapshot,
-                character_id=active_character.character_id,
-                cursor=cursor,
+            session_service.event_store.read(
+                SPEECH_LIFECYCLE_STREAM,
+                session_id=snapshot.session_id,
+                after_cursor=cursor,
             )
         except InvalidEventCursor as error:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
-        if "text/event-stream" not in request.headers.get("accept", ""):
-            return transport_snapshot
+        accepts = request.headers.get("accept", "")
+        if "text/event-stream" in accepts:
 
-        async def event_stream() -> Any:
-            live_events = speech_lifecycle_live_delivery.iter_live_events(
-                snapshot,
-                character_id=active_character.character_id,
-                cursor=cursor,
-            )
-
-            try:
-                for envelope in live_events:
+            async def stream_events():
+                for envelope in speech_lifecycle_live_delivery.iter_live_events(
+                    snapshot,
+                    character_id=active_character.character_id,
+                    cursor=cursor,
+                ):
                     if await request.is_disconnected():
                         break
-
                     yield _build_speech_lifecycle_sse_frame(envelope)
-                    await asyncio.sleep(0)
-            finally:
-                live_events.close()
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+            return StreamingResponse(stream_events(), media_type="text/event-stream")
+
+        return speech_lifecycle_service.get_snapshot(
+            snapshot,
+            character_id=active_character.character_id,
+            cursor=cursor,
+        )
 
     @router.post(
         "/session/operator-command",
         response_model=OperatorCommandResponse,
         response_model_exclude_none=True,
     )
-    def submit_operator_command(command: OperatorCommandRequest) -> OperatorCommandResponse:
+    def post_operator_command(command: OperatorCommandRequest) -> OperatorCommandResponse:
+        normalized_text = command.text.strip()
+        if not normalized_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Operator command text must not be blank.",
+            )
+
+        if command.command_type not in {"text_question", "tts_preview"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported operator command type: {command.command_type}",
+            )
+
         snapshot = session_service.get_snapshot()
         active_character = character_service.get_character_summary(snapshot.active_character_id)
+        speech_lifecycle_events = []
 
-        try:
-            return _publish_operator_command(
-                session_service,
-                session_event_factory,
-                text_generation_service,
-                memory_service,
-                synthesis_service,
+        if command.command_type == "text_question":
+            assistant = text_generation_service.generate(
+                TextGenerationRequest(prompt=normalized_text, locale=command.locale)
+            )
+            speech_lifecycle_events.append(
+                session_service.event_store.append(
+                    SPEECH_LIFECYCLE_STREAM,
+                    session_event_factory.build_event(
+                        snapshot,
+                        character_id=active_character.character_id,
+                        event_type="assistant.message",
+                        status=assistant.status,
+                        assistant=assistant,
+                    ),
+                )
+            )
+            synthesis = synthesis_service.synthesize(
+                SpeechSynthesisRequest(text=assistant.text, locale=command.locale)
+            )
+            speech_lifecycle_events.append(
+                session_service.event_store.append(
+                    SPEECH_LIFECYCLE_STREAM,
+                    session_event_factory.build_event(
+                        snapshot,
+                        character_id=active_character.character_id,
+                        event_type="speech.synthesis",
+                        status=synthesis.status,
+                        synthesis=synthesis,
+                    ),
+                )
+            )
+            command_status = _derive_operator_command_status(assistant.status, synthesis.status)
+            session_event = session_event_factory.build_event(
                 snapshot,
                 character_id=active_character.character_id,
-                command=command,
+                event_type="session.operator.text-question",
+                status=command_status,
+                assistant=assistant,
+                synthesis=synthesis,
             )
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+        else:
+            synthesis = synthesis_service.synthesize(
+                SpeechSynthesisRequest(text=normalized_text, locale=command.locale)
+            )
+            speech_lifecycle_events.append(
+                session_service.event_store.append(
+                    SPEECH_LIFECYCLE_STREAM,
+                    session_event_factory.build_event(
+                        snapshot,
+                        character_id=active_character.character_id,
+                        event_type="speech.synthesis",
+                        status=synthesis.status,
+                        synthesis=synthesis,
+                    ),
+                )
+            )
+            command_status = synthesis.status
+            session_event = session_event_factory.build_event(
+                snapshot,
+                character_id=active_character.character_id,
+                event_type="session.operator.tts-preview",
+                status=command_status,
+                synthesis=synthesis,
+            )
+
+        session_service.event_store.append("session", session_event)
+        return OperatorCommandResponse(
+            schema_version=1,
+            session_id=snapshot.session_id,
+            command_type=command.command_type,
+            character_id=active_character.character_id,
+            status=command_status,
+            session_event=session_event,
+            next_speech_cursor=session_service.event_store.next_cursor(
+                SPEECH_LIFECYCLE_STREAM,
+                session_id=snapshot.session_id,
+            ),
+            speech_lifecycle_events=tuple(speech_lifecycle_events),
+        )
 
     @router.put(
         "/session/active-character",
@@ -784,41 +649,28 @@ def build_api_router() -> Any:
             return _build_active_character_response(
                 current_snapshot,
                 current_character,
+                session_event_factory,
                 requested_character_id=selection.character_id,
                 selection_applied=False,
-                session_event=_append_session_event(
-                    session_service,
-                    _build_session_event(
-                        current_snapshot,
-                        session_event_factory,
-                        character_id=selection.character_id,
-                        event_type="session.character.rejected",
-                        status="rejected",
-                        reason=selection.reason,
-                    ),
-                ),
+                event_type="session.character.rejected",
+                status="rejected",
                 error_code="unknown_character",
                 message="Requested character is unavailable.",
+                event_character_id=selection.character_id,
+                reason=selection.reason,
             )
 
         snapshot = session_service.set_active_character(selection)
         return _build_active_character_response(
             snapshot,
             active_character,
+            session_event_factory,
             requested_character_id=selection.character_id,
             selection_applied=True,
-            session_event=_append_session_event(
-                session_service,
-                _build_session_event(
-                    snapshot,
-                    session_event_factory,
-                    character_id=active_character.character_id,
-                    event_type="session.character.selected",
-                    status="applied",
-                    reason=selection.reason,
-                ),
-            ),
+            event_type="session.character.selected",
+            status="applied",
             message="Active character updated.",
+            reason=selection.reason,
         )
 
     return router

@@ -3,6 +3,12 @@ import { ControlSurfaceOperatorCommandPanel } from "./ControlSurfaceOperatorComm
 import { AvatarStage } from "../avatar/components/AvatarStage";
 import { CharacterCatalogPanel } from "../avatar/components/CharacterCatalogPanel";
 import {
+  startSessionAnimationLiveConsumption,
+  type ConsumedSessionAnimationSnapshot,
+  type SessionAnimationDeliveryMode,
+  updateSessionAnimationLifecycleState
+} from "../avatar/loaders/sessionAnimation";
+import {
   ActiveCharacterSyncError,
   bridgeCharacterCatalogWithBackend,
   loadCharacterCatalog,
@@ -18,9 +24,12 @@ import {
   type ConsumedSpeechLifecycleSnapshot,
   type SpeechLifecycleDeliveryMode
 } from "../avatar/loaders/speechLifecycle";
+import { cloneDefaultBaseAnimationCommand } from "../avatar/runtime/defaultBaseAnimation";
 import { createAvatarRuntime, type AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
+import type { SemanticAnimationCommand } from "../shared/types/animation";
 import type {
   BackendSessionEventDocument,
+  BackendOperatorCommandResponseDocument,
   BackendSpeechSynthesisDocument,
   BackendSpeechTranscriptionDocument,
   BackendSpeechVisemeSlotDocument,
@@ -66,11 +75,59 @@ type SpeechLifecycleLoadState = {
   message: string | null;
 };
 
+type SessionAnimationLoadState = {
+  status: "loading" | "ready" | "offline";
+  snapshot: ConsumedSessionAnimationSnapshot | null;
+  deliveryMode: SessionAnimationDeliveryMode;
+  message: string | null;
+};
+
 type SpeechPlaybackStatus = "idle" | "audio" | "timing";
 
 export type SurfaceMode = "control" | "display";
 
 const frontendBackendApiBaseUrl = resolveFrontendBackendApiBaseUrl();
+
+const DEV_DISPLAY_ANIMATION_OPTIONS = [
+  {
+    id: "backend",
+    label: "Backend live",
+    description: "Use the backend-selected session animation, or the local idle fallback when backend delivery is offline.",
+    semanticCommand: null
+  },
+  {
+    id: "idle.default",
+    label: "Force idle.default",
+    description: "Loop the refreshed shared idle clip directly in the display window.",
+    semanticCommand: {
+      id: "idle.default",
+      source: "shared",
+      playback: "loop"
+    }
+  },
+  {
+    id: "gesture.punch.once",
+    label: "Force gesture.punch.once",
+    description: "Replay the shared punch clip to inspect elbow, lower-arm rotation, and wrist delivery.",
+    semanticCommand: {
+      id: "gesture.punch.once",
+      source: "shared",
+      playback: "once"
+    }
+  }
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  description: string;
+  semanticCommand: SemanticAnimationCommand | null;
+}>;
+
+type DevDisplayAnimationOptionId = (typeof DEV_DISPLAY_ANIMATION_OPTIONS)[number]["id"];
+
+type DevDisplayAnimationOverrideState = {
+  optionId: DevDisplayAnimationOptionId;
+  activationKey: number;
+};
 
 function findCharacterEntry(catalog: CharacterCatalog | null, characterId: CharacterId | null): CharacterCatalogEntry | null {
   if (!catalog || !characterId) {
@@ -89,6 +146,10 @@ function resolveRenderableCharacterEntry(
   }
 
   return findCharacterEntry(catalog, resolveSelectedCharacterId(catalog, preferredCharacterId));
+}
+
+function resolveDevDisplayAnimationOption(optionId: DevDisplayAnimationOptionId) {
+  return DEV_DISPLAY_ANIMATION_OPTIONS.find((option) => option.id === optionId) ?? DEV_DISPLAY_ANIMATION_OPTIONS[0];
 }
 
 function describeBackendSyncState(syncState: BackendSyncState): string {
@@ -123,6 +184,120 @@ function resolveSpeechReactionInput(synthesis: BackendSpeechSynthesisDocument): 
     utteranceDurationMs: synthesis.timing?.utterance_duration_ms ?? null,
     visemeSlots: synthesis.timing?.viseme_slots ?? []
   };
+}
+
+function resolveDesiredAnimationLifecycleState(speechPlaybackStatus: SpeechPlaybackStatus): "idle" | "speak" {
+  return speechPlaybackStatus === "idle" ? "idle" : "speak";
+}
+
+function parseSpeechLifecycleCursor(cursor: string | null | undefined): {
+  sessionId: string;
+  sequence: number;
+} | null {
+  const trimmedCursor = cursor?.trim();
+
+  if (!trimmedCursor) {
+    return null;
+  }
+
+  const match = /^speech\.lifecycle:([^:]+):(\d+)$/.exec(trimmedCursor);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    sessionId: match[1],
+    sequence: Number.parseInt(match[2], 10)
+  };
+}
+
+function hasSpeechLifecycleSnapshotCaughtUp(
+  snapshot: ConsumedSpeechLifecycleSnapshot | null,
+  publishedCommand: BackendOperatorCommandResponseDocument | null
+): boolean {
+  const snapshotCursor = parseSpeechLifecycleCursor(snapshot?.nextCursor ?? null);
+  const publishedCursor = parseSpeechLifecycleCursor(publishedCommand?.next_speech_cursor ?? null);
+
+  if (!snapshotCursor || !publishedCursor) {
+    return false;
+  }
+
+  return snapshotCursor.sessionId === publishedCursor.sessionId && snapshotCursor.sequence >= publishedCursor.sequence;
+}
+
+function hasPendingPublishedSpeechLifecycle(
+  snapshot: ConsumedSpeechLifecycleSnapshot | null,
+  publishedCommand: BackendOperatorCommandResponseDocument | null
+): boolean {
+  if (!publishedCommand || publishedCommand.status !== "ready") {
+    return false;
+  }
+
+  const publishedCanonicalSpeech = publishedCommand.speech_lifecycle_events.some(
+    (envelope) => envelope.event.event_type === "speech.synthesis"
+  );
+
+  if (!publishedCanonicalSpeech) {
+    return false;
+  }
+
+  return !hasSpeechLifecycleSnapshotCaughtUp(snapshot, publishedCommand);
+}
+
+function hasActiveCanonicalTranscription(snapshot: ConsumedSpeechLifecycleSnapshot | null): boolean {
+  const transcriptionStatus = snapshot?.canonicalTranscriptionEvent?.transcription?.status?.trim().toLowerCase();
+
+  if (!transcriptionStatus) {
+    return false;
+  }
+
+  return !["degraded", "error", "final", "ready", "unavailable"].includes(transcriptionStatus);
+}
+
+function resolveDesiredConversationAnimationLifecycleState(
+  speechSnapshot: ConsumedSpeechLifecycleSnapshot | null,
+  publishedCommand: BackendOperatorCommandResponseDocument | null,
+  speechPlaybackStatus: SpeechPlaybackStatus
+): "idle" | "listen" | "speak" {
+  if (hasPendingPublishedSpeechLifecycle(speechSnapshot, publishedCommand)) {
+    return "speak";
+  }
+
+  if (speechPlaybackStatus !== "idle" && speechSnapshot?.canonicalSpeechSynthesisEvent?.synthesis) {
+    return "speak";
+  }
+
+  if (hasActiveCanonicalTranscription(speechSnapshot)) {
+    return "listen";
+  }
+
+  return "idle";
+}
+
+function resolveAnimationLifecycleUpdateReason(
+  lifecycleState: "idle" | "listen" | "speak",
+  speechSnapshot: ConsumedSpeechLifecycleSnapshot | null,
+  publishedCommand: BackendOperatorCommandResponseDocument | null,
+  speechPlaybackStatus: SpeechPlaybackStatus
+): string {
+  if (lifecycleState === "listen") {
+    return "canonical_transcription_active";
+  }
+
+  if (lifecycleState === "speak") {
+    if (hasPendingPublishedSpeechLifecycle(speechSnapshot, publishedCommand)) {
+      return "canonical_command_published";
+    }
+
+    if (speechPlaybackStatus !== "idle") {
+      return "canonical_speech_playback_active";
+    }
+
+    return "canonical_synthesis_active";
+  }
+
+  return "conversation_idle";
 }
 
 function resolveFrontendBackendApiBaseUrl(): string {
@@ -545,12 +720,62 @@ function DisplaySurfaceStatusPanel({
   );
 }
 
+interface DevAnimationSwitcherPanelProps {
+  selectedOptionId: DevDisplayAnimationOptionId;
+  backendAnimationId: string | null;
+  onSelectOption: (optionId: DevDisplayAnimationOptionId) => void;
+}
+
+function DevAnimationSwitcherPanel({
+  selectedOptionId,
+  backendAnimationId,
+  onSelectOption
+}: DevAnimationSwitcherPanelProps): JSX.Element {
+  return (
+    <section className="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-animation-switcher-title">
+      <div className="surface-panel__header">
+        <div>
+          <p className="eyebrow">Dev-only animation override</p>
+          <h2 id="dev-animation-switcher-title">Local display switcher</h2>
+        </div>
+      </div>
+
+      <p className="surface-panel__summary">
+        This panel is dev-only and only affects the local display window. Click the punch option again to replay the one-shot clip.
+      </p>
+      <p className="surface-panel__message">
+        Backend snapshot: {backendAnimationId ?? "Unavailable, so the local idle fallback will be used when override is off."}
+      </p>
+
+      <div className="dev-animation-panel__list" role="group" aria-label="Display animation override">
+        {DEV_DISPLAY_ANIMATION_OPTIONS.map((option) => {
+          const isActive = option.id === selectedOptionId;
+
+          return (
+            <button
+              key={option.id}
+              type="button"
+              className={isActive ? "dev-animation-panel__button dev-animation-panel__button--active" : "dev-animation-panel__button"}
+              aria-pressed={isActive}
+              onClick={() => onSelectOption(option.id)}
+            >
+              <span className="dev-animation-panel__button-title">{option.label}</span>
+              <span className="dev-animation-panel__button-summary">{option.description}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 interface AppProps {
   surfaceMode: SurfaceMode;
 }
 
 export function App({ surfaceMode }: AppProps): JSX.Element {
   const [runtime] = useState<AvatarRuntimeBridge>(() => createAvatarRuntime());
+  const isDevAnimationSwitcherEnabled = import.meta.env.DEV;
   const [loadState, setLoadState] = useState<CatalogLoadState>({
     status: "loading",
     catalog: null,
@@ -568,9 +793,23 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     deliveryMode: "snapshot",
     message: null
   });
+  const [sessionAnimationState, setSessionAnimationState] = useState<SessionAnimationLoadState>({
+    status: "loading",
+    snapshot: null,
+    deliveryMode: "snapshot",
+    message: null
+  });
   const [speechLifecycleRefreshKey, setSpeechLifecycleRefreshKey] = useState(0);
   const [selectedCharacterId, setSelectedCharacterId] = useState<CharacterId | null>(null);
   const [speechPlaybackStatus, setSpeechPlaybackStatus] = useState<SpeechPlaybackStatus>("idle");
+  const [devDisplayAnimationOverride, setDevDisplayAnimationOverride] = useState<DevDisplayAnimationOverrideState>({
+    optionId: "backend",
+    activationKey: 0
+  });
+  const [latestPublishedCommand, setLatestPublishedCommand] = useState<BackendOperatorCommandResponseDocument | null>(null);
+  const [animationLifecycleBridge] = useState(() => ({
+    requestedStateKey: null as string | null
+  }));
   const [speechPlaybackBridge] = useState(() => ({
     activeAudio: null as HTMLAudioElement | null,
     playbackTimeoutId: null as number | null,
@@ -797,6 +1036,249 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   }, [loadState.catalog, runtime, selectedCharacterId]);
 
   useEffect(() => {
+    if (surfaceMode === "display" && isDevAnimationSwitcherEnabled) {
+      const selectedOption = resolveDevDisplayAnimationOption(devDisplayAnimationOverride.optionId);
+
+      if (selectedOption.semanticCommand) {
+        runtime.play({ ...selectedOption.semanticCommand });
+        return;
+      }
+    }
+
+    const activeAnimationSnapshot = sessionAnimationState.snapshot;
+
+    if (activeAnimationSnapshot) {
+      runtime.play(activeAnimationSnapshot.semanticCommand);
+      return;
+    }
+
+    if (sessionAnimationState.status === "offline") {
+      runtime.play(cloneDefaultBaseAnimationCommand());
+    }
+  }, [
+    devDisplayAnimationOverride.activationKey,
+    devDisplayAnimationOverride.optionId,
+    isDevAnimationSwitcherEnabled,
+    runtime,
+    sessionAnimationState.snapshot,
+    sessionAnimationState.status,
+    surfaceMode
+  ]);
+
+  useEffect(() => {
+    const activeCharacter = resolveRenderableCharacterEntry(loadState.catalog, selectedCharacterId);
+    const currentAnimationSnapshot = sessionAnimationState.snapshot;
+
+    if (surfaceMode !== "control") {
+      return;
+    }
+
+    if (loadState.status !== "ready" || !activeCharacter) {
+      return;
+    }
+
+    const desiredAnimationLifecycleState = resolveDesiredConversationAnimationLifecycleState(
+      speechLifecycleState.snapshot,
+      latestPublishedCommand,
+      speechPlaybackStatus
+    );
+    const requestKey = `${activeCharacter.summary.characterId}:${desiredAnimationLifecycleState}`;
+
+    if (animationLifecycleBridge.requestedStateKey === requestKey) {
+      return;
+    }
+
+    if (
+      currentAnimationSnapshot?.characterId === activeCharacter.summary.characterId &&
+      currentAnimationSnapshot.lifecycleState === desiredAnimationLifecycleState
+    ) {
+      animationLifecycleBridge.requestedStateKey = requestKey;
+      return;
+    }
+
+    animationLifecycleBridge.requestedStateKey = requestKey;
+
+    let cancelled = false;
+
+    void updateSessionAnimationLifecycleState(
+      desiredAnimationLifecycleState,
+      resolveAnimationLifecycleUpdateReason(
+        desiredAnimationLifecycleState,
+        speechLifecycleState.snapshot,
+        latestPublishedCommand,
+        speechPlaybackStatus
+      )
+    )
+      .then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSessionAnimationState((currentState) => ({
+          status: "ready",
+          snapshot,
+          deliveryMode: currentState.deliveryMode,
+          message: currentState.deliveryMode === "live" ? null : currentState.message
+        }));
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setSessionAnimationState((currentState) => {
+          if (currentState.snapshot) {
+            return currentState;
+          }
+
+          return {
+            status: "offline",
+            snapshot: null,
+            deliveryMode: "snapshot",
+            message: "Backend session animation update unavailable; viewer is holding the local idle fallback."
+          };
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    animationLifecycleBridge,
+    latestPublishedCommand,
+    loadState.catalog,
+    loadState.status,
+    runtime,
+    selectedCharacterId,
+    sessionAnimationState.snapshot,
+    speechLifecycleState.snapshot,
+    speechPlaybackStatus,
+    surfaceMode
+  ]);
+
+  useEffect(() => {
+    if (loadState.status === "error") {
+      setSessionAnimationState({
+        status: "offline",
+        snapshot: null,
+        deliveryMode: "snapshot",
+        message: "Session animation read surface unavailable until the local manifest catalog loads successfully."
+      });
+      return;
+    }
+
+    if (loadState.status !== "ready") {
+      return;
+    }
+
+    let cancelled = false;
+    let liveConsumption: { close(): void } | null = null;
+
+    setSessionAnimationState((currentState) =>
+      currentState.snapshot
+        ? currentState
+        : {
+            status: "loading",
+            snapshot: null,
+            deliveryMode: "snapshot",
+            message: null
+          }
+    );
+
+    void startSessionAnimationLiveConsumption({
+      onSnapshot: (snapshot, deliveryMode) => {
+        if (cancelled) {
+          return;
+        }
+
+        const reconciledCharacterId = resolveSelectedCharacterId(loadState.catalog, snapshot.characterId);
+
+        if (reconciledCharacterId) {
+          setSelectedCharacterId((currentCharacterId) =>
+            currentCharacterId === reconciledCharacterId ? currentCharacterId : reconciledCharacterId
+          );
+        }
+
+        setSessionAnimationState((currentState) => ({
+          status: "ready",
+          snapshot,
+          deliveryMode,
+          message: deliveryMode === "live" ? null : currentState.message
+        }));
+      },
+      onDeliveryModeChange: (deliveryMode, error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSessionAnimationState((currentState) => {
+          if (currentState.status === "offline") {
+            return currentState;
+          }
+
+          return {
+            status: currentState.snapshot ? "ready" : currentState.status,
+            snapshot: currentState.snapshot,
+            deliveryMode,
+            message:
+              deliveryMode === "live"
+                ? null
+                : error
+                  ? `${error.message} The shell is continuing from the latest backend animation snapshot when available.`
+                  : currentState.message
+          };
+        });
+      }
+    })
+      .then((subscription) => {
+        if (cancelled) {
+          subscription.close();
+          return;
+        }
+
+        liveConsumption = subscription;
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSessionAnimationState({
+          status: "offline",
+          snapshot: null,
+          deliveryMode: "snapshot",
+          message:
+            error instanceof Error
+              ? `${error.message} The viewer is holding the local idle fallback until backend animation delivery returns.`
+              : "Backend session animation snapshot unavailable."
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      liveConsumption?.close();
+    };
+  }, [loadState.catalog, loadState.status]);
+
+  useEffect(() => {
+    if (!latestPublishedCommand) {
+      return;
+    }
+
+    if (!hasSpeechLifecycleSnapshotCaughtUp(speechLifecycleState.snapshot, latestPublishedCommand)) {
+      return;
+    }
+
+    setLatestPublishedCommand((currentCommand) => {
+      if (currentCommand?.next_speech_cursor !== latestPublishedCommand.next_speech_cursor) {
+        return currentCommand;
+      }
+
+      return null;
+    });
+  }, [latestPublishedCommand, speechLifecycleState.snapshot]);
+
+  useEffect(() => {
     if (loadState.status === "error") {
       setSpeechLifecycleState({
         status: "offline",
@@ -992,6 +1474,31 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
       });
   }
 
+  function handleCommandPublished(response: BackendOperatorCommandResponseDocument): void {
+    const reconciledCharacterId = loadState.catalog
+      ? resolveSelectedCharacterId(loadState.catalog, response.character_id)
+      : response.character_id;
+
+    setLatestPublishedCommand(response);
+
+    if (reconciledCharacterId && reconciledCharacterId !== selectedCharacterId) {
+      setSelectedCharacterId(reconciledCharacterId);
+    }
+
+    setSpeechLifecycleRefreshKey((currentKey) => currentKey + 1);
+  }
+
+  function handleSelectDevDisplayAnimation(optionId: DevDisplayAnimationOptionId): void {
+    if (!isDevAnimationSwitcherEnabled) {
+      return;
+    }
+
+    setDevDisplayAnimationOverride((currentState) => ({
+      optionId,
+      activationKey: currentState.activationKey + 1
+    }));
+  }
+
   const selectedCharacter = resolveRenderableCharacterEntry(loadState.catalog, selectedCharacterId);
   const backendStatusMessage = describeBackendSyncState(backendSyncState);
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
@@ -1009,6 +1516,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     resolveSpeechLifecycleCharacterId(speechLifecycleSnapshot) ?? selectedCharacter?.summary.characterId ?? "Unknown";
   const controlSurfaceHref = buildSurfaceHref("control");
   const displaySurfaceHref = buildSurfaceHref("display");
+  const backendAnimationId = sessionAnimationState.snapshot?.semanticCommand.id ?? null;
 
   if (surfaceMode === "display") {
     return (
@@ -1033,6 +1541,13 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         <main className="app-shell__display">
           <AvatarStage runtime={runtime} selectedCharacter={selectedCharacter} variant="display" />
           <aside className="app-shell__display-rail">
+            {isDevAnimationSwitcherEnabled ? (
+              <DevAnimationSwitcherPanel
+                selectedOptionId={devDisplayAnimationOverride.optionId}
+                backendAnimationId={backendAnimationId}
+                onSelectOption={handleSelectDevDisplayAnimation}
+              />
+            ) : null}
             <DisplaySurfaceStatusPanel
               selectedCharacter={selectedCharacter}
               backendStatusMessage={backendStatusMessage}
@@ -1089,7 +1604,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         <div className="app-shell__control-rail">
           <ControlSurfaceOperatorCommandPanel
             selectedCharacter={selectedCharacter}
-            onCommandPublished={() => setSpeechLifecycleRefreshKey((currentKey) => currentKey + 1)}
+            onCommandPublished={handleCommandPublished}
           />
           <ControlSurfaceSummaryPanel
             selectedCharacter={selectedCharacter}

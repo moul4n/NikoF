@@ -1,0 +1,98 @@
+{
+  "scenario_id": "backend-session-animation-live-delivery",
+  "scenario_name": "Backend session animation live-delivery snapshot",
+  "runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "backend/app/api/router.py",
+    "backend/app/schemas/animation.py",
+    "backend/app/schemas/session.py",
+    "backend/app/services/animation.py",
+    "backend/tests/test_event_store.py"
+  ],
+  "route_surface": {
+    "snapshot_path": "/session/animation",
+    "lifecycle_update_path": "/session/lifecycle-state",
+    "stream_name": "session.animation"
+  },
+  "snapshot_delivery": {
+    "response_keys": [
+      "active_character_id",
+      "command",
+      "lifecycle_state",
+      "schema_version",
+      "session_id"
+    ],
+    "command_keys": [
+      "character_id",
+      "command_id",
+      "intensity",
+      "intent_id",
+      "parameters",
+      "playback",
+      "policy",
+      "resolution",
+      "resolved_state",
+      "schema_version",
+      "semantic_id",
+      "session_id",
+      "timing"
+    ],
+    "session_id": "session-scaffold-01",
+    "lifecycle_state": "idle",
+    "active_character_id": "test-vrm-01",
+    "semantic_id": "idle.default",
+    "resolved_state": "selected"
+  },
+  "live_delivery": {
+    "media_type": "text/event-stream",
+    "delivery_cursors_seen": [
+      null,
+      "session.animation:session-scaffold-01:1"
+    ],
+    "event_count": 2,
+    "event_names": [
+      "session.animation",
+      "session.animation"
+    ],
+    "cursor_ids": [
+      "session.animation:session-scaffold-01:1",
+      "session.animation:session-scaffold-01:2"
+    ],
+    "lifecycle_states": [
+      "listen",
+      "speak"
+    ],
+    "semantic_ids": [
+      "listen.loop",
+      "speak.loop"
+    ],
+    "payload_matches_published_updates": true
+  },
+  "resume_delivery": {
+    "requested_cursor": "session.animation:session-scaffold-01:1",
+    "delivery_cursors_seen": [
+      null,
+      "session.animation:session-scaffold-01:1"
+    ],
+    "event_count": 1,
+    "event_names": [
+      "session.animation"
+    ],
+    "cursor_ids": [
+      "session.animation:session-scaffold-01:2"
+    ],
+    "lifecycle_states": [
+      "speak"
+    ],
+    "semantic_ids": [
+      "speak.loop"
+    ],
+    "payload_matches_resumed_update": true
+  },
+  "invalid_cursor_rejection": {
+    "status_code": 400,
+    "detail": "Cursor session.animation:wrong-session:1 does not belong to session.animation for session session-scaffold-01.",
+    "detail_contains_session_mismatch": true
+  }
+}

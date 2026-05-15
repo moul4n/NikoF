@@ -1,0 +1,18 @@
+{
+    "semantic_id": "gesture.punch.once",
+    "stage": "staged_raw_unity_source",
+    "approved_for_shared_library": false,
+    "promotion_status": "not_promoted",
+    "source": {
+        "kind": "unity_text_animation_clip",
+        "path": "assets/animations/raw/Action",
+        "provenance": "raw_source_asset"
+    },
+    "unity_clip": {
+        "name": "Action Idle To Fight Idle",
+        "sample_rate": 30,
+        "start_time": 0.0,
+        "stop_time": 1.0,
+        "loop_time": 0.0
+    }
+}

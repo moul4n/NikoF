@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pydantic.dataclasses import dataclass as pydantic_dataclass
+try:
+    from pydantic.dataclasses import dataclass as pydantic_dataclass
+except ModuleNotFoundError:
+    pydantic_dataclass = dataclass
 
 from app.schemas.character import CharacterSummary
 
@@ -184,6 +187,12 @@ class OperatorCommandRequest:
     command_type: str
     text: str
     locale: str = "en-US"
+
+
+@pydantic_dataclass(slots=True, frozen=True)
+class SessionLifecycleUpdateRequest:
+    lifecycle_state: str
+    reason: str = "frontend_animation_sync"
 
 
 @dataclass(slots=True, frozen=True)

@@ -4,14 +4,19 @@ import type {
   BackendSpeechLifecycleTransportSnapshotDocument
 } from "../../shared/types/character.js";
 
-const backendApiBaseUrl = resolveBackendApiBaseUrl();
-const speechLifecycleStreamEventName = "speech.lifecycle";
+export type SpeechLifecycleDeliveryMode = "live" | "snapshot";
 
-type ImportMetaWithOptionalEnv = ImportMeta & {
-  env?: {
-    VITE_BACKEND_API_BASE_URL?: string;
-  };
-};
+export interface SpeechLifecycleLiveConsumptionOptions {
+  onSnapshot: (snapshot: ConsumedSpeechLifecycleSnapshot, deliveryMode: SpeechLifecycleDeliveryMode) => void;
+  onDeliveryModeChange: (deliveryMode: SpeechLifecycleDeliveryMode, error?: Error) => void;
+  fetcher?: typeof fetch;
+}
+
+export interface SpeechLifecycleLiveConsumptionSubscription {
+  close: () => void;
+}
+
+const backendApiBaseUrl = resolveBackendApiBaseUrl();
 
 export interface ConsumedSpeechLifecycleSnapshot {
   stream: string;
@@ -27,140 +32,17 @@ export interface ConsumedSpeechLifecycleSnapshot {
   canonicalSpeechSynthesisEvent: BackendSessionEventDocument | null;
 }
 
-export type SpeechLifecycleDeliveryMode = "snapshot" | "live";
-
-export interface SpeechLifecycleEventSourceLike {
-  addEventListener(type: string, listener: (event: Event) => void): void;
-  removeEventListener(type: string, listener: (event: Event) => void): void;
-  close(): void;
-}
-
-export type SpeechLifecycleEventSourceFactory = (url: string) => SpeechLifecycleEventSourceLike;
-
-export interface SpeechLifecycleLiveConsumptionCallbacks {
-  fetcher?: typeof fetch;
-  eventSourceFactory?: SpeechLifecycleEventSourceFactory;
-  onSnapshot: (snapshot: ConsumedSpeechLifecycleSnapshot, deliveryMode: SpeechLifecycleDeliveryMode) => void;
-  onDeliveryModeChange?: (deliveryMode: SpeechLifecycleDeliveryMode, error: Error | null) => void;
-}
-
-export interface SpeechLifecycleLiveConsumptionSubscription {
-  close(): void;
-}
-
-export async function fetchSpeechLifecycleSnapshot(
-  fetcher: typeof fetch = fetch
-): Promise<ConsumedSpeechLifecycleSnapshot> {
-  return consumeSpeechLifecycleSnapshot(await fetchSpeechLifecycleTransportSnapshot(fetcher));
-}
-
-export async function startSpeechLifecycleLiveConsumption(
-  callbacks: SpeechLifecycleLiveConsumptionCallbacks
-): Promise<SpeechLifecycleLiveConsumptionSubscription> {
-  const fetcher = callbacks.fetcher ?? fetch;
-  let transportSnapshot = await fetchSpeechLifecycleTransportSnapshot(fetcher);
-  let deliveryMode: SpeechLifecycleDeliveryMode = "snapshot";
-
-  callbacks.onSnapshot(consumeSpeechLifecycleSnapshot(transportSnapshot), deliveryMode);
-
-  const eventSourceFactory = resolveSpeechLifecycleEventSourceFactory(callbacks.eventSourceFactory);
-
-  if (!eventSourceFactory) {
-    callbacks.onDeliveryModeChange?.("snapshot", new Error("Live speech lifecycle delivery is unavailable in this environment."));
-    return {
-      close() {
-        return undefined;
-      }
-    };
-  }
-
-  const eventSource = eventSourceFactory(buildSpeechLifecycleStreamUrl(transportSnapshot.next_cursor));
-  let closed = false;
-
-  const handleOpen = (): void => {
-    if (closed || deliveryMode === "live") {
-      return;
-    }
-
-    deliveryMode = "live";
-    callbacks.onDeliveryModeChange?.("live", null);
-  };
-
-  const handleSpeechLifecycleEvent = (event: Event): void => {
-    if (closed) {
-      return;
-    }
-
-    try {
-      const messageEvent = event as MessageEvent<string>;
-      const envelope = JSON.parse(messageEvent.data) as BackendSpeechLifecycleEventEnvelopeDocument;
-
-      transportSnapshot = appendSpeechLifecycleEnvelope(transportSnapshot, envelope);
-      callbacks.onSnapshot(consumeSpeechLifecycleSnapshot(transportSnapshot), deliveryMode);
-    } catch (error: unknown) {
-      const parseError = error instanceof Error ? error : new Error("Live speech lifecycle event payload could not be parsed.");
-      callbacks.onDeliveryModeChange?.("snapshot", parseError);
-      close();
-    }
-  };
-
-  const handleError = (): void => {
-    if (closed) {
-      return;
-    }
-
-    deliveryMode = "snapshot";
-    callbacks.onDeliveryModeChange?.("snapshot", new Error("Live speech lifecycle stream unavailable."));
-    close();
-  };
-
-  const close = (): void => {
-    if (closed) {
-      return;
-    }
-
-    closed = true;
-    eventSource.removeEventListener("open", handleOpen);
-    eventSource.removeEventListener(speechLifecycleStreamEventName, handleSpeechLifecycleEvent);
-    eventSource.removeEventListener("error", handleError);
-    eventSource.close();
-  };
-
-  eventSource.addEventListener("open", handleOpen);
-  eventSource.addEventListener(speechLifecycleStreamEventName, handleSpeechLifecycleEvent);
-  eventSource.addEventListener("error", handleError);
-
-  return {
-    close
-  };
-}
-
-export function appendSpeechLifecycleEnvelope(
-  snapshot: BackendSpeechLifecycleTransportSnapshotDocument,
-  envelope: BackendSpeechLifecycleEventEnvelopeDocument
-): BackendSpeechLifecycleTransportSnapshotDocument {
-  if (snapshot.events.some((existingEnvelope) => existingEnvelope.cursor === envelope.cursor)) {
-    return snapshot;
-  }
-
-  const nextEvents = [...snapshot.events, cloneSpeechLifecycleEnvelope(envelope)].sort((left, right) => left.sequence - right.sequence);
-  const lastEvent = nextEvents.at(-1) ?? null;
-
-  return {
-    ...snapshot,
-    events: nextEvents,
-    next_cursor: lastEvent ? buildSpeechLifecycleCursor(snapshot.session_id, lastEvent.sequence + 1) : snapshot.next_cursor
-  };
-}
-
 export function consumeSpeechLifecycleSnapshot(
   snapshot: BackendSpeechLifecycleTransportSnapshotDocument
 ): ConsumedSpeechLifecycleSnapshot {
-  const events = snapshot.events.map((envelope) => cloneSpeechLifecycleEnvelope(envelope));
+  const events = snapshot.events.map((envelope) => ({
+    ...envelope,
+    event: cloneSessionEvent(envelope.event)
+  }));
   const lastEvent = events.at(-1) ?? null;
   const expectedNextCursor = lastEvent
-    ? buildSpeechLifecycleCursor(snapshot.session_id, lastEvent.sequence + 1)
-    : buildSpeechLifecycleCursor(snapshot.session_id, 1);
+    ? `speech.lifecycle:${snapshot.session_id}:${lastEvent.sequence + 1}`
+    : `speech.lifecycle:${snapshot.session_id}:1`;
 
   return {
     stream: snapshot.stream,
@@ -173,49 +55,84 @@ export function consumeSpeechLifecycleSnapshot(
     orderedEnvelopePreserved: events.every(
       (envelope, index) =>
         envelope.sequence === index + 1 &&
-        envelope.cursor === buildSpeechLifecycleCursor(snapshot.session_id, envelope.sequence) &&
+        envelope.cursor === `speech.lifecycle:${snapshot.session_id}:${envelope.sequence}` &&
         envelope.event.session_id === snapshot.session_id
     ),
     nextCursorAdvancesPastLastEvent: snapshot.next_cursor === expectedNextCursor,
-    canonicalTranscriptionEvent: findLastEventByType(events, "transcription.status"),
-    canonicalSpeechSynthesisEvent: findLastEventByType(events, "speech.synthesis")
+    canonicalTranscriptionEvent:
+      events.find((envelope) => envelope.event.event_type === "transcription.status")?.event ?? null,
+    canonicalSpeechSynthesisEvent:
+      events.find((envelope) => envelope.event.event_type === "speech.synthesis")?.event ?? null
   };
 }
 
-async function fetchSpeechLifecycleTransportSnapshot(
-  fetcher: typeof fetch = fetch
-): Promise<BackendSpeechLifecycleTransportSnapshotDocument> {
-  const response = await fetcher(buildBackendApiUrl("/session/speech-lifecycle"));
+export async function startSpeechLifecycleLiveConsumption(
+  options: SpeechLifecycleLiveConsumptionOptions
+): Promise<SpeechLifecycleLiveConsumptionSubscription> {
+  const fetcher = options.fetcher ?? fetch;
+  let closed = false;
+  let eventSource: EventSource | null = null;
+  let currentSnapshot = await fetchSpeechLifecycleSnapshot(fetcher);
 
-  if (!response.ok) {
-    throw new Error(`Backend speech lifecycle request failed with status ${response.status}.`);
+  if (closed) {
+    return {
+      close: () => {
+        closed = true;
+      }
+    };
   }
 
-  return (await response.json()) as BackendSpeechLifecycleTransportSnapshotDocument;
-}
+  options.onSnapshot(consumeSpeechLifecycleSnapshot(currentSnapshot), "snapshot");
 
-function cloneSpeechLifecycleEnvelope(
-  envelope: BackendSpeechLifecycleEventEnvelopeDocument
-): BackendSpeechLifecycleEventEnvelopeDocument {
+  if (typeof window !== "undefined" && typeof window.EventSource === "function") {
+    const liveUrl = buildSpeechLifecycleLiveUrl(currentSnapshot.next_cursor);
+    eventSource = new window.EventSource(liveUrl);
+
+    eventSource.addEventListener("open", () => {
+      if (closed) {
+        return;
+      }
+
+      options.onDeliveryModeChange("live");
+    });
+
+    eventSource.addEventListener("speech.lifecycle", () => {
+      void refreshSnapshotFromLiveSignal();
+    });
+
+    eventSource.onmessage = () => {
+      void refreshSnapshotFromLiveSignal();
+    };
+
+    eventSource.onerror = () => {
+      if (closed) {
+        return;
+      }
+
+      eventSource?.close();
+      eventSource = null;
+      options.onDeliveryModeChange("snapshot", new Error("Live speech lifecycle delivery disconnected."));
+    };
+  }
+
   return {
-    ...envelope,
-    event: cloneSessionEvent(envelope.event)
-  };
-}
-
-function findLastEventByType(
-  events: readonly BackendSpeechLifecycleEventEnvelopeDocument[],
-  eventType: string
-): BackendSessionEventDocument | null {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-
-    if (event.event.event_type === eventType) {
-      return event.event;
+    close: () => {
+      closed = true;
+      eventSource?.close();
+      eventSource = null;
     }
-  }
+  };
 
-  return null;
+  async function refreshSnapshotFromLiveSignal(): Promise<void> {
+    const latestSnapshot = await fetchSpeechLifecycleSnapshot(fetcher);
+
+    if (closed) {
+      return;
+    }
+
+    currentSnapshot = mergeSpeechLifecycleSnapshot(currentSnapshot, latestSnapshot);
+    options.onSnapshot(consumeSpeechLifecycleSnapshot(currentSnapshot), "live");
+  }
 }
 
 function cloneJsonValue<T>(value: T): T {
@@ -244,8 +161,34 @@ function stripNullFields(value: unknown): unknown {
   return value;
 }
 
+async function fetchSpeechLifecycleSnapshot(fetcher: typeof fetch): Promise<BackendSpeechLifecycleTransportSnapshotDocument> {
+  const response = await fetcher(buildBackendApiUrl("/session/speech-lifecycle"));
+
+  if (!response.ok) {
+    throw new Error(`Backend speech lifecycle request failed with status ${response.status}.`);
+  }
+
+  return (await response.json()) as BackendSpeechLifecycleTransportSnapshotDocument;
+}
+
+function mergeSpeechLifecycleSnapshot(
+  currentSnapshot: BackendSpeechLifecycleTransportSnapshotDocument,
+  latestSnapshot: BackendSpeechLifecycleTransportSnapshotDocument
+): BackendSpeechLifecycleTransportSnapshotDocument {
+  const orderedEvents = new Map<string, BackendSpeechLifecycleEventEnvelopeDocument>();
+
+  [...currentSnapshot.events, ...latestSnapshot.events].forEach((envelope) => {
+    orderedEvents.set(envelope.cursor, envelope);
+  });
+
+  return {
+    ...latestSnapshot,
+    events: [...orderedEvents.values()].sort((left, right) => left.sequence - right.sequence)
+  };
+}
+
 function resolveBackendApiBaseUrl(): string {
-  const configuredBaseUrl = (import.meta as ImportMetaWithOptionalEnv).env?.VITE_BACKEND_API_BASE_URL?.trim();
+  const configuredBaseUrl = import.meta.env.VITE_BACKEND_API_BASE_URL?.trim();
 
   if (!configuredBaseUrl) {
     return "/api";
@@ -254,36 +197,13 @@ function resolveBackendApiBaseUrl(): string {
   return configuredBaseUrl.replace(/\/+$/, "");
 }
 
-function resolveSpeechLifecycleEventSourceFactory(
-  overrideFactory?: SpeechLifecycleEventSourceFactory
-): SpeechLifecycleEventSourceFactory | null {
-  if (overrideFactory) {
-    return overrideFactory;
-  }
-
-  if (typeof EventSource === "undefined") {
-    return null;
-  }
-
-  return (url: string) => new EventSource(url);
-}
-
-function buildSpeechLifecycleStreamUrl(cursor: string): string {
-  return buildBackendApiUrl("/session/speech-lifecycle", new URLSearchParams({ cursor }));
-}
-
-function buildSpeechLifecycleCursor(sessionId: string, sequence: number): string {
-  return `${speechLifecycleStreamEventName}:${sessionId}:${sequence}`;
-}
-
-function buildBackendApiUrl(pathname: string, query?: URLSearchParams): string {
+function buildBackendApiUrl(pathname: string): string {
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
-  const url = `${backendApiBaseUrl}${normalizedPath}`;
-  const serializedQuery = query?.toString();
+  return `${backendApiBaseUrl}${normalizedPath}`;
+}
 
-  if (!serializedQuery) {
-    return url;
-  }
-
-  return `${url}?${serializedQuery}`;
+function buildSpeechLifecycleLiveUrl(cursor: string): string {
+  const liveUrl = new URL(buildBackendApiUrl("/session/speech-lifecycle"), window.location.origin);
+  liveUrl.searchParams.set("cursor", cursor);
+  return liveUrl.toString();
 }

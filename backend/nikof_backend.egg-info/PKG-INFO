@@ -19,9 +19,11 @@ implemented.
 - `app/api/router.py` lists the Stage 1 HTTP surface without binding the project to a web framework yet.
 - `app/services/character.py` is the first real service stub and reads character manifests from `assets/characters/`.
 - `app/services/session.py` and `app/services/animation.py` define coherent seams for later orchestration work.
-- `GET /health`, `GET /characters`, and `GET` or `PUT /session/active-character` all stay provider-agnostic and can be inspected without local model installs.
+- `GET /health`, `GET /characters`, `GET /session/active-character`, `GET /session/animation`, `GET /session/speech-lifecycle`, and `PUT /session/active-character` all stay provider-agnostic and can be inspected without local model installs.
 - `GET /characters` returns a normalized catalog envelope with the current active character id plus summary records only.
 - `PUT /session/active-character` returns the same normalized active-character envelope on success and on invalid selection, using HTTP 400 with a stable rejection payload when the requested character id is unavailable.
+- `GET /session/animation` returns a deterministic session animation snapshot for the active character and currently resolves the backend-owned default base command to the repo-backed `idle.default` semantic the web viewer can play now.
+- `GET /session/speech-lifecycle` exposes the ordered speech lifecycle snapshot alongside the session animation snapshot so the frontend can read both backend-owned seams without inventing local session defaults.
 
 ## Later integration points
 

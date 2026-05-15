@@ -1,13 +1,16 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, type VRM } from "@pixiv/three-vrm";
-import type { SemanticAnimationCommand } from "../../shared/types/animation";
+import type { SemanticAnimationCommand, SemanticAnimationRuntimePayload } from "../../shared/types/animation";
 import type {
   BackendSpeechVisemeSlotDocument,
   CharacterId,
   CharacterManifestSummary,
   CharacterRuntimeState
 } from "../../shared/types/character";
+import { resolveBaseAnimationMotionProfile } from "./baseAnimationMotionProfile";
+import { resolveSharedSemanticAnimationPayload } from "./defaultBaseAnimation";
+import { createHumanoidChannelPlayback, type HumanoidChannelPlayback } from "./humanoidChannelPlayback";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
 
 type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
@@ -55,6 +58,48 @@ export interface AvatarSpeechReactionInput {
 interface LoadedAvatar {
   root: THREE.Object3D;
   vrm: VRM | null;
+}
+
+interface ActiveBaseAnimationState {
+  command: SemanticAnimationCommand;
+  payload: SemanticAnimationRuntimePayload;
+  root: THREE.Object3D;
+  baselinePosition: THREE.Vector3;
+  baselineRotation: THREE.Euler;
+  humanoidPlayback: HumanoidChannelPlayback | null;
+  elapsedSeconds: number;
+}
+
+interface AvatarHumanoidPlaybackDebugSnapshot {
+  activeAnimationId: string | null;
+  hasActiveBaseAnimation: boolean;
+  hasHumanoidPlayback: boolean;
+  channelSpace: string | null;
+  elapsedSeconds: number | null;
+  boundChannels: Array<{
+    channelName: string;
+    normalizedName: string;
+    boneName: string;
+    axis: "x" | "y" | "z";
+    scale: number;
+    sampledDelta: number | null;
+  }>;
+  quaternionBoundChannels: Array<{
+    normalizedNamePrefix: string;
+    boneName: string;
+    sampledRotation: [number, number, number, number] | null;
+  }>;
+  targetedBones: string[];
+}
+
+interface AvatarRuntimeDebugApi {
+  getHumanoidPlayback: () => AvatarHumanoidPlaybackDebugSnapshot;
+}
+
+declare global {
+  interface Window {
+    __NIKOF_AVATAR_DEBUG__?: AvatarRuntimeDebugApi;
+  }
 }
 
 export interface AvatarRuntimeSnapshot {
@@ -135,11 +180,65 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let viewportElement: HTMLElement | null = null;
   let animationFrameId: number | null = null;
   let currentAvatar: LoadedAvatar | null = null;
+  let activeBaseAnimation: ActiveBaseAnimationState | null = null;
   let activeLoadRequestId = 0;
   let speechReactionTimeoutIds: number[] = [];
   let activeSpeechExpressionName: string | null = null;
   const listeners = new Set<AvatarRuntimeListener>();
   const clock = new THREE.Clock();
+
+  function getHumanoidPlaybackDebugSnapshot(): AvatarHumanoidPlaybackDebugSnapshot {
+    if (!activeBaseAnimation) {
+      return {
+        activeAnimationId: null,
+        hasActiveBaseAnimation: false,
+        hasHumanoidPlayback: false,
+        channelSpace: null,
+        elapsedSeconds: null,
+        boundChannels: [],
+        quaternionBoundChannels: [],
+        targetedBones: []
+      };
+    }
+
+    const playbackDebugSnapshot = activeBaseAnimation.humanoidPlayback?.getDebugSnapshot();
+
+    return {
+      activeAnimationId: activeBaseAnimation.command.id,
+      hasActiveBaseAnimation: true,
+      hasHumanoidPlayback: Boolean(activeBaseAnimation.humanoidPlayback),
+      channelSpace: activeBaseAnimation.payload.channelSpace ?? null,
+      elapsedSeconds: activeBaseAnimation.elapsedSeconds,
+      boundChannels:
+        playbackDebugSnapshot?.boundChannels.map((binding) => ({
+          channelName: binding.channelName,
+          normalizedName: binding.normalizedName,
+          boneName: binding.boneName,
+          axis: binding.axis,
+          scale: binding.scale,
+          sampledDelta: binding.sampledDelta
+        })) ?? [],
+      quaternionBoundChannels:
+        playbackDebugSnapshot?.quaternionBoundChannels.map((binding) => ({
+          normalizedNamePrefix: binding.normalizedNamePrefix,
+          boneName: binding.boneName,
+          sampledRotation: binding.sampledRotation
+        })) ?? [],
+      targetedBones: playbackDebugSnapshot?.targetedBones.map((boneName) => boneName) ?? []
+    };
+  }
+
+  if (import.meta.env.DEV) {
+    const debugApi: AvatarRuntimeDebugApi = Object.freeze({
+      getHumanoidPlayback: () => getHumanoidPlaybackDebugSnapshot()
+    });
+
+    Object.defineProperty(window, "__NIKOF_AVATAR_DEBUG__", {
+      configurable: true,
+      value: debugApi,
+      writable: false
+    });
+  }
 
   function emitChange(): void {
     listeners.forEach((listener) => listener());
@@ -352,6 +451,93 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     });
   }
 
+  function resolveBaseAnimationPayload(command: SemanticAnimationCommand): SemanticAnimationRuntimePayload | null {
+    return resolveSharedSemanticAnimationPayload(command);
+  }
+
+  function restoreBaseAnimationPose(baseAnimationState: ActiveBaseAnimationState): void {
+    baseAnimationState.humanoidPlayback?.reset();
+    baseAnimationState.root.position.copy(baseAnimationState.baselinePosition);
+    baseAnimationState.root.rotation.copy(baseAnimationState.baselineRotation);
+  }
+
+  function stopBaseAnimation(): void {
+    if (!activeBaseAnimation) {
+      return;
+    }
+
+    restoreBaseAnimationPose(activeBaseAnimation);
+    activeBaseAnimation = null;
+  }
+
+  function updateBaseAnimation(deltaSeconds: number): void {
+    if (!activeBaseAnimation) {
+      return;
+    }
+
+    const cycleDurationSeconds = Math.max(activeBaseAnimation.payload.durationMs / 1000, 1 / 30);
+    const motionProfile = resolveBaseAnimationMotionProfile(activeBaseAnimation.payload);
+
+    activeBaseAnimation.elapsedSeconds =
+      activeBaseAnimation.command.playback === "loop"
+        ? (activeBaseAnimation.elapsedSeconds + deltaSeconds * motionProfile.speedMultiplier) % cycleDurationSeconds
+        : Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds * motionProfile.speedMultiplier, cycleDurationSeconds);
+
+    const cycleProgress = activeBaseAnimation.elapsedSeconds / cycleDurationSeconds;
+    const phase = cycleProgress * Math.PI * 2;
+    const bobOffset = Math.sin(phase) * motionProfile.bobAmplitude + Math.sin(phase * 2) * motionProfile.secondaryBobAmplitude;
+    const leanOffset = Math.sin(phase + Math.PI / 2) * motionProfile.leanAmplitude;
+    const nodOffset = Math.sin(phase) * motionProfile.nodAmplitude;
+    const yawOffset = Math.sin(phase * 0.5) * motionProfile.yawAmplitude;
+
+    activeBaseAnimation.root.position.set(
+      activeBaseAnimation.baselinePosition.x,
+      activeBaseAnimation.baselinePosition.y + bobOffset,
+      activeBaseAnimation.baselinePosition.z
+    );
+    activeBaseAnimation.root.rotation.set(
+      activeBaseAnimation.baselineRotation.x + nodOffset,
+      activeBaseAnimation.baselineRotation.y + yawOffset,
+      activeBaseAnimation.baselineRotation.z + leanOffset
+    );
+
+    activeBaseAnimation.humanoidPlayback?.apply(activeBaseAnimation.elapsedSeconds);
+  }
+
+  function activateBaseAnimation(command: SemanticAnimationCommand): void {
+    const resolvedPayload = resolveBaseAnimationPayload(command);
+
+    if (!resolvedPayload || !currentAvatar) {
+      stopBaseAnimation();
+      updateSnapshot({
+        pendingAnimation: command,
+        baseAnimation: resolvedPayload ? command : snapshot.baseAnimation,
+        error: resolvedPayload
+          ? null
+          : `Semantic animation '${command.id}' is not yet backed by a web runtime payload.`
+      });
+      return;
+    }
+
+    stopBaseAnimation();
+    activeBaseAnimation = {
+      command,
+      payload: resolvedPayload,
+      root: currentAvatar.root,
+      baselinePosition: currentAvatar.root.position.clone(),
+      baselineRotation: currentAvatar.root.rotation.clone(),
+      humanoidPlayback: createHumanoidChannelPlayback(currentAvatar.vrm, resolvedPayload),
+      elapsedSeconds: 0
+    };
+    updateBaseAnimation(0);
+
+    updateSnapshot({
+      pendingAnimation: null,
+      baseAnimation: command,
+      error: null
+    });
+  }
+
   function disposeMaterial(material: THREE.Material): void {
     for (const value of Object.values(material as unknown as Record<string, unknown>)) {
       if (isTexture(value)) {
@@ -364,10 +550,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
   function clearCurrentAvatar(): void {
     if (!scene || !currentAvatar) {
+      stopBaseAnimation();
       currentAvatar = null;
       return;
     }
 
+    stopBaseAnimation();
     scene.remove(currentAvatar.root);
     currentAvatar.root.traverse((node: THREE.Object3D) => {
       const mesh = node as THREE.Mesh;
@@ -412,11 +600,13 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const renderFrame = (): void => {
       animationFrameId = window.requestAnimationFrame(renderFrame);
 
+      const deltaSeconds = clock.getDelta();
+
       if (currentAvatar?.vrm) {
-        currentAvatar.vrm.update(clock.getDelta());
-      } else {
-        clock.getDelta();
+        currentAvatar.vrm.update(deltaSeconds);
       }
+
+      updateBaseAnimation(deltaSeconds);
 
       activeRenderer.render(activeScene, activeCamera);
     };
@@ -509,6 +699,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         vrm
       };
 
+      const nextBaseAnimation = snapshot.pendingAnimation ?? snapshot.baseAnimation;
+
+      if (nextBaseAnimation) {
+        activateBaseAnimation(nextBaseAnimation);
+      }
+
       updateSnapshot({
         loadState: "ready",
         error: null
@@ -590,6 +786,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       updateSnapshot({
         currentCharacterId: character.characterId,
         currentModelUrl: character.assets.modelUrl,
+        pendingAnimation: null,
+        baseAnimation: null,
         error: null
       });
 
@@ -611,10 +809,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     },
 
     play(command) {
-      updateSnapshot({
-        pendingAnimation: command,
-        baseAnimation: command
-      });
+      activateBaseAnimation(command);
     },
 
     subscribe(listener) {

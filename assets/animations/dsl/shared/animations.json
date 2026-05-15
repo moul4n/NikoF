@@ -2,8 +2,23 @@
   "registry_version": "0.1.0",
   "shared_set": "dsl-shared-staging-v1",
   "sidecars": {
+    "listen.loop": {
+      "path": "assets/animations/dsl/shared/listen.loop.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
     "idle.default": {
       "path": "assets/animations/dsl/shared/idle.default.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "speak.loop": {
+      "path": "assets/animations/dsl/shared/speak.loop.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "gesture.punch.once": {
+      "path": "assets/animations/dsl/shared/gesture.punch.once.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     }

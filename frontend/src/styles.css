@@ -346,6 +346,49 @@ select {
   overflow-wrap: anywhere;
 }
 
+.dev-animation-panel__list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.dev-animation-panel__button {
+  width: 100%;
+  border: 1px solid rgba(160, 175, 200, 0.18);
+  border-radius: 16px;
+  background: rgba(28, 39, 60, 0.8);
+  color: inherit;
+  padding: 0.9rem 1rem;
+  text-align: left;
+  display: grid;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.dev-animation-panel__button:hover,
+.dev-animation-panel__button:focus-visible {
+  border-color: rgba(123, 211, 193, 0.72);
+  background: rgba(38, 57, 78, 0.86);
+  transform: translateY(-1px);
+}
+
+.dev-animation-panel__button--active {
+  border-color: rgba(123, 211, 193, 0.8);
+  background: rgba(30, 63, 71, 0.7);
+}
+
+.dev-animation-panel__button-title {
+  font-weight: 600;
+}
+
+.dev-animation-panel__button-summary {
+  color: #a9b6ca;
+  font-size: 0.92rem;
+}
+
 .speech-panel__summary-list {
   margin: 0 0 1rem;
   display: grid;

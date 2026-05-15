@@ -1,0 +1,31 @@
+{
+  "dsl_version": "1.0.0",
+  "kind": "semantic_animation_asset",
+  "semantic_id": "idle.default",
+  "scope": "shared",
+  "base": {
+    "clip_ref": {
+      "path": "assets/animations/library/shared/idle.default/idle.default.vrma"
+    },
+    "playback": "loop",
+    "body_scope": "full_body",
+    "root_motion": "in_place",
+    "timing": {
+      "duration_ms": 8333,
+      "fade_in_ms": 200,
+      "fade_out_ms": 200
+    },
+    "retarget_profile": "shared_humanoid_v1"
+  },
+  "layers": {
+    "speech": {
+      "supported": false
+    },
+    "expression": {
+      "supported": false
+    }
+  },
+  "fallback": {
+    "semantic_id": "idle.default"
+  }
+}

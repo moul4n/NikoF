@@ -1,0 +1,39 @@
+{
+    "dsl_version": "1.0.0",
+    "kind": "semantic_animation_asset_candidate",
+    "stage": "generated_candidate",
+    "promotion_status": "not_promoted",
+    "semantic_id": "idle.default",
+    "scope": "shared",
+    "base": {
+        "clip_ref": {
+            "path": "assets/animations/generated/shared/idle.default/idle.default.runtime.json"
+        },
+        "playback": "loop",
+        "body_scope": "full_body",
+        "root_motion": "in_place",
+        "timing": {
+            "duration_ms": 8333,
+            "fade_in_ms": 200,
+            "fade_out_ms": 200
+        },
+        "retarget_profile": "shared_humanoid_muscle_v1"
+    },
+    "layers": {
+        "speech": {
+            "supported": false
+        },
+        "expression": {
+            "supported": false
+        }
+    },
+    "fallback": {
+        "semantic_id": "idle.default"
+    },
+    "provenance": {
+        "raw_source_path": "assets/animations/raw/idle.anim",
+        "staged_sidecar_path": "assets/animations/dsl/shared/idle.default.json",
+        "generated_runtime_path": "assets/animations/generated/shared/idle.default/idle.default.runtime.json",
+        "exporter": "unity_batch_raw_anim_exporter"
+    }
+}

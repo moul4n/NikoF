@@ -1,0 +1,526 @@
+{
+  "scenario_id": "animation-contract-boundaries",
+  "scenario_name": "Animation contract and staged DSL boundary snapshot",
+  "runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "backend/app/schemas/animation.py",
+    "backend/app/services/animation.py",
+    "assets/animations/dsl/shared/animations.json",
+    "assets/animations/dsl/shared/idle.default.json"
+  ],
+  "contract_surface": {
+    "schema_constants": {
+      "ANIMATION_SCHEMA_VERSION": "1",
+      "DEFAULT_FALLBACK_SEMANTIC_ID": "\"idle.attentive.loop\""
+    },
+    "dataclasses": [
+      {
+        "name": "AnimationTimingHint",
+        "field_order": [
+          "mode",
+          "anchor",
+          "anchor_event_id",
+          "offset_ms",
+          "max_start_delay_ms"
+        ],
+        "required_field_names": [],
+        "fields": [
+          {
+            "name": "mode",
+            "type": "str",
+            "required": false,
+            "default": "\"immediate\""
+          },
+          {
+            "name": "anchor",
+            "type": "str | None",
+            "required": false,
+            "default": "None"
+          },
+          {
+            "name": "anchor_event_id",
+            "type": "str | None",
+            "required": false,
+            "default": "None"
+          },
+          {
+            "name": "offset_ms",
+            "type": "int",
+            "required": false,
+            "default": "0"
+          },
+          {
+            "name": "max_start_delay_ms",
+            "type": "int | None",
+            "required": false,
+            "default": "None"
+          }
+        ]
+      },
+      {
+        "name": "AnimationPolicy",
+        "field_order": [
+          "interruptible",
+          "fallback_semantic_id",
+          "drop_if_late",
+          "on_interruption",
+          "on_missing_resolution"
+        ],
+        "required_field_names": [],
+        "fields": [
+          {
+            "name": "interruptible",
+            "type": "bool",
+            "required": false,
+            "default": "True"
+          },
+          {
+            "name": "fallback_semantic_id",
+            "type": "str",
+            "required": false,
+            "default": "DEFAULT_FALLBACK_SEMANTIC_ID"
+          },
+          {
+            "name": "drop_if_late",
+            "type": "bool",
+            "required": false,
+            "default": "False"
+          },
+          {
+            "name": "on_interruption",
+            "type": "str",
+            "required": false,
+            "default": "\"replace\""
+          },
+          {
+            "name": "on_missing_resolution",
+            "type": "str",
+            "required": false,
+            "default": "\"fallback\""
+          }
+        ]
+      },
+      {
+        "name": "AnimationIntent",
+        "field_order": [
+          "schema_version",
+          "intent_id",
+          "session_id",
+          "character_id",
+          "intent_type",
+          "semantic_id",
+          "source",
+          "priority",
+          "requested_state",
+          "intensity",
+          "timing",
+          "policy",
+          "parameters",
+          "reason"
+        ],
+        "required_field_names": [],
+        "fields": [
+          {
+            "name": "schema_version",
+            "type": "int",
+            "required": false,
+            "default": "ANIMATION_SCHEMA_VERSION"
+          },
+          {
+            "name": "intent_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "session_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "character_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "intent_type",
+            "type": "str",
+            "required": false,
+            "default": "\"gesture\""
+          },
+          {
+            "name": "semantic_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "source",
+            "type": "str",
+            "required": false,
+            "default": "\"system\""
+          },
+          {
+            "name": "priority",
+            "type": "str",
+            "required": false,
+            "default": "\"normal\""
+          },
+          {
+            "name": "requested_state",
+            "type": "str",
+            "required": false,
+            "default": "\"enqueue\""
+          },
+          {
+            "name": "intensity",
+            "type": "float",
+            "required": false,
+            "default": "1.0"
+          },
+          {
+            "name": "timing",
+            "type": "AnimationTimingHint",
+            "required": false,
+            "default": "field(default_factory=AnimationTimingHint)"
+          },
+          {
+            "name": "policy",
+            "type": "AnimationPolicy",
+            "required": false,
+            "default": "field(default_factory=AnimationPolicy)"
+          },
+          {
+            "name": "parameters",
+            "type": "dict[str, str]",
+            "required": false,
+            "default": "field(default_factory=dict)"
+          },
+          {
+            "name": "reason",
+            "type": "str | None",
+            "required": false,
+            "default": "None"
+          }
+        ]
+      },
+      {
+        "name": "AnimationResolution",
+        "field_order": [
+          "selected_source",
+          "selected_asset_id",
+          "fallback_applied",
+          "override_character_id"
+        ],
+        "required_field_names": [
+          "selected_source",
+          "selected_asset_id"
+        ],
+        "fields": [
+          {
+            "name": "selected_source",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "selected_asset_id",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "fallback_applied",
+            "type": "bool",
+            "required": false,
+            "default": "False"
+          },
+          {
+            "name": "override_character_id",
+            "type": "str | None",
+            "required": false,
+            "default": "None"
+          }
+        ]
+      },
+      {
+        "name": "AnimationPlayback",
+        "field_order": [
+          "mode",
+          "blend_hint",
+          "expected_duration_ms",
+          "loop"
+        ],
+        "required_field_names": [
+          "mode"
+        ],
+        "fields": [
+          {
+            "name": "mode",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "blend_hint",
+            "type": "str | None",
+            "required": false,
+            "default": "None"
+          },
+          {
+            "name": "expected_duration_ms",
+            "type": "int | None",
+            "required": false,
+            "default": "None"
+          },
+          {
+            "name": "loop",
+            "type": "bool",
+            "required": false,
+            "default": "False"
+          }
+        ]
+      },
+      {
+        "name": "AnimationCommand",
+        "field_order": [
+          "command_id",
+          "intent_id",
+          "session_id",
+          "character_id",
+          "semantic_id",
+          "resolved_state",
+          "resolution",
+          "playback",
+          "schema_version",
+          "timing",
+          "policy",
+          "intensity",
+          "parameters"
+        ],
+        "required_field_names": [
+          "command_id",
+          "intent_id",
+          "session_id",
+          "character_id",
+          "semantic_id",
+          "resolved_state",
+          "resolution",
+          "playback"
+        ],
+        "fields": [
+          {
+            "name": "command_id",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "intent_id",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "session_id",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "character_id",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "semantic_id",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "resolved_state",
+            "type": "str",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "resolution",
+            "type": "AnimationResolution",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "playback",
+            "type": "AnimationPlayback",
+            "required": true,
+            "default": null
+          },
+          {
+            "name": "schema_version",
+            "type": "int",
+            "required": false,
+            "default": "ANIMATION_SCHEMA_VERSION"
+          },
+          {
+            "name": "timing",
+            "type": "AnimationTimingHint",
+            "required": false,
+            "default": "field(default_factory=AnimationTimingHint)"
+          },
+          {
+            "name": "policy",
+            "type": "AnimationPolicy",
+            "required": false,
+            "default": "field(default_factory=AnimationPolicy)"
+          },
+          {
+            "name": "intensity",
+            "type": "float",
+            "required": false,
+            "default": "1.0"
+          },
+          {
+            "name": "parameters",
+            "type": "dict[str, str]",
+            "required": false,
+            "default": "field(default_factory=dict)"
+          }
+        ]
+      },
+      {
+        "name": "AnimationPlaybackEvent",
+        "field_order": [
+          "schema_version",
+          "event_type",
+          "session_id",
+          "character_id",
+          "status",
+          "command_id",
+          "intent_id",
+          "semantic_id",
+          "reason"
+        ],
+        "required_field_names": [],
+        "fields": [
+          {
+            "name": "schema_version",
+            "type": "int",
+            "required": false,
+            "default": "ANIMATION_SCHEMA_VERSION"
+          },
+          {
+            "name": "event_type",
+            "type": "str",
+            "required": false,
+            "default": "\"animation.command\""
+          },
+          {
+            "name": "session_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "character_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": false,
+            "default": "\"queued\""
+          },
+          {
+            "name": "command_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "intent_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "semantic_id",
+            "type": "str",
+            "required": false,
+            "default": "\"\""
+          },
+          {
+            "name": "reason",
+            "type": "str | None",
+            "required": false,
+            "default": "None"
+          }
+        ]
+      }
+    ],
+    "service_surface": {
+      "protocol_method": {
+        "name": "resolve_intent",
+        "argument_annotation": "AnimationIntent",
+        "return_annotation": "AnimationCommand"
+      },
+      "default_service_method": {
+        "name": "resolve_intent",
+        "argument_annotation": "AnimationIntent",
+        "return_annotation": "AnimationCommand"
+      },
+      "stub_alias_target": "DefaultAnimationService",
+      "default_shared_animation_id_entries": [
+        "\"greet.wave.once\"",
+        "\"listen.attentive.loop\"",
+        "\"reply.speaking.loop\"",
+        "DEFAULT_FALLBACK_SEMANTIC_ID"
+      ],
+      "default_shared_animation_ids": [
+        "greet.wave.once",
+        "listen.attentive.loop",
+        "reply.speaking.loop"
+      ]
+    }
+  },
+  "staged_registry_boundary": {
+    "registry_version": "0.1.0",
+    "shared_set": "dsl-shared-staging-v1",
+    "semantic_ids": [
+      "idle.default"
+    ],
+    "sidecar_count": 1,
+    "sidecars": [
+      {
+        "semantic_id": "idle.default",
+        "registry_path": "assets/animations/dsl/shared/idle.default.json",
+        "registry_stage": "staged_raw_unity_source",
+        "registry_approved_for_shared_library": false,
+        "sidecar_stage": "staged_raw_unity_source",
+        "sidecar_approved_for_shared_library": false,
+        "sidecar_promotion_status": "not_promoted",
+        "source_kind": "unity_text_animation_clip",
+        "source_path": "assets/animations/raw/idle.anim",
+        "path_stays_in_staged_dsl_root": true,
+        "path_uses_shared_library_root": false,
+        "path_uses_override_root": false,
+        "path_uses_generated_root": false,
+        "stage_matches_sidecar": true,
+        "approval_matches_sidecar": true
+      }
+    ],
+    "all_sidecars_stay_in_staged_dsl_root": true,
+    "all_sidecars_unapproved_for_shared_library": true,
+    "all_sidecars_marked_not_promoted": true,
+    "any_sidecar_uses_shared_library_root": false,
+    "any_sidecar_uses_override_root": false,
+    "any_sidecar_uses_generated_root": false,
+    "all_registry_and_sidecar_flags_match": true
+  }
+}

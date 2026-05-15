@@ -1,0 +1,328 @@
+{
+  "scenario_id": "frontend-avatar-idle-default-runtime",
+  "scenario_name": "Frontend avatar idle.default runtime seam snapshot",
+  "runner": "node",
+  "backend_source_runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/frontendAvatarIdleDefault.runtime.ts",
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "backend/app/api/router.py",
+    "backend/app/schemas/animation.py",
+    "backend/app/services/animation.py",
+    "frontend/src/avatar/loaders/sessionAnimation.ts",
+    "frontend/src/avatar/runtime/baseAnimationMotionProfile.ts",
+    "frontend/src/avatar/runtime/defaultBaseAnimation.ts",
+    "frontend/src/avatar/runtime/avatarRuntime.ts",
+    "frontend/src/avatar/runtime/humanoidChannelPlayback.ts",
+    "frontend/src/app/App.tsx",
+    "frontend/src/shared/types/animation.ts",
+    "frontend/src/shared/types/character.ts",
+    "assets/animations/dsl/shared/animations.json",
+    "assets/animations/dsl/shared/idle.default.json",
+    "assets/animations/generated/shared/idle.default/idle.default.runtime.json",
+    "assets/animations/generated/shared/speak.loop/speak.loop.runtime.json",
+    "docs/ANIMATION_DSL_SCHEMA.md"
+  ],
+  "backend_session_animation_surface": {
+    "active_character_id": "test-vrm-01",
+    "snapshot_document": {
+      "session_id": "session-scaffold-01",
+      "lifecycle_state": "idle",
+      "active_character_id": "test-vrm-01",
+      "command": {
+        "command_id": "anim-cmd:session-animation:session-scaffold-01:test-vrm-01:idle",
+        "intent_id": "session-animation:session-scaffold-01:test-vrm-01:idle",
+        "session_id": "session-scaffold-01",
+        "character_id": "test-vrm-01",
+        "semantic_id": "idle.default",
+        "resolved_state": "selected",
+        "resolution": {
+          "selected_source": "shared_library",
+          "selected_asset_id": "idle.default",
+          "fallback_applied": false
+        },
+        "playback": {
+          "mode": "loop",
+          "blend_hint": "base_full_body",
+          "expected_duration_ms": 8333,
+          "loop": true
+        },
+        "schema_version": 1,
+        "timing": {
+          "mode": "immediate",
+          "offset_ms": 0
+        },
+        "policy": {
+          "interruptible": true,
+          "fallback_semantic_id": "idle.default",
+          "drop_if_late": false,
+          "on_interruption": "replace",
+          "on_missing_resolution": "fallback"
+        },
+        "intensity": 1.0,
+        "parameters": {
+          "session_state": "idle"
+        }
+      },
+      "schema_version": 1
+    },
+    "updated_snapshot_document": {
+      "session_id": "session-scaffold-01",
+      "lifecycle_state": "speak",
+      "active_character_id": "test-vrm-03",
+      "command": {
+        "command_id": "anim-cmd:session-animation:session-scaffold-01:test-vrm-03:speak",
+        "intent_id": "session-animation:session-scaffold-01:test-vrm-03:speak",
+        "session_id": "session-scaffold-01",
+        "character_id": "test-vrm-03",
+        "semantic_id": "speak.loop",
+        "resolved_state": "selected",
+        "resolution": {
+          "selected_source": "shared_library",
+          "selected_asset_id": "speak.loop",
+          "fallback_applied": false
+        },
+        "playback": {
+          "mode": "loop",
+          "blend_hint": "speech_support",
+          "expected_duration_ms": 8333,
+          "loop": true
+        },
+        "schema_version": 1,
+        "timing": {
+          "mode": "immediate",
+          "offset_ms": 0
+        },
+        "policy": {
+          "interruptible": true,
+          "fallback_semantic_id": "idle.default",
+          "drop_if_late": false,
+          "on_interruption": "replace",
+          "on_missing_resolution": "fallback"
+        },
+        "intensity": 1.0,
+        "parameters": {
+          "session_state": "speak"
+        }
+      },
+      "schema_version": 1
+    }
+  },
+  "promoted_idle_asset": {
+    "registry_version": "0.1.0",
+    "shared_set": "dsl-shared-staging-v1",
+    "semantic_id": "idle.default",
+    "registry_path": "assets/animations/dsl/shared/idle.default.json",
+    "registry_stage": "staged_raw_unity_source",
+    "registry_approved_for_shared_library": false,
+    "registry_path_stays_in_staged_dsl_root": true,
+    "sidecar_stage": "staged_raw_unity_source",
+    "sidecar_promotion_status": "not_promoted",
+    "sidecar_approved_for_shared_library": false,
+    "source_kind": "unity_text_animation_clip",
+    "source_path": "assets/animations/raw/idle.anim",
+    "source_provenance": "raw_source_asset",
+    "unity_clip_name": "mixamo.com",
+    "unity_clip_sample_rate": 30,
+    "unity_clip_start_time": 0.0,
+    "unity_clip_stop_time": 8.333333969116211,
+    "unity_clip_loop_time": 0.0,
+    "derived_duration_ms": 8333.0,
+    "schema_doc_mentions_idle_default_runtime_clip": true,
+    "schema_doc_declares_semantic_fallback": true
+  },
+  "frontend_source_surface": {
+    "app_mentions_idle_default_sidecar_path": false,
+    "app_mentions_animation_asset_root": false,
+    "runtime_mentions_idle_default_sidecar_path": false,
+    "runtime_mentions_animation_asset_root": false,
+    "runtime_load_path_seeds_default_idle": false,
+    "avatar_runtime_wires_humanoid_channel_playback": true,
+    "loader_fetches_session_animation_snapshot": true,
+    "loader_live_url_reuses_animation_route": true,
+    "humanoid_playback_factory_present": true,
+    "humanoid_playback_requires_unity_humanoid_channel_space": true,
+    "humanoid_playback_binds_representative_channels": true
+  },
+  "generated_runtime_payload_surface": {
+    "idle_default": {
+      "runtime_document": {
+        "semantic_id": "idle.default",
+        "playback": {
+          "mode": "loop",
+          "loop": true,
+          "duration_ms": 8333
+        },
+        "motion_profile": {
+          "speed_multiplier": 1.0,
+          "bob_amplitude": 0.018,
+          "secondary_bob_amplitude": 0.004,
+          "lean_amplitude": 0.018,
+          "nod_amplitude": 0.012,
+          "yaw_amplitude": 0.03
+        }
+      },
+      "exported_channel_summary": {
+        "channel_space": "unity_humanoid_muscle",
+        "channel_count": 130,
+        "playback_sample_count": 251,
+        "representative_channels": [
+          {
+            "normalized_name": "chest.front_back",
+            "sample_count": 251,
+            "min_value": -3.000000106112566E-06,
+            "max_value": 0.027171999216079712
+          },
+          {
+            "normalized_name": "head.nod.down_up",
+            "sample_count": 251,
+            "min_value": -0.016930000856518745,
+            "max_value": 0.003602999961003661
+          },
+          {
+            "normalized_name": "head.turn.left_right",
+            "sample_count": 251,
+            "min_value": -0.009120999835431576,
+            "max_value": 0.0033360000234097242
+          }
+        ]
+      }
+    },
+    "speak_loop": {
+      "runtime_document": {
+        "semantic_id": "speak.loop",
+        "playback": {
+          "mode": "loop",
+          "loop": true,
+          "duration_ms": 8333
+        },
+        "motion_profile": {
+          "speed_multiplier": 1.2,
+          "bob_amplitude": 0.014,
+          "secondary_bob_amplitude": 0.003,
+          "lean_amplitude": 0.012,
+          "nod_amplitude": 0.02,
+          "yaw_amplitude": 0.045
+        }
+      },
+      "exported_channel_summary": {
+        "channel_space": "unity_humanoid_muscle",
+        "channel_count": 130,
+        "playback_sample_count": 251,
+        "representative_channels": [
+          {
+            "normalized_name": "chest.front_back",
+            "sample_count": 251,
+            "min_value": -3.000000106112566E-06,
+            "max_value": 0.027171999216079712
+          },
+          {
+            "normalized_name": "head.nod.down_up",
+            "sample_count": 251,
+            "min_value": -0.016930000856518745,
+            "max_value": 0.003602999961003661
+          },
+          {
+            "normalized_name": "head.turn.left_right",
+            "sample_count": 251,
+            "min_value": -0.009120999835431576,
+            "max_value": 0.0033360000234097242
+          }
+        ]
+      }
+    }
+  },
+  "runtime_proof": {
+    "runtime_default_idle": {
+      "backend_default_idle_command": {
+        "character_id": "test-vrm-01",
+        "semantic_id": "idle.default",
+        "selected_source": "shared_library",
+        "playback_mode": "loop",
+        "expected_duration_ms": 8333
+      },
+      "base_animation": {
+        "id": "idle.default",
+        "source": "shared",
+        "playback": "loop"
+      },
+      "runtime_payload": {
+        "semanticId": "idle.default",
+        "playback": "loop",
+        "durationMs": 8333,
+        "motionProfile": {
+          "speedMultiplier": 1,
+          "bobAmplitude": 0.018,
+          "secondaryBobAmplitude": 0.004,
+          "leanAmplitude": 0.018,
+          "nodAmplitude": 0.012,
+          "yawAmplitude": 0.03
+        }
+      },
+      "backend_surface_targets_active_character": true,
+      "backend_default_idle_is_shared_library": true,
+      "backend_default_idle_avoids_fallback": true,
+      "base_animation_matches_backend_semantic_id": true,
+      "base_animation_uses_shared_source": true,
+      "base_animation_matches_backend_playback": true,
+      "runtime_payload_resolves": true,
+      "runtime_payload_matches_backend_semantic_id": true,
+      "runtime_payload_matches_backend_playback": true,
+      "runtime_payload_matches_backend_duration": true
+    },
+    "live_loader_runtime": {
+      "snapshot_fetch_urls": [
+        "/api/session/animation"
+      ],
+      "live_event_source_url": "http://localhost:4173/api/session/animation",
+      "live_mode_observed": true,
+      "initial_snapshot_delivery_mode": "snapshot",
+      "initial_snapshot_semantic_id": "idle.default",
+      "live_snapshot_semantic_id": "speak.loop",
+      "live_snapshot_lifecycle_state": "speak",
+      "live_snapshot_matches_backend_updated_character": true,
+      "snapshot_fetch_stays_on_snapshot_route": true,
+      "live_event_source_reuses_animation_route": true,
+      "live_event_consumed_direct_payload": true,
+      "live_event_promoted_updated_snapshot": true,
+      "live_event_source_closed_on_cleanup": true
+    },
+    "source_path_independence": {
+      "runtime_load_path_seeds_default_idle": false,
+      "app_uses_idle_asset_path_hack": false,
+      "runtime_uses_idle_asset_path_hack": false,
+      "loader_fetches_session_animation_snapshot": true,
+      "loader_live_url_reuses_animation_route": true
+    },
+    "humanoid_channel_playback_surface": {
+      "avatar_runtime_wires_humanoid_channel_playback": true,
+      "humanoid_playback_factory_present": true,
+      "humanoid_playback_requires_unity_humanoid_channel_space": true,
+      "humanoid_playback_binds_representative_channels": true,
+      "idle_runtime_channel_space_matches_humanoid_playback": true,
+      "speak_runtime_channel_space_matches_humanoid_playback": true
+    },
+    "generated_runtime_channel_proof": {
+      "idle_runtime_document_semantic_id": "idle.default",
+      "idle_runtime_document_matches_idle_default": true,
+      "idle_runtime_document_exports_channels": true,
+      "idle_runtime_document_has_representative_channel_coverage": true,
+      "idle_runtime_document_channel_samples_match_playback": true,
+      "idle_runtime_document_channel_values_vary": true,
+      "generated_idle_payload_resolves": true,
+      "generated_idle_payload_matches_backend_semantic_id": true,
+      "generated_idle_payload_matches_backend_duration": true,
+      "speak_runtime_document_semantic_id": "speak.loop",
+      "speak_runtime_document_exports_channels": true,
+      "speak_runtime_document_has_representative_channel_coverage": true,
+      "speak_runtime_document_channel_samples_match_playback": true,
+      "speak_runtime_document_channel_values_vary": true,
+      "generated_speak_payload_resolves": true,
+      "generated_speak_payload_matches_live_semantic_id": true,
+      "generated_speak_payload_matches_live_playback": true,
+      "generated_speak_payload_matches_live_duration": true,
+      "generated_speak_payload_avoids_idle_alias": true,
+      "generated_speak_motion_profile_differs_from_idle": true
+    }
+  }
+}

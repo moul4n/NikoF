@@ -16,7 +16,7 @@ type OperatorCommandSubmissionState = {
 
 interface ControlSurfaceOperatorCommandPanelProps {
   selectedCharacter: CharacterCatalogEntry | null;
-  onCommandPublished: () => void;
+  onCommandPublished: (response: BackendOperatorCommandResponseDocument) => void;
 }
 
 function getOperatorCommandLabel(commandType: BackendOperatorCommandType | null): string {
@@ -99,7 +99,7 @@ export function ControlSurfaceOperatorCommandPanel({
           response,
           error: null
         });
-        onCommandPublished();
+        onCommandPublished(response);
       })
       .catch((error: unknown) => {
         const errorMessage =

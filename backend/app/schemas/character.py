@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic.dataclasses import dataclass as pydantic_dataclass
+try:
+    from pydantic.dataclasses import dataclass as pydantic_dataclass
+except ModuleNotFoundError:
+    pydantic_dataclass = dataclass
 
 
 @dataclass(slots=True, frozen=True)

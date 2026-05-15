@@ -2,6 +2,186 @@
 
 ## Active Decisions
 
+### 2026-05-15: Machine-transition checkpoint uses an additive bone-space exporter experiment
+
+**By:** Scribe
+**What:** Checkpoint the repo for Jason's machine transition with a concrete next-session plan in `scripts/animation_tools/unity/RawAnimBatchExporter.cs`: keep the existing muscle-space export path unchanged, add an additive exporter experiment that samples humanoid bone-local transforms from `Animator.GetBoneTransform(HumanBodyBones)` for a minimal comparison set, and scope the first regeneration to `gesture.punch.once` only. Emit explicit comparison metadata between the current muscle-space channels and sampled humanoid-bone-space rotations for upper arms, lower arms, hands, upper legs, lower legs, and feet. Regenerate one clip only, compare its final frame against the dev-only browser override surface before widening to `idle.default`, and if the bone-space result is better, treat the next step as extending that exporter approach to all shared clips so the frontend can simplify its remaining arm-space guesswork. Keep backend animation contracts semantic-only throughout, and keep `.tmp-unity-temp` cache noise out of git commits.
+**Why:** The current punch mismatch has been narrowed far enough that another runtime-only axis remap would be guesswork. The honest next discriminator is side-by-side exporter evidence from sampled humanoid bone-local transforms, and Jason needs that follow-up captured in persistent continuity before moving machines.
+
+### 2026-05-15: User-provided punch reference frame becomes the target pose
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Use Jason's screenshot of the intended final punch frame as the target pose for the current live `gesture.punch.once` tuning passes on the display surface. Preserve the landed lower-leg correction, lower-arm quaternion hint path, and existing finger behavior while iterating only in frontend runtime weighting.
+**Why:** The remaining mismatch had narrowed from missing motion delivery to endpoint fidelity against the intended Unity pose, so a concrete reference frame became the cleanest falsifiable target for the next browser-side tuning passes.
+
+### 2026-05-15: Punch reference-pose alignment stays clip-local in frontend runtime weighting
+
+**By:** Switch
+**What:** Use the provided final-frame reference to tune only `gesture.punch.once` in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts`. Keep the lower-leg fix, lower-arm quaternion hints, and existing finger behavior unchanged, reduce shoulder `front_back` carry further, slightly increase hand `down_up` and `in_out`, and strengthen punch-specific arm `front_back` carry so the endpoint reads less shoulder-led and the wrist and hand land closer to the target pose.
+**Why:** Live `/display/` validation on the 4175 surface showed the remaining punch mismatch was concentrated in shoulder-led carry and hand alignment, not in lower-body stability or broken hand delivery. A clip-specific runtime pass was the smallest honest way to move the endpoint toward the supplied reference without regressing idle or reopening exporter work.
+
+### 2026-05-15: Remaining punch guard-height gap stays in clip-specific upper-arm carry
+
+**By:** Switch
+**What:** Run a second narrow `gesture.punch.once` pass in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts` focused only on the remaining low guard height. Conclude that the residual mismatch is punch-specific upper-arm carry rather than lower-arm quaternion interpretation, then adjust only the punch overrides for `left/right.arm.down_up` and `left/right.arm.front_back` so elbows and forearms travel farther forward and slightly higher while leaving shoulder weights, lower-arm quaternion hints, wrists, hands, legs, and fingers unchanged.
+**Why:** After the reference-frame pass, live replay still showed a smaller but visible low-guard mismatch while lower-arm quaternion delivery remained active. The narrowest honest follow-up was punch-only upper-arm carry tuning instead of reopening quaternion interpretation or disturbing the already-stable lower-body and shoulder-flare correction.
+
+### 2026-05-15: Conservative lower-body bindings close the current playback omission
+
+**By:** Switch
+**What:** Keep the backend semantic-only `/session/animation` contract, the existing exporter output path, and the dev-only display override unchanged, but treat the current browser defect as lower-body binding coverage in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts`. The generated artifacts for `idle.default` and `gesture.punch.once` already contain real upper-leg, lower-leg, foot, and toe channels, so add conservative humanoid bindings for `left/right.upper.leg.{front_back,in_out,twist.in_out}`, `left/right.lower.leg.{stretch,twist.in_out}`, `left/right.foot.{up_down,twist.in_out}`, and `left/right.toes.up_down}`. Keep `left/right.lower.leg.stretch` interpreted as a delta from `1.0` so the current exporter output is read correctly. Live runtime verification now shows `idle.default` and `gesture.punch.once` targeting upper legs, lower legs, feet, and toes, while the existing arm, wrist, lower-arm, and hand delivery paths remain present.
+**Why:** The exporter audit already ruled out a global limb-drop explanation. `gesture.punch.once` carries non-trivial forearm, hand, upper-leg, lower-leg, foot, elbow-flex, and lower-arm quaternion signal, and even `idle.default` still contains limb channels, though its forearm and elbow signal is effectively flat. That makes the previous lower-body omission in the frontend runtime the honest local defect, and leaves the remaining shoulder-heavy arm behavior narrowed to runtime weighting plus weak idle forearm signal rather than a missing end-to-end limb pipeline.
+
+### 2026-05-15: Humanoid export audit rules out a global exporter-drop explanation
+
+**By:** Link
+**What:** Record Jason Fletcher's VRM limb-animation issue summary as the current exporter-audit frame: possible causes included wrong skeleton sampling, name mismatches, missing limb tracks, runtime dropping limb bones, or missing source curves. Audit `scripts/animation_tools/unity/RawAnimBatchExporter.cs` and confirm that the current exporter is not sampling VRM-retargeted avatar bones and is not reading per-bone FBX hierarchy transforms; it exports Unity clip bindings plus derived hints. The generated artifacts already retain real limb channels. `gesture.punch.once` disproves a global exporter-drop hypothesis because it carries substantial forearm, hand, upper-leg, lower-leg, foot, elbow-flex, and lower-arm quaternion signal, while `idle.default` still contains the limb channels but with forearm and elbow signal that is effectively flat enough to be a weak visual reference for arm bend. No exporter code change was made in this slice.
+**Why:** The cheapest falsifiable exporter check was whether the checked-in generated artifacts already carried non-trivial limb signal. They do. Once the artifacts show real limb motion despite the current exporter staying clip-binding-based and non-retargeted, the stronger current suspect becomes runtime coverage or weighting, not a missing exporter limb path.
+
+### 2026-05-15: User approved the direct browser A/B path
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Approve proceeding with the direct browser A/B validation path on the 4174 display surface by adding a dev-only, frontend-local animation override panel in `frontend/src/app/App.tsx` and `frontend/src/styles.css`. The panel should offer `Backend live`, `Force idle.default`, and `Force gesture.punch.once`, and clicking `Force gesture.punch.once` again should replay the punch from the start. Keep the override strictly frontend-only and dev-only so backend animation contracts and lifecycle routing remain unchanged.
+**Why:** `gesture.punch.once` already resolves locally in the shared runtime catalog, so the next discriminating check for shoulder, elbow, lower-arm, and wrist delivery is direct browser A/B playback on the existing display surface rather than more export or backend changes.
+
+### 2026-05-15: Dev-only display animation override panel enables direct punch A/B playback
+
+**By:** Switch
+**What:** Add a dev-only animation override panel to the display surface in `frontend/src/app/App.tsx` and `frontend/src/styles.css` with `Backend live`, `Force idle.default`, and `Force gesture.punch.once`. Keep the override frontend-only and dev-only, allow `gesture.punch.once` to be replayed by clicking it again, and update the display debug surface so lower-arm quaternion bindings remain visible during playback. Live validation on the 4174 display surface confirmed switching between `idle.default` and `gesture.punch.once` works, and confirmed `gesture.punch.once` activates wrist channels plus left and right lower-arm quaternion bindings with sampled rotations. No additional arm-chain fix was made in this slice because the forced punch pass did not expose one clear local runtime defect beyond the already-known weighting concerns.
+**Why:** A minimal display-surface override is the cheapest honest way to A/B the existing backend-driven path against a forced shared reference clip. It proves whether current wrist and lower-arm delivery are already present without widening backend contracts, and it avoids inventing another frontend runtime fix when the forced punch pass does not isolate a single new local defect.
+
+### 2026-05-15: Idle regeneration stability keeps the standard export workflow
+
+**By:** Link
+**What:** Jason regenerated `assets/animations/raw/idle.anim` with extra stability-related export settings, then Link re-ran the standard Unity raw-animation export workflow to refresh the generated `idle.default` DSL and runtime artifacts in place without modifying `assets/animations/dsl/shared/animations.json`. When Unity temp-project creation fails in the default user temp path with the package-cache `EPERM` rename error, keep the same workflow and only redirect `TEMP` and `TMP` to a repo-local writable directory for that run.
+**Why:** The refreshed `idle.default` artifacts came through the existing workflow and shared animation registration already remained correct. The operational issue is export stability under the temp-project failure mode, not a need to change the export contract or rewrite shared animation registration.
+
+### 2026-05-15: Arm-chain redistribution stays in frontend humanoid playback
+
+**By:** Switch
+**What:** Compare the regenerated `idle.default` and `gesture.punch.once` artifacts against current frontend arm binding behavior, treat `gesture.punch.once` as a usable arm and hand reference clip even though its raw-source provenance string is truncated because the source filename contained spaces during export, and keep the correction local to `frontend/src/avatar/runtime/humanoidChannelPlayback.ts` by reducing `left/right.shoulder.front_back` influence and increasing `left/right.arm.twist.in_out` influence while preserving the existing lower-arm quaternion hint path, elbow hint usage, wrist bindings, and finger stretch and spread behavior. Also add `gesture.punch.once` to `frontend/src/avatar/runtime/defaultBaseAnimation.ts` so the shared payload can resolve locally for reference validation without changing backend animation contracts. The frontend build passed after the change.
+**Why:** The regenerated `idle.default` and `gesture.punch.once` payloads already export the needed arm-chain signal end to end. The remaining mismatch was runtime weighting that over-favored shoulder hinging and underused upper-arm roll, not missing export, backend transport, or local payload resolution. The current blocker for direct punch A/B playback is UI control surface, because the clip now resolves in the frontend catalog but the current UI still has no manual animation picker.
+
+### 2026-05-15: User approved the next hands step
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Approve the next hands slice after conservative finger stretch wiring: verify that the current generated `idle.default`, `listen.loop`, and `speak.loop` runtime payloads carry non-trivial finger spread channels for both hands, then bind those exported spread channels in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts` onto VRM finger-root bones only. Keep the mapping conservative by using thumb metacarpals for thumb spread, proximal finger bones for index, middle, ring, and little spread, and preserving the existing torso, upper-arm, elbow, wrist, lower-arm, and finger stretch behavior.
+**Why:** Basic hand connectivity is already present in the current web viewer slice, so the next honest hand step is to let exported spread data reach the avatar without widening into transform hints or unrelated body regions.
+
+### 2026-05-15: Conservative finger spread binding on proximal VRM finger bones
+
+**By:** Switch
+**What:** Verified that the generated `idle.default`, `listen.loop`, and `speak.loop` runtime payloads already contain finite, non-trivial spread samples for all five digits on both hands, then bound the exported spread channels in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts` onto VRM finger-root bones only: thumb spread to the thumb metacarpals and index, middle, ring, and little spread to the proximal finger bones. The mapping stayed conservative, preserved all existing torso, upper-arm, elbow, wrist, lower-arm, and finger stretch behavior, the frontend build passed after the change, and live `/display/` verification reported 10 active spread bindings at runtime.
+**Why:** Proximal-only spread binding is the smallest honest step that reduces hand stiffness and proves exported spread data is surviving end to end without reopening backend transport, widening the hand rig interpretation, or disturbing already-correct arm and hand playback.
+
+### 2026-05-15: Full humanoid export-to-binding audit requested
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Chose option 1 and requested a full end-to-end audit of any remaining missing humanoid bones and connections between the model and the exported animation files before widening behavior further.
+**Why:** The current hand and lower-arm work needed a full proof of where motion was being lost so follow-up fixes could stay honest about whether the gap lived in Unity export, backend transport, frontend payload hydration, or runtime bone binding.
+
+### 2026-05-15: Full humanoid export-to-binding audit and conservative finger stretch binding
+
+**By:** Switch
+**What:** Record the verified end-to-end result for the current web viewer path: generated runtime sidecars already carry broader humanoid data than the browser currently consumes, including finger stretch and spread, upper-arm twist, lower-body and toe channels, jaw and eye channels, root hints, and hand and foot transform hints. The backend remains semantic-only and resolves animation ids such as `idle.default`, `listen.loop`, and `speak.loop` without transporting raw per-bone channel arrays, while the frontend payload path already preserves exported channels and sampling data. The real bottleneck was runtime binding coverage in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts`, so Switch added conservative finger stretch bindings for both hands across thumb, index, middle, ring, and little finger bones while preserving the existing torso, upper-arm, elbow, wrist, and lower-arm behavior. Live verification reported the new bound finger channels active at runtime.
+**Why:** The audit ruled out export loss, backend transport loss, and frontend payload filtering. Finger `*.stretched` channels are already present and map cleanly onto VRM humanoid finger bones, while binding finger spread, hand translation or quaternion hints, upper-arm twist, lower body, jaw, eye, or root channels in this pass would widen behavior beyond the current arms-and-hands task.
+
+### 2026-05-15: Lower-arm and hand audit follow-up
+
+**By:** Switch
+**What:** Record the verified end-to-end arm-hand result for the current web viewer path: generated shared runtime sidecars already contain lower-arm quaternion hints plus wrist and finger channels, the backend transports only semantic animation ids such as `idle.default`, `listen.loop`, and `speak.loop`, and the real delivery defect was the missing wrist binding in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts`. Bind `left/right.hand.down_up` and `left/right.hand.in_out` onto `leftHand` and `rightHand` so exported wrist motion reaches the avatar while leaving finger-bone wiring and any further lower-arm fidelity polish as follow-up work.
+**Why:** The audit ruled out export loss and backend transport loss. The smallest honest fix was in the frontend runtime binding layer, where wrist channels already present in the local generated runtime payload were not mapped to VRM hand bones at all.
+
+### 2026-05-15: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Choose the longer-term lower-arm transform fidelity path for the current web viewer slice: keep the browser runtime on exporter-composed `left/right.lower_arm.rotation.{x,y,z,w}` quaternion hints when available rather than adding more frontend-only lower-arm heuristics, and leave true avatar-backed bone-local export as a later fidelity step.
+**Why:** Switch confirmed the raw Unity humanoid clip still does not expose direct lower-arm bone transform curves, so quaternion hints are the smallest honest next step that improves visible lower-arm motion now without overstating the fidelity of the exported source data.
+
+### 2026-05-15: Exporter-derived lower-arm rotation hint
+
+**By:** Switch
+**What:** Derive `left.lower_arm.rotation.{x,y,z,w}` and `right.lower_arm.rotation.{x,y,z,w}` quaternion hint channels in the Unity batch exporter from the existing elbow-flex plus forearm-twist source pair, refresh the shared `idle.default`, `listen.loop`, and `speak.loop` runtime payloads through `C:\Program Files\Unity\Hub\Editor\6000.4.7f1\Editor\Unity.exe`, and make the web humanoid runtime prefer those lower-arm rotation hints over per-axis lower-arm bindings when present.
+**Why:** The current raw Unity humanoid clip does not carry direct lower-arm bone transform curves, so fully faithful bone-local playback still requires an avatar-backed export path. In the current narrow slice, combining the available lower-arm muscle signals into explicit quaternion hints moves lower-arm composition into the exporter, preserves the visible elbow and twist improvements, and gives the web path a cleaner seam than continuing to accumulate browser-only lower-arm heuristics.
+
+### 2026-05-15: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Prefer the exporter-side improvement path for better lower-arm and elbow shaping in the current web viewer instead of adding more frontend-only elbow heuristics.
+**Why:** The source clip already carries usable lower-arm source data, so improving the Unity batch exporter keeps the bend signal data-driven end to end and avoids inventing browser-only motion.
+
+### 2026-05-15: Exporter-derived elbow flex from forearm stretch
+
+**By:** Switch
+**What:** Derive explicit `left.elbow.flex` and `right.elbow.flex` channels in the Unity batch exporter from usable `left/right.forearm.stretch` source samples, refresh the generated `idle.default`, `listen.loop`, and `speak.loop` runtime payloads through `C:\Program Files\Unity\Hub\Editor\6000.4.7f1\Editor\Unity.exe`, and bind those elbow-flex channels onto `leftLowerArm` and `rightLowerArm` in the web humanoid playback path while keeping the prior shoulder and forearm twist polish.
+**Why:** The current source clip does carry lower-arm source data, but it previously reached the web runtime only as raw forearm stretch floats that did not drive visible elbow shaping. Deriving explicit exporter hints and replaying them through the existing runtime keeps the fix local to exporter plus playback, proves the lower-arm signal survives transport, and leaves the remaining risk on animation fidelity rather than delivery.
+
+### 2026-05-15: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Keep Unity secondary for now, continue prioritizing the current web viewer, and prefer backend-owned animation control so default idle and future transitions originate from the backend rather than from per-model frontend defaults.
+**Why:** User wants the backend to stay in full control of animation sequencing and transitions so movement can flow cleanly from one semantic animation to the next.
+
+### 2026-05-15: VRM normalized pose playback path
+
+**By:** Switch
+**What:** Apply generated humanoid channel playback through `VRMHumanoid.setNormalizedPose()` using the captured normalized pose as the baseline, instead of writing sampled rotations directly onto normalized bone node quaternions.
+**Why:** The installed `@pixiv/three-vrm-core` API treats normalized humanoid posing as a pose-object operation relative to the normalized rest pose. Direct quaternion mutation on normalized bone nodes can leave the rendered avatar unchanged even when exported channel data and bindings are present, while `setNormalizedPose()` flows through the supported update path that propagates the pose to the rendered rig.
+
+### 2026-05-15: Relative pose quaternions for normalized playback
+
+**By:** Switch
+**What:** Keep `humanoidChannelPlayback` pose-object rotations as per-bone quaternions relative to the normalized rest pose when calling `VRMHumanoid.setNormalizedPose()`.
+**Why:** The installed `@pixiv/three-vrm-core` implementation applies each `poseObject.rotation` by loading that quaternion and then multiplying the normalized rest-pose rotation internally. Supplying a baseline-multiplied quaternion in the pose object effectively applies the baseline twice and leaves channel playback aligned to the wrong space.
+
+### 2026-05-15: Generated humanoid channel playback stays data-driven
+
+**By:** Switch
+**What:** Use the generated runtime payload as the current baseline playback source by preserving `sampling` plus `channels` in the frontend runtime payload and applying a supported, data-driven subset of exported Unity humanoid muscle channels to normalized VRM humanoid bones each frame.
+**Why:** The exported assets already carry real torso, head, shoulder, and arm motion, while the frontend baseline path was only consuming procedural motion-profile offsets. Applying a bounded subset now gets visible authored pose changes through to the viewer without widening into the future layered overlay system.
+
+### 2026-05-15: Arm hang calibration stays local to humanoid playback
+
+**By:** Switch
+**What:** Keep the current browser humanoid playback path in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts` and apply the smallest arm-only calibration there first: reduce shoulder `down_up` lift and increase upper-arm `down_up` drop so the exported idle pose settles closer to a natural side hang without changing torso or head mappings.
+**Why:** The live viewer and debug snapshot already show the generated humanoid muscle payload is broadly driving the body correctly, but the idle arms still read as raised and too straight. The cheapest falsifiable correction is local scale tuning on the shoulder and upper-arm `down_up` bindings before reopening axis remapping or exporter redesign.
+
+### 2026-05-15: Upper-arm `down_up` sign correction
+
+**By:** Switch
+**What:** Flip only the `left.arm.down_up` and `right.arm.down_up` scale signs in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts` while leaving shoulder, torso, and head bindings unchanged.
+**Why:** The first arm-only calibration pass reduced shoulder lift and increased upper-arm drop, but live browser verification still showed both arms pushed upward. The observed raised-arm result remained most consistent with the upper-arm `z` rotation sign being inverted for the current VRM normalized pose orientation, so the next committed correction stayed limited to those upper-arm `down_up` signs.
+
+### 2026-05-15: Refresh arm regression traced to upper-arm input offset
+
+**By:** Switch
+**What:** Remove the remaining `inputOffset: 1` from `left.arm.down_up` and `right.arm.down_up` in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts`, soften shoulder `down_up` lift slightly, and add a minimal lower-arm twist binding driven by the generated forearm twist channels.
+**Why:** Live refresh verification reproduced the raised-arm regression even with the sign-flip edit still present in the loaded debug snapshot, which ruled out a lost code change. The generated idle payload authors upper-arm `down_up` around negative values, so the leftover `+1` input offset re-lifted the idle pose after refresh. The same payload does not expose a useful elbow-flex channel for this clip, making subtle forearm twist the smallest viable elbow-area polish while the remaining higher-fidelity arm shaping stays an exporter-or-payload question.
+
+### 2026-05-15: Session animation live delivery reuses the snapshot payload
+
+**By:** Tank
+**What:** Keep `GET /session/animation` authoritative for both polling and live delivery. Standard JSON returns the existing `SessionAnimationSnapshot`, while `Accept: text/event-stream` streams that same snapshot payload over SSE with cursor ids sourced from a scoped in-memory animation update buffer populated by backend lifecycle changes.
+**Why:** This preserves one engine-neutral public animation payload shape on the current route instead of widening into a second transport-specific contract or a larger animation event-store slice.
+
+### 2026-05-15: Generated runtime payloads carry motion-profile metadata
+
+**By:** Link
+**What:** Keep semantic loop distinction on the existing web runtime payload path by adding optional `motion_profile` metadata to generated runtime JSON sidecars and resolving it through one runtime helper with a backwards-safe fallback.
+**Why:** This removes command-id-specific animation branches from the viewer runtime, keeps `listen` and `speak` differentiation data-driven, and supports direct consumption of generated runtime payload data without widening the delivery seam.
+
+### 2026-05-15: Session animation live-delivery stability guard
+
+**By:** Mouse
+**What:** Add a dedicated `backend-session-animation-live-delivery` stability scenario that snapshots the real `/session/animation` live-delivery seam by reusing the existing backend route test helper rather than introducing transport-specific test hooks.
+**Why:** The backend already owns route tests for `/session/animation` snapshot delivery, SSE progression, cursor resume, and invalid-cursor rejection, so the missing regression seam was a checked-in baseline over that real route behavior.
+
+### 2026-05-15: Frontend consumes `/session/animation` SSE payloads directly
+
+**By:** Switch
+**What:** Treat `/session/animation` SSE frames as authoritative `SessionAnimationSnapshot` payloads in the frontend live consumer instead of using them only as a signal to refetch the snapshot route.
+**Why:** The backend already serializes the full snapshot into the SSE `data:` field on the same route, so parsing that payload directly removes an unnecessary round trip while preserving the existing normalization path and teardown behavior.
+
 ### 2026-05-14T08:57:41.6820932+01:00: User directive
 
 **By:** Jason Fletcher (via Copilot)
@@ -351,6 +531,24 @@
 **By:** Trinity
 **What:** Keep `frontend/src/app/App.tsx` as the sole consumer of backend-authored `speech.synthesis` activity and pass viseme or timing metadata only into a runtime-local speech reaction API. The avatar runtime may schedule local viseme reactions when `synthesis.timing.viseme_slots` is usable and must degrade cleanly to the existing coarse `speak` path when viseme data is absent, malformed, or insufficient. Display status may expose whether playback is viseme-driven or coarse, but full phoneme inference, richer facial animation, new transport ownership, and extra command surfaces remain out of scope.
 **Why:** The coarse speaking seam already works on top of the backend-owned lifecycle event. This narrow frontend-only slice improves lip-sync fidelity without widening backend contracts, duplicating synthesis consumption, or treating experimental facial animation as part of the committed scope.
+
+### 2026-05-15: Frontend semantic runtime payload lookup
+
+**By:** Switch
+**What:** Build the web runtime's shared semantic payload catalog from generated shared runtime sidecars and resolve `listen.loop` plus `speak.loop` by direct semantic id first. Keep a narrow frontend compatibility fallback to `idle.default` only when those dedicated runtime sidecars are still absent from `assets/animations/generated/shared/`.
+**Why:** The runtime should consume backend-owned semantic ids as first-class shared assets instead of treating listen and speak as permanent aliases. The temporary fallback preserves current startup and speech behavior in branches where the dedicated runtime payload files have not landed yet.
+
+### 2026-05-15: Frontend session animation live consumption
+
+**By:** Switch
+**What:** Keep frontend session animation consumption on the existing backend-owned `/session/animation` seam. Start from the normalized snapshot consumer, then capability-detect SSE on that same route so both control and display surfaces can follow backend-selected semantic commands without adding a second frontend animation state model.
+**Why:** The current frontend already trusts the backend-owned session animation snapshot and lifecycle update response. Reusing that seam for optional live delivery keeps the control/display split intact, lets the display follow backend lifecycle changes when live delivery is available, and preserves the existing snapshot plus local `idle.default` fallback when live delivery or the snapshot read path is unavailable.
+
+### 2026-05-15: Web-first shared semantic payloads for listen and speak
+
+**By:** Link
+**What:** Add dedicated staged and generated shared semantic assets for `listen.loop` and `speak.loop`, derived from the existing `idle.default` runtime payload pattern, and resolve those semantic ids as their own repo-backed web payload assets instead of treating them as frontend payload aliases.
+**Why:** The web-first runtime needs backend-stable semantic ids to map to real shared payload assets so listen and speak remain distinct conversational states without depending on Unity or viewer-side alias fallback.
 
 ## Governance
 

@@ -18,12 +18,18 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.api.router import _build_speech_lifecycle_sse_frame, _serialize_dataclass_payload, build_api_router
+from app.schemas.animation import SessionAnimationSnapshot
 from app.schemas.session import (
     AssistantMessageContract,
     OperatorCommandRequest,
     SessionSnapshot,
+    SessionLifecycleUpdateRequest,
     SpeechSynthesisContract,
     SpeechTranscriptionContract,
+)
+from app.services.animation import (
+    InMemorySessionAnimationLiveDeliveryService,
+    SESSION_ANIMATION_STREAM,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource
 from app.services.llm import TextGenerationRequest
@@ -107,6 +113,30 @@ class FiniteSpeechLifecycleLiveDeliveryService:
         )
         for envelope in transport_snapshot.events:
             yield envelope
+
+
+class FiniteSessionAnimationLiveDeliveryService:
+    def __init__(self) -> None:
+        self._live_delivery = InMemorySessionAnimationLiveDeliveryService()
+        self.cursors: list[str | None] = []
+
+    def publish_snapshot(self, snapshot: SessionAnimationSnapshot):
+        return self._live_delivery.publish_snapshot(snapshot)
+
+    def read_updates(self, session_id: str, *, after_cursor: str | None = None):
+        return self._live_delivery.read_updates(session_id, after_cursor=after_cursor)
+
+    def iter_live_updates(
+        self,
+        session_id: str,
+        *,
+        cursor: str | None = None,
+        poll_interval_seconds: float = 0.25,
+    ):
+        del poll_interval_seconds
+        self.cursors.append(cursor)
+        for update in self._live_delivery.read_updates(session_id, after_cursor=cursor):
+            yield update
 
 
 def parse_sse_messages(payload: str) -> list[dict[str, str]]:
@@ -258,6 +288,74 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
         if route.path == "/session/speech-lifecycle" and "GET" in route.methods
     )
     return speech_lifecycle_route.endpoint, publication, speech_lifecycle_live_delivery
+
+
+def build_session_animation_route_endpoints() -> tuple[object, object, FiniteSessionAnimationLiveDeliveryService]:
+    fake_fastapi = types.ModuleType("fastapi")
+    fake_fastapi.APIRouter = FakeAPIRouter
+    fake_fastapi.HTTPException = FakeHTTPException
+    fake_fastapi.Request = FakeRequest
+    fake_fastapi.Response = FakeResponse
+    fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
+    fake_fastapi_responses = types.ModuleType("fastapi.responses")
+    fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+
+    session_service = InMemorySessionService(default_character_id="test-vrm-01")
+    character_service = CharacterService(FileSystemCharacterManifestSource())
+    transcription_service = StubSpeechTranscriptionService()
+    synthesis_service = StubSpeechSynthesisService()
+    text_generation_service = StaticTextGenerationService(build_assistant_message_contract("ready"))
+    session_event_factory = DefaultSessionEventFactory()
+    speech_lifecycle_service = StubSpeechLifecycleSnapshotService(event_store=session_service.event_store)
+    speech_lifecycle_live_delivery = FiniteSpeechLifecycleLiveDeliveryService(
+        snapshot_service=speech_lifecycle_service
+    )
+    turn_pipeline_publisher = DefaultTurnPipelinePublisher(
+        transcription_service=transcription_service,
+        synthesis_service=synthesis_service,
+        session_event_factory=session_event_factory,
+        event_store=session_service.event_store,
+    )
+    session_animation_live_delivery = FiniteSessionAnimationLiveDeliveryService()
+
+    with patch.dict(
+        sys.modules,
+        {
+            "fastapi": fake_fastapi,
+            "fastapi.responses": fake_fastapi_responses,
+        },
+    ):
+        with patch(
+            "app.api.router._build_services",
+            return_value=(
+                session_service,
+                character_service,
+                transcription_service,
+                synthesis_service,
+                text_generation_service,
+                speech_lifecycle_service,
+                speech_lifecycle_live_delivery,
+                session_event_factory,
+                turn_pipeline_publisher,
+            ),
+        ):
+            with patch(
+                "app.api.router._build_session_animation_live_delivery_service",
+                return_value=session_animation_live_delivery,
+            ):
+                router = build_api_router()
+
+    animation_route = next(
+        route
+        for route in router.routes
+        if route.path == "/session/animation" and "GET" in route.methods
+    )
+    lifecycle_route = next(
+        route
+        for route in router.routes
+        if route.path == "/session/lifecycle-state" and "PUT" in route.methods
+    )
+    return animation_route.endpoint, lifecycle_route.endpoint, session_animation_live_delivery
 
 
 def build_operator_command_route_endpoint(
@@ -730,6 +828,97 @@ class SpeechLifecycleRouteTransportTests(unittest.TestCase):
                 endpoint(
                     FakeRequest(headers={"accept": "text/event-stream"}),
                     cursor="speech.lifecycle:wrong-session:1",
+                )
+            )
+
+        self.assertEqual(400, raised.exception.status_code)
+        self.assertIn("does not belong", raised.exception.detail)
+
+
+class SessionAnimationRouteTransportTests(unittest.TestCase):
+    def test_route_keeps_snapshot_delivery_without_event_stream_accept(self) -> None:
+        animation_endpoint, _lifecycle_endpoint, _live_delivery = build_session_animation_route_endpoints()
+
+        response = cast(
+            object,
+            asyncio.run(
+                animation_endpoint(FakeRequest(headers={"accept": "application/json"}), cursor=None)
+            ),
+        )
+
+        payload = _serialize_dataclass_payload(response)
+        self.assertEqual("session-scaffold-01", payload["session_id"])
+        self.assertEqual("idle", payload["lifecycle_state"])
+        self.assertEqual("idle.default", payload["command"]["semantic_id"])
+        self.assertEqual("selected", payload["command"]["resolved_state"])
+
+    def test_route_returns_sse_frames_with_existing_cursor_and_snapshot_shape(self) -> None:
+        animation_endpoint, lifecycle_endpoint, live_delivery = build_session_animation_route_endpoints()
+
+        lifecycle_endpoint(SessionLifecycleUpdateRequest(lifecycle_state="listen"))
+        lifecycle_endpoint(SessionLifecycleUpdateRequest(lifecycle_state="speak"))
+
+        expected_updates = live_delivery.read_updates("session-scaffold-01")
+        response = cast(
+            FakeStreamingResponse,
+            asyncio.run(
+                animation_endpoint(FakeRequest(headers={"accept": "text/event-stream"}), cursor=None)
+            ),
+        )
+
+        self.assertEqual("text/event-stream", response.media_type)
+
+        messages = parse_sse_messages(collect_streaming_payload(response))
+        self.assertEqual([None], live_delivery.cursors)
+        self.assertEqual(2, len(messages))
+        self.assertEqual([update.cursor for update in expected_updates], [message["id"] for message in messages])
+        self.assertEqual(
+            [SESSION_ANIMATION_STREAM, SESSION_ANIMATION_STREAM],
+            [message["event"] for message in messages],
+        )
+        self.assertEqual(
+            [
+                canonicalize_transport_payload(_serialize_dataclass_payload(update.snapshot))
+                for update in expected_updates
+            ],
+            [canonicalize_transport_payload(json.loads(message["data"])) for message in messages],
+        )
+
+    def test_route_sse_resume_reuses_existing_cursor_query_seam(self) -> None:
+        animation_endpoint, lifecycle_endpoint, live_delivery = build_session_animation_route_endpoints()
+
+        lifecycle_endpoint(SessionLifecycleUpdateRequest(lifecycle_state="listen"))
+        lifecycle_endpoint(SessionLifecycleUpdateRequest(lifecycle_state="speak"))
+        expected_updates = live_delivery.read_updates("session-scaffold-01")
+        resume_cursor = expected_updates[0].cursor
+
+        response = cast(
+            FakeStreamingResponse,
+            asyncio.run(
+                animation_endpoint(
+                    FakeRequest(headers={"accept": "text/event-stream"}),
+                    cursor=resume_cursor,
+                )
+            ),
+        )
+
+        messages = parse_sse_messages(collect_streaming_payload(response))
+        self.assertEqual([resume_cursor], live_delivery.cursors)
+        self.assertEqual(1, len(messages))
+        self.assertEqual(expected_updates[1].cursor, messages[0]["id"])
+        self.assertEqual(
+            canonicalize_transport_payload(_serialize_dataclass_payload(expected_updates[1].snapshot)),
+            canonicalize_transport_payload(json.loads(messages[0]["data"])),
+        )
+
+    def test_route_rejects_invalid_cursor_before_transport_negotiation(self) -> None:
+        animation_endpoint, _lifecycle_endpoint, _live_delivery = build_session_animation_route_endpoints()
+
+        with self.assertRaises(FakeHTTPException) as raised:
+            asyncio.run(
+                animation_endpoint(
+                    FakeRequest(headers={"accept": "text/event-stream"}),
+                    cursor=f"{SESSION_ANIMATION_STREAM}:wrong-session:1",
                 )
             )
 
