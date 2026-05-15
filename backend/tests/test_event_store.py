@@ -182,6 +182,10 @@ class FakeAPIRouter:
         del kwargs
         return self._register(path, "POST")
 
+    def websocket(self, path: str, **kwargs):
+        del kwargs
+        return self._register(path, "WS")
+
     def _register(self, path: str, method: str):
         def decorator(endpoint):
             self.routes.append(FakeRoute(path=path, endpoint=endpoint, methods=(method,)))
@@ -206,6 +210,8 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
     fake_fastapi.HTTPException = FakeHTTPException
     fake_fastapi.Request = FakeRequest
     fake_fastapi.Response = FakeResponse
+    fake_fastapi.WebSocket = object
+    fake_fastapi.WebSocketDisconnect = Exception
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
@@ -269,6 +275,8 @@ def build_operator_command_route_endpoint(
     fake_fastapi.HTTPException = FakeHTTPException
     fake_fastapi.Request = FakeRequest
     fake_fastapi.Response = FakeResponse
+    fake_fastapi.WebSocket = object
+    fake_fastapi.WebSocketDisconnect = Exception
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse

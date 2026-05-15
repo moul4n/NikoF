@@ -6,13 +6,15 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 try:
-    from fastapi import APIRouter, HTTPException, Request, Response, status
+    from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
     from fastapi.responses import StreamingResponse
 except ImportError:
     APIRouter = None
     HTTPException = None
     Request = None
     Response = None
+    WebSocket = None
+    WebSocketDisconnect = None
     status = None
     StreamingResponse = None
 
@@ -99,6 +101,7 @@ def _route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="GET", path="/session/speech-lifecycle", name="get_speech_lifecycle"),
         RouteDefinition(method="POST", path="/session/operator-command", name="submit_operator_command"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
+        RouteDefinition(method="WS", path="/ws/animation", name="animation_viewer"),
     ]
 
 
@@ -548,7 +551,20 @@ def build_api_contract_snapshot() -> dict[str, Any]:
 
     return {
         "routes": [asdict(route) for route in _route_definitions()],
-        "contracts": _build_speech_contract_examples(speech_lifecycle_snapshot),
+        "contracts": {
+            **_build_speech_contract_examples(speech_lifecycle_snapshot),
+            "animation_ws_url": "/ws/animation",
+            "animation_ws_frame": {
+                "animation_id": "idle.default",
+                "character_id": "test-vrm-01",
+                "state": "idle",
+                "intensity": 1.0,
+                "parameters": {
+                    "source": "shared",
+                    "playback": "loop",
+                },
+            },
+        },
         "responses": {
             "health": asdict(_build_health_payload(character_service)),
             "characters": asdict(_build_character_catalog_response(current_snapshot, characters)),
@@ -665,6 +681,10 @@ def build_api_router() -> Any:
     ) = _build_services()
     memory_service = build_session_memory_service(get_app_paths())
     route_definitions = _route_definitions()
+
+    from app.services.animation_broadcast import InMemoryAnimationWebSocketBroadcaster
+
+    animation_broadcaster = InMemoryAnimationWebSocketBroadcaster()
 
     if APIRouter is None:
         return RouterShell(routes=route_definitions)
@@ -820,5 +840,14 @@ def build_api_router() -> Any:
             ),
             message="Active character updated.",
         )
+
+    @router.websocket("/ws/animation")
+    async def animation_viewer(websocket: WebSocket) -> None:
+        await animation_broadcaster.connect(websocket)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            animation_broadcaster.disconnect(websocket)
 
     return router

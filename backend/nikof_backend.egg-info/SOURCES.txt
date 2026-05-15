@@ -13,6 +13,7 @@ app/schemas/health.py
 app/schemas/session.py
 app/services/__init__.py
 app/services/animation.py
+app/services/animation_broadcast.py
 app/services/character.py
 app/services/llm.py
 app/services/memory.py
@@ -23,4 +24,5 @@ nikof_backend.egg-info/SOURCES.txt
 nikof_backend.egg-info/dependency_links.txt
 nikof_backend.egg-info/requires.txt
 nikof_backend.egg-info/top_level.txt
+tests/test_animation_broadcast.py
 tests/test_event_store.py

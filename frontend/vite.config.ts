@@ -27,6 +27,11 @@ export default defineConfig({
         target: backendProxyTarget,
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api/, "")
+      },
+      "/ws": {
+        target: backendProxyTarget,
+        changeOrigin: true,
+        ws: true
       }
     }
   }

@@ -18,6 +18,7 @@ import {
   type ConsumedSpeechLifecycleSnapshot,
   type SpeechLifecycleDeliveryMode
 } from "../avatar/loaders/speechLifecycle";
+import { startAnimationWebSocketConsumption } from "../avatar/loaders/animationWebSocket";
 import { createAvatarRuntime, type AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
 import type {
   BackendSessionEventDocument,
@@ -889,6 +890,18 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
       liveConsumption?.close();
     };
   }, [loadState.status, speechLifecycleRefreshKey]);
+
+  useEffect(() => {
+    const subscription = startAnimationWebSocketConsumption({
+      onCommand: (command) => {
+        runtime.play(command);
+      }
+    });
+
+    return () => {
+      subscription.close();
+    };
+  }, [runtime]);
 
   useEffect(() => {
     if (surfaceMode !== "display" || loadState.status !== "ready") {

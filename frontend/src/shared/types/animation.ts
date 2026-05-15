@@ -17,3 +17,11 @@ export interface SemanticAnimationCommand {
   intensity?: number;
   durationMs?: number;
 }
+
+export interface BackendAnimationCommandDocument {
+  animation_id: string;
+  character_id: string;
+  state: string;
+  intensity: number;
+  parameters: Record<string, string>;
+}
