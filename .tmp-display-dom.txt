@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <script type="module">import { injectIntoGlobalHook } from "/@react-refresh";
+injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => (type) => type;</script>
+
+    <script type="module" src="/@vite/client"></script>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NikoF Display Surface</title>
+  <style type="text/css" data-vite-dev-id="C:/Users/fletc/Sources/NikoF/frontend/src/styles.css">:root {
+
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+
+  color: #e8ecf4;
+
+  background: linear-gradient(180deg, #0f1724 0%, #162033 45%, #0d1422 100%);
+
+  line-height: 1.5;
+
+  font-weight: 400;
+
+}
+
+
+
+* {
+
+  box-sizing: border-box;
+
+}
+
+
+
+body {
+
+  margin: 0;
+
+  min-width: 320px;
+
+  min-height: 100vh;
+
+}
+
+
+
+body[data-surface-mode="display"] {
+
+  background: radial-gradient(circle at top, #15213a 0%, #0a1220 56%, #04070d 100%);
+
+}
+
+
+
+button,
+
+input,
+
+textarea,
+
+select {
+
+  font: inherit;
+
+}
+
+
+
+#root {
+
+  min-height: 100vh;
+
+}
+
+
+
+.app-shell {
+
+  min-height: 100vh;
+
+  padding: 2rem;
+
+}
+
+
+
+.app-shell--display {
+
+  padding: 0.85rem;
+
+}
+
+
+
+.app-shell__header,
+
+.app-shell__content,
+
+.app-shell__display {
+
+  width: min(1200px, 100%);
+
+  margin: 0 auto;
+
+}
+
+
+
+.app-shell__sidebar {
+
+  display: grid;
+
+  gap: 1.5rem;
+
+  align-content: start;
+
+}
+
+
+
+.app-shell__header {
+
+  display: grid;
+
+  gap: 1rem;
+
+  margin-bottom: 1.5rem;
+
+}
+
+
+
+.app-shell__header--display {
+
+  width: min(1500px, 100%);
+
+  gap: 0.75rem;
+
+  margin-bottom: 1rem;
+
+}
+
+
+
+.app-shell__display-toolbar {
+
+  display: flex;
+
+  justify-content: space-between;
+
+  gap: 1rem;
+
+  align-items: flex-start;
+
+}
+
+
+
+.app-shell__header h1,
+
+.avatar-stage__header h2,
+
+.catalog-panel__header h2 {
+
+  margin: 0;
+
+}
+
+
+
+.app-shell__summary {
+
+  max-width: 62ch;
+
+  color: #b5c2d6;
+
+}
+
+
+
+.app-shell__summary--display {
+
+  max-width: 74ch;
+
+}
+
+
+
+.app-shell__content {
+
+  display: grid;
+
+  grid-template-columns: minmax(280px, 340px) 1fr;
+
+  gap: 1.5rem;
+
+}
+
+
+
+.app-shell__content--control {
+
+  grid-template-columns: minmax(320px, 420px) minmax(320px, 1fr);
+
+  align-items: start;
+
+}
+
+
+
+.app-shell__control-rail,
+
+.app-shell__display {
+
+  display: grid;
+
+  gap: 1.5rem;
+
+  align-content: start;
+
+}
+
+
+
+.app-shell__display {
+
+  width: min(1500px, 100%);
+
+  display: grid;
+
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+
+  gap: 1rem;
+
+  align-items: start;
+
+}
+
+
+
+.app-shell__display-rail {
+
+  display: grid;
+
+  gap: 1rem;
+
+  align-content: start;
+
+}
+
+
+
+.surface-switcher {
+
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 0.75rem;
+
+  align-items: center;
+
+}
+
+
+
+.surface-switcher--display {
+
+  justify-content: flex-end;
+
+}
+
+
+
+.surface-switcher__button,
+
+.surface-switcher__link {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  border-radius: 999px;
+
+  border: 1px solid rgba(160, 175, 200, 0.24);
+
+  background: rgba(21, 31, 48, 0.76);
+
+  color: inherit;
+
+  padding: 0.55rem 1rem;
+
+  text-decoration: none;
+
+  transition:
+
+    border-color 160ms ease,
+
+    background-color 160ms ease,
+
+    transform 160ms ease;
+
+}
+
+
+
+.surface-switcher__button {
+
+  cursor: pointer;
+
+}
+
+
+
+.surface-switcher__button:hover,
+
+.surface-switcher__button:focus-visible,
+
+.surface-switcher__link:hover,
+
+.surface-switcher__link:focus-visible {
+
+  border-color: rgba(123, 211, 193, 0.72);
+
+  background: rgba(28, 45, 63, 0.88);
+
+  transform: translateY(-1px);
+
+}
+
+
+
+.surface-switcher__button--active {
+
+  border-color: rgba(123, 211, 193, 0.8);
+
+  background: rgba(30, 63, 71, 0.72);
+
+}
+
+
+
+.catalog-panel,
+
+.avatar-stage,
+
+.speech-panel,
+
+.surface-panel {
+
+  background: rgba(15, 23, 36, 0.7);
+
+  border: 1px solid rgba(160, 175, 200, 0.22);
+
+  border-radius: 20px;
+
+  padding: 1.25rem;
+
+  backdrop-filter: blur(12px);
+
+}
+
+
+
+.surface-panel--display {
+
+  padding: 1rem;
+
+}
+
+
+
+.catalog-panel__header,
+
+.avatar-stage__header,
+
+.speech-panel__header,
+
+.surface-panel__header {
+
+  display: flex;
+
+  justify-content: space-between;
+
+  gap: 1rem;
+
+  align-items: flex-start;
+
+  margin-bottom: 1rem;
+
+}
+
+
+
+.catalog-panel__count,
+
+.avatar-stage__status,
+
+.speech-panel__count,
+
+.eyebrow {
+
+  color: #8ca0bf;
+
+  font-size: 0.8rem;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.08em;
+
+}
+
+
+
+.eyebrow {
+
+  margin: 0 0 0.35rem;
+
+}
+
+
+
+.catalog-panel__message {
+
+  margin: 0 0 1rem;
+
+  color: #b5c2d6;
+
+}
+
+
+
+.catalog-panel__message--error,
+
+.speech-panel__message--error {
+
+  color: #ffb6b6;
+
+}
+
+
+
+.speech-panel__message {
+
+  margin: 0 0 1rem;
+
+  color: #b5c2d6;
+
+}
+
+
+
+.surface-panel__message,
+
+.surface-panel__summary {
+
+  margin: 0 0 1rem;
+
+  color: #b5c2d6;
+
+}
+
+
+
+.surface-panel__summary:last-child,
+
+.surface-panel__message:last-child {
+
+  margin-bottom: 0;
+
+}
+
+
+
+.operator-panel {
+
+  display: grid;
+
+  gap: 1rem;
+
+}
+
+
+
+.operator-panel__forms {
+
+  display: grid;
+
+  gap: 1rem;
+
+}
+
+
+
+.operator-panel__form {
+
+  display: grid;
+
+  gap: 0.75rem;
+
+  padding: 1rem;
+
+  border: 1px solid rgba(160, 175, 200, 0.16);
+
+  border-radius: 16px;
+
+  background: rgba(28, 39, 60, 0.5);
+
+}
+
+
+
+.operator-panel__field {
+
+  display: grid;
+
+  gap: 0.45rem;
+
+}
+
+
+
+.operator-panel__field-label {
+
+  color: #dce6f5;
+
+  font-size: 0.95rem;
+
+  font-weight: 600;
+
+}
+
+
+
+.operator-panel__input,
+
+.operator-panel__textarea {
+
+  width: 100%;
+
+  border: 1px solid rgba(160, 175, 200, 0.22);
+
+  border-radius: 14px;
+
+  background: rgba(12, 19, 31, 0.92);
+
+  color: #eef4ff;
+
+  padding: 0.8rem 0.9rem;
+
+}
+
+
+
+.operator-panel__textarea {
+
+  min-height: 7rem;
+
+  resize: vertical;
+
+}
+
+
+
+.operator-panel__input:focus-visible,
+
+.operator-panel__textarea:focus-visible,
+
+.operator-panel__button:focus-visible {
+
+  outline: 2px solid rgba(123, 211, 193, 0.85);
+
+  outline-offset: 2px;
+
+}
+
+
+
+.operator-panel__hint {
+
+  margin: 0;
+
+  color: #a9b6ca;
+
+  font-size: 0.92rem;
+
+}
+
+
+
+.operator-panel__actions {
+
+  display: flex;
+
+  justify-content: flex-start;
+
+}
+
+
+
+.operator-panel__button {
+
+  border: 1px solid rgba(123, 211, 193, 0.42);
+
+  border-radius: 999px;
+
+  background: rgba(30, 63, 71, 0.78);
+
+  color: #eef4ff;
+
+  padding: 0.65rem 1.1rem;
+
+  cursor: pointer;
+
+  transition:
+
+    border-color 160ms ease,
+
+    background-color 160ms ease,
+
+    transform 160ms ease;
+
+}
+
+
+
+.operator-panel__button:hover,
+
+.operator-panel__button:focus-visible {
+
+  border-color: rgba(123, 211, 193, 0.8);
+
+  background: rgba(38, 77, 86, 0.92);
+
+  transform: translateY(-1px);
+
+}
+
+
+
+.operator-panel__button:disabled {
+
+  opacity: 0.72;
+
+  cursor: progress;
+
+  transform: none;
+
+}
+
+
+
+.surface-panel__facts {
+
+  margin: 0 0 1rem;
+
+  display: grid;
+
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  gap: 0.75rem;
+
+}
+
+
+
+.surface-panel__facts div {
+
+  border: 1px solid rgba(160, 175, 200, 0.16);
+
+  border-radius: 14px;
+
+  background: rgba(28, 39, 60, 0.5);
+
+  padding: 0.85rem 0.95rem;
+
+}
+
+
+
+.surface-panel__facts dt {
+
+  margin: 0;
+
+  color: #8ca0bf;
+
+  font-size: 0.8rem;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.08em;
+
+}
+
+
+
+.surface-panel__facts dd {
+
+  margin: 0.35rem 0 0;
+
+  overflow-wrap: anywhere;
+
+}
+
+
+
+.dev-animation-panel__list {
+
+  display: grid;
+
+  gap: 0.75rem;
+
+}
+
+
+
+.dev-animation-panel__button {
+
+  width: 100%;
+
+  border: 1px solid rgba(160, 175, 200, 0.18);
+
+  border-radius: 16px;
+
+  background: rgba(28, 39, 60, 0.8);
+
+  color: inherit;
+
+  padding: 0.9rem 1rem;
+
+  text-align: left;
+
+  display: grid;
+
+  gap: 0.25rem;
+
+  cursor: pointer;
+
+  transition:
+
+    border-color 160ms ease,
+
+    background-color 160ms ease,
+
+    transform 160ms ease;
+
+}
+
+
+
+.dev-animation-panel__button:hover,
+
+.dev-animation-panel__button:focus-visible {
+
+  border-color: rgba(123, 211, 193, 0.72);
+
+  background: rgba(38, 57, 78, 0.86);
+
+  transform: translateY(-1px);
+
+}
+
+
+
+.dev-animation-panel__button:disabled {
+
+  opacity: 0.58;
+
+  cursor: not-allowed;
+
+  transform: none;
+
+}
+
+
+
+.dev-animation-panel__button--active {
+
+  border-color: rgba(123, 211, 193, 0.8);
+
+  background: rgba(30, 63, 71, 0.7);
+
+}
+
+
+
+.dev-animation-panel__button-title {
+
+  font-weight: 600;
+
+}
+
+
+
+.dev-animation-panel__button-summary {
+
+  color: #a9b6ca;
+
+  font-size: 0.92rem;
+
+}
+
+
+
+.punch-comparison-panel__count--stale {
+
+  color: #c5b58a;
+
+}
+
+
+
+.punch-comparison-panel__table-wrap {
+
+  overflow-x: auto;
+
+}
+
+
+
+.punch-comparison-table {
+
+  width: 100%;
+
+  border-collapse: collapse;
+
+  font-size: 0.92rem;
+
+}
+
+
+
+.punch-comparison-table th,
+
+.punch-comparison-table td {
+
+  vertical-align: top;
+
+  text-align: left;
+
+  padding: 0.8rem 0.6rem;
+
+  border-top: 1px solid rgba(160, 175, 200, 0.14);
+
+}
+
+
+
+.punch-comparison-table thead th {
+
+  color: #8ca0bf;
+
+  font-size: 0.76rem;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.08em;
+
+  border-top: 0;
+
+}
+
+
+
+.punch-comparison-table tbody th {
+
+  min-width: 9rem;
+
+}
+
+
+
+.punch-comparison-table__bone-name,
+
+.punch-comparison-table__bone-id,
+
+.punch-comparison-table__summary,
+
+.punch-comparison-table__detail {
+
+  display: block;
+
+}
+
+
+
+.punch-comparison-table__bone-name,
+
+.punch-comparison-table__summary {
+
+  color: #eef4ff;
+
+}
+
+
+
+.punch-comparison-table__bone-name {
+
+  font-weight: 600;
+
+}
+
+
+
+.punch-comparison-table__bone-id,
+
+.punch-comparison-table__detail {
+
+  margin-top: 0.3rem;
+
+  color: #a9b6ca;
+
+  font-size: 0.86rem;
+
+}
+
+
+
+.punch-comparison-table__badge {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  border-radius: 999px;
+
+  padding: 0.35rem 0.65rem;
+
+  font-size: 0.82rem;
+
+  white-space: nowrap;
+
+}
+
+
+
+.punch-comparison-table__badge--ok {
+
+  background: rgba(46, 125, 50, 0.22);
+
+  color: #b8f0bc;
+
+}
+
+
+
+.punch-comparison-table__badge--warn {
+
+  background: rgba(191, 132, 46, 0.22);
+
+  color: #ffd99a;
+
+}
+
+
+
+.punch-comparison-table__badge--mismatch {
+
+  background: rgba(181, 65, 65, 0.22);
+
+  color: #ffb8b8;
+
+}
+
+
+
+.punch-comparison-table__badge--missing {
+
+  background: rgba(86, 100, 126, 0.28);
+
+  color: #d3dced;
+
+}
+
+
+
+.speech-panel__summary-list {
+
+  margin: 0 0 1rem;
+
+  display: grid;
+
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  gap: 0.75rem;
+
+}
+
+
+
+.speech-panel__summary-list div,
+
+.speech-panel__event {
+
+  border: 1px solid rgba(160, 175, 200, 0.16);
+
+  border-radius: 14px;
+
+  background: rgba(28, 39, 60, 0.5);
+
+  padding: 0.85rem 0.95rem;
+
+}
+
+
+
+.speech-panel__summary-list dt,
+
+.speech-panel__event h3 {
+
+  margin: 0;
+
+  color: #8ca0bf;
+
+  font-size: 0.8rem;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.08em;
+
+}
+
+
+
+.speech-panel__summary-list dd {
+
+  margin: 0.35rem 0 0;
+
+  overflow-wrap: anywhere;
+
+}
+
+
+
+.speech-panel__event-grid {
+
+  display: grid;
+
+  gap: 0.75rem;
+
+}
+
+
+
+.speech-panel__event-status,
+
+.speech-panel__event-text,
+
+.speech-panel__event-meta {
+
+  margin: 0.45rem 0 0;
+
+}
+
+
+
+.speech-panel__event-status {
+
+  color: #dce6f5;
+
+  font-weight: 600;
+
+}
+
+
+
+.speech-panel__event-text {
+
+  color: #eef4ff;
+
+}
+
+
+
+.speech-panel__event-meta {
+
+  color: #a9b6ca;
+
+  font-size: 0.9rem;
+
+}
+
+
+
+.catalog-panel__list {
+
+  list-style: none;
+
+  padding: 0;
+
+  margin: 0;
+
+  display: grid;
+
+  gap: 0.75rem;
+
+}
+
+
+
+.catalog-panel__item {
+
+  width: 100%;
+
+  border: 1px solid rgba(160, 175, 200, 0.18);
+
+  border-radius: 16px;
+
+  background: rgba(28, 39, 60, 0.8);
+
+  color: inherit;
+
+  padding: 0.9rem 1rem;
+
+  text-align: left;
+
+  display: grid;
+
+  gap: 0.2rem;
+
+  cursor: pointer;
+
+}
+
+
+
+.catalog-panel__item--selected {
+
+  border-color: rgba(123, 211, 193, 0.8);
+
+  background: rgba(30, 63, 71, 0.7);
+
+}
+
+
+
+.catalog-panel__item-title {
+
+  font-weight: 600;
+
+}
+
+
+
+.catalog-panel__item-meta {
+
+  color: #a9b6ca;
+
+  font-size: 0.9rem;
+
+}
+
+
+
+.avatar-stage__surface {
+
+  display: grid;
+
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+
+  gap: 1rem;
+
+}
+
+
+
+.avatar-stage__surface--display {
+
+  grid-template-columns: minmax(0, 1fr);
+
+}
+
+
+
+.avatar-stage--display .avatar-stage__surface {
+
+  min-height: calc(100vh - 10.5rem);
+
+}
+
+
+
+.avatar-stage__header--display {
+
+  margin-bottom: 0.75rem;
+
+}
+
+
+
+.avatar-stage__viewport-shell,
+
+.avatar-stage__overlay {
+
+  border-radius: 18px;
+
+  min-height: 360px;
+
+  padding: 1rem;
+
+  border: 1px dashed rgba(160, 175, 200, 0.22);
+
+  background: rgba(13, 20, 34, 0.72);
+
+}
+
+
+
+.avatar-stage--display .avatar-stage__viewport-shell,
+
+.avatar-stage--display .avatar-stage__viewport {
+
+  min-height: calc(100vh - 11.5rem);
+
+}
+
+
+
+.avatar-stage__viewport-shell--display {
+
+  padding: 0.6rem;
+
+}
+
+
+
+.avatar-stage__viewport-shell {
+
+  position: relative;
+
+  overflow: hidden;
+
+}
+
+
+
+.avatar-stage__display-banner {
+
+  position: absolute;
+
+  top: 1rem;
+
+  left: 1rem;
+
+  z-index: 1;
+
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 0.5rem;
+
+  pointer-events: none;
+
+}
+
+
+
+.avatar-stage__display-chip {
+
+  border-radius: 999px;
+
+  border: 1px solid rgba(140, 160, 191, 0.22);
+
+  background: rgba(8, 13, 22, 0.78);
+
+  padding: 0.45rem 0.75rem;
+
+  color: #dce6f5;
+
+  font-size: 0.9rem;
+
+  backdrop-filter: blur(8px);
+
+}
+
+
+
+.avatar-stage__viewport {
+
+  width: 100%;
+
+  height: 100%;
+
+  min-height: 360px;
+
+  border-radius: 14px;
+
+  overflow: hidden;
+
+  background:
+
+    radial-gradient(circle at top, rgba(80, 136, 196, 0.24), transparent 52%),
+
+    linear-gradient(180deg, rgba(14, 22, 36, 0.96), rgba(8, 15, 26, 0.98));
+
+}
+
+
+
+.avatar-stage__canvas {
+
+  display: block;
+
+  width: 100%;
+
+  height: 100%;
+
+}
+
+
+
+.avatar-stage__canvas--interactive {
+
+  cursor: grab;
+
+}
+
+
+
+.avatar-stage__canvas--interactive:active {
+
+  cursor: grabbing;
+
+}
+
+
+
+.avatar-stage__viewport-message {
+
+  position: absolute;
+
+  left: 1.25rem;
+
+  right: 1.25rem;
+
+  bottom: 1.25rem;
+
+  margin: 0;
+
+  padding: 0.7rem 0.9rem;
+
+  border-radius: 12px;
+
+  background: rgba(8, 13, 22, 0.76);
+
+  border: 1px solid rgba(140, 160, 191, 0.22);
+
+  color: #dce6f5;
+
+  backdrop-filter: blur(8px);
+
+  pointer-events: none;
+
+}
+
+
+
+.avatar-stage__viewport-message--loading {
+
+  border-color: rgba(120, 199, 218, 0.32);
+
+}
+
+
+
+.avatar-stage__viewport-message--error {
+
+  border-color: rgba(255, 155, 155, 0.4);
+
+  color: #ffd1d1;
+
+}
+
+
+
+.avatar-stage__overlay dl {
+
+  margin: 0;
+
+  display: grid;
+
+  gap: 0.9rem;
+
+}
+
+
+
+.avatar-stage__overlay dt {
+
+  color: #8ca0bf;
+
+  font-size: 0.85rem;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.08em;
+
+}
+
+
+
+.avatar-stage__overlay dd {
+
+  margin: 0.2rem 0 0;
+
+  overflow-wrap: anywhere;
+
+}
+
+
+
+@media (max-width: 900px) {
+
+  .app-shell {
+
+    padding: 1rem;
+
+  }
+
+
+
+  .app-shell__content,
+
+  .avatar-stage__surface,
+
+  .speech-panel__summary-list,
+
+  .surface-panel__facts {
+
+    grid-template-columns: 1fr;
+
+  }
+
+
+
+  .app-shell__display,
+
+  .app-shell__header--display {
+
+    width: min(1200px, 100%);
+
+  }
+
+
+
+  .app-shell__display {
+
+    grid-template-columns: 1fr;
+
+  }
+
+
+
+  .app-shell__display-toolbar {
+
+    flex-direction: column;
+
+    align-items: stretch;
+
+  }
+
+
+
+  .avatar-stage--display .avatar-stage__surface,
+
+  .avatar-stage--display .avatar-stage__viewport-shell,
+
+  .avatar-stage--display .avatar-stage__viewport {
+
+    min-height: 360px;
+
+  }
+
+}</style></head>
+  <body data-surface-mode="display">
+    <div id="root" data-surface-mode="display"><div class="app-shell app-shell--display"><header class="app-shell__header app-shell__header--display"><div class="app-shell__display-toolbar"><div><p class="eyebrow">Display entrypoint</p><h1>NikoF avatar display surface</h1></div><nav class="surface-switcher surface-switcher--display" aria-label="Surface mode"><a class="surface-switcher__button" href="/control/">Control surface</a><a class="surface-switcher__button surface-switcher__button--active" aria-current="page" href="/display/">Display surface</a><a class="surface-switcher__link" href="/control/">Open control window</a></nav></div><p class="app-shell__summary app-shell__summary--display">Launch this window directly at `/display` for presentation mode. The shared App still owns catalog load, backend-confirmed active-character reconciliation, and live `speech.lifecycle` state.</p></header><main class="app-shell__display"><section class="avatar-stage avatar-stage--display" aria-labelledby="avatar-stage-title"><div class="avatar-stage__header avatar-stage__header--display"><div><p class="eyebrow">Display surface</p><h2 id="avatar-stage-title">Dedicated avatar render window</h2></div><span class="avatar-stage__status">loading vrm ┬À base neutral ┬À speech coarse</span></div><div class="avatar-stage__surface avatar-stage__surface--display"><div class="avatar-stage__viewport-shell avatar-stage__viewport-shell--display"><div class="avatar-stage__display-banner" aria-label="Display runtime summary"><span class="avatar-stage__display-chip">Test Character 04 (No Skirt)</span><span class="avatar-stage__display-chip">loading vrm</span><span class="avatar-stage__display-chip">base neutral</span><span class="avatar-stage__display-chip">speech coarse</span><span class="avatar-stage__display-chip">left drag rotate ┬À right drag pan ┬À wheel zoom</span></div><div id="avatar-runtime-viewport" class="avatar-stage__viewport"><canvas data-engine="three.js r172" class="avatar-stage__canvas avatar-stage__canvas--interactive" width="646" height="360" style="display: block; touch-action: none;"></canvas></div><p class="avatar-stage__viewport-message avatar-stage__viewport-message--loading">Loading the bundled VRM from the manifest-resolved model URL...</p></div></div></section><aside class="app-shell__display-rail"><section class="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-display-profile-title"><div class="surface-panel__header"><div><p class="eyebrow">Dev-only orientation</p><h2 id="dev-display-profile-title">Display profile view</h2></div></div><p class="surface-panel__summary">Switch the whole avatar between front and side profiles without changing camera framing or the active animation.</p><div class="dev-animation-panel__list" role="group" aria-label="Display profile view"><button type="button" class="dev-animation-panel__button dev-animation-panel__button--active" aria-pressed="true"><span class="dev-animation-panel__button-title">Front profile</span><span class="dev-animation-panel__button-summary">Keep the default forward-facing model orientation for the display surface.</span></button><button type="button" class="dev-animation-panel__button" aria-pressed="false"><span class="dev-animation-panel__button-title">Side profile</span><span class="dev-animation-panel__button-summary">Rotate the whole avatar 90 degrees on the Y axis to compare silhouette and limb arcs.</span></button></div></section><section class="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-display-render-mode-title"><div class="surface-panel__header"><div><p class="eyebrow">Dev-only bone overlay</p><h2 id="dev-display-render-mode-title">Display bone overlay</h2></div></div><p class="surface-panel__summary">Toggle a skeleton-style bone overlay on the local display surface so shoulder, hip, spine, and limb alignment stay readable over the shaded avatar.</p><p class="surface-panel__message">Display runtime is still mounting the avatar. Bone overlay controls unlock once the first model load is ready.</p><div class="dev-animation-panel__list" role="group" aria-label="Display bone overlay"><button type="button" class="dev-animation-panel__button dev-animation-panel__button--active" aria-pressed="true" disabled=""><span class="dev-animation-panel__button-title">Overlay off</span><span class="dev-animation-panel__button-summary">Keep the normal shaded avatar with no debug rig lines.</span></button><button type="button" class="dev-animation-panel__button" aria-pressed="false" disabled=""><span class="dev-animation-panel__button-title">Bone overlay</span><span class="dev-animation-panel__button-summary">Draw the avatar humanoid bones as an overlaid guide on the local display surface only.</span></button></div></section><section class="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-animation-switcher-title"><div class="surface-panel__header"><div><p class="eyebrow">Dev-only animation override</p><h2 id="dev-animation-switcher-title">Local display switcher</h2></div></div><p class="surface-panel__summary">This panel is dev-only and only affects the local display window. Neutral stance clears animation entirely; click the punch option again to replay the one-shot clip.</p><p class="surface-panel__message">Backend snapshot: speak.loop</p><p class="surface-panel__message">Display runtime is still mounting the avatar. Local animation overrides unlock once the first model load is ready.</p><div class="dev-animation-panel__list" role="group" aria-label="Display animation override"><button type="button" class="dev-animation-panel__button dev-animation-panel__button--active" aria-pressed="true" disabled=""><span class="dev-animation-panel__button-title">Backend live</span><span class="dev-animation-panel__button-summary">Use the backend-selected session animation, or the local idle fallback when backend delivery is offline.</span></button><button type="button" class="dev-animation-panel__button" aria-pressed="false" disabled=""><span class="dev-animation-panel__button-title">Hold neutral stance</span><span class="dev-animation-panel__button-summary">Clear all base animation playback and hold the VRM's normalized baseline standing pose with no authored or procedural root motion.</span></button><button type="button" class="dev-animation-panel__button" aria-pressed="false" disabled=""><span class="dev-animation-panel__button-title">Force idle.default</span><span class="dev-animation-panel__button-summary">Loop the refreshed shared idle clip directly in the display window.</span></button><button type="button" class="dev-animation-panel__button" aria-pressed="false" disabled=""><span class="dev-animation-panel__button-title">Force idle.tired</span><span class="dev-animation-panel__button-summary">Loop the shared tired idle clip directly in the display window for posture comparison against idle.default.</span></button><button type="button" class="dev-animation-panel__button" aria-pressed="false" disabled=""><span class="dev-animation-panel__button-title">Force gesture.punch.once</span><span class="dev-animation-panel__button-summary">Replay the shared punch clip to inspect elbow, lower-arm rotation, and wrist delivery.</span></button></div></section><section class="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-display-playback-path-title"><div class="surface-panel__header"><div><p class="eyebrow">Dev-only display routes</p><h2 id="dev-display-playback-path-title">Playback route</h2></div></div><p class="surface-panel__summary">Switch the local display window between the legacy channel remap, the canonical idle stability slice, and the mixer-backed three-vrm-style punch spike.</p><div class="dev-animation-panel__list" role="group" aria-label="Display playback route"><button type="button" class="dev-animation-panel__button" aria-pressed="false"><span class="dev-animation-panel__button-title">Custom channel remap</span><span class="dev-animation-panel__button-summary">Legacy handwritten humanoid channel reconstruction path. Keep this available to compare against the new idle stability rout

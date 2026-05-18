@@ -13,12 +13,14 @@
                                                   "env_file",
                                                   "generated_at",
                                                   "providers",
+                                                  "remediation_hints",
                                                   "storage_layout",
                                                   "tools"
                                               ],
                            "storage_layout_keys":  [
                                                        "cache_root",
                                                        "embeddings_root",
+                                                       "hints_root",
                                                        "llm_models_root",
                                                        "local_data_root",
                                                        "models_root",
@@ -40,10 +42,18 @@
                            "provider_entry_keys":  [
                                                        "display_name",
                                                        "expected_path",
+                                                       "expected_paths",
+                                                       "hook_command",
+                                                       "hook_id",
                                                        "id",
+                                                       "install_plan_path",
                                                        "manual_install",
                                                        "present",
+                                                       "remediation",
+                                                       "required",
                                                        "root_key",
+                                                       "runtime_config_path",
+                                                       "state",
                                                        "upstream"
                                                    ],
                            "tool_ids":  [
@@ -53,10 +63,12 @@
                                             "npm"
                                         ],
                            "provider_ids":  [
-                                                "llm",
+                                                "llm-model-ollama-llama3.1-8b",
                                                 "stt-medium",
+                                                "stt-provider-entrypoint",
                                                 "stt-small",
-                                                "tts",
+                                                "tts-model-gpt-sovits",
+                                                "tts-provider-entrypoint",
                                                 "embeddings-primary",
                                                 "embeddings-fallback",
                                                 "provider-ollama"

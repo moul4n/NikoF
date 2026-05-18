@@ -1,6 +1,7 @@
 import type {
   BackendActiveCharacterResponseDocument,
   BackendCharacterCatalogResponseDocument,
+  BackendHealthPayloadDocument,
   CharacterAssetUrlOverrides,
   CharacterCatalog,
   CharacterCatalogEntry,
@@ -11,6 +12,12 @@ import type {
 } from "../../shared/types/character";
 import defaultCharacterManifest from "../../../../assets/characters/test-vrm-01/manifest.json";
 import defaultCharacterModelUrl from "../../../../assets/characters/test-vrm-01/model.vrm?url";
+import secondaryCharacterManifest from "../../../../assets/characters/test-vrm-02/manifest.json";
+import secondaryCharacterModelUrl from "../../../../assets/characters/test-vrm-02/model.vrm?url";
+import tertiaryCharacterManifest from "../../../../assets/characters/test-vrm-03/manifest.json";
+import tertiaryCharacterModelUrl from "../../../../assets/characters/test-vrm-03/model.vrm?url";
+import inspectionCharacterManifest from "../../../../assets/characters/test-vrm-04/manifest.json";
+import inspectionCharacterModelUrl from "../../../../assets/characters/test-vrm-04/model.vrm?url";
 import {
   createBackendCharacterCatalogBridge,
   type BackendCharacterCatalogBridge
@@ -34,16 +41,40 @@ const placeholderCharacterCatalog: CharacterCatalogSeed[] = [
   {
     characterId: "test-vrm-01",
     manifestUrl: "/assets/characters/test-vrm-01/manifest.json"
+  },
+  {
+    characterId: "test-vrm-02",
+    manifestUrl: "/assets/characters/test-vrm-02/manifest.json"
+  },
+  {
+    characterId: "test-vrm-03",
+    manifestUrl: "/assets/characters/test-vrm-03/manifest.json"
+  },
+  {
+    characterId: "test-vrm-04",
+    manifestUrl: "/assets/characters/test-vrm-04/manifest.json"
   }
 ];
 
 const bundledManifestDocuments: Partial<Record<string, CharacterManifestDocument>> = {
-  "test-vrm-01": defaultCharacterManifest as CharacterManifestDocument
+  "test-vrm-01": defaultCharacterManifest as CharacterManifestDocument,
+  "test-vrm-02": secondaryCharacterManifest as CharacterManifestDocument,
+  "test-vrm-03": tertiaryCharacterManifest as CharacterManifestDocument,
+  "test-vrm-04": inspectionCharacterManifest as CharacterManifestDocument
 };
 
 const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverrides>> = {
   "test-vrm-01": {
     "model.vrm": defaultCharacterModelUrl
+  },
+  "test-vrm-02": {
+    "model.vrm": secondaryCharacterModelUrl
+  },
+  "test-vrm-03": {
+    "model.vrm": tertiaryCharacterModelUrl
+  },
+  "test-vrm-04": {
+    "model.vrm": inspectionCharacterModelUrl
   }
 };
 
@@ -65,14 +96,17 @@ export async function bridgeCharacterCatalogWithBackend(
   catalog: CharacterCatalog,
   fetcher: typeof fetch = fetch
 ): Promise<BackendCharacterCatalogBridge> {
-  const [summariesResult, activeCharacterResult] = await Promise.allSettled([
+  const [summariesResult, activeCharacterResult, healthResult] = await Promise.allSettled([
     fetchBackendCharacterSummaries(fetcher),
-    fetchBackendActiveCharacter(fetcher)
+    fetchBackendActiveCharacter(fetcher),
+    fetchBackendHealth(fetcher)
   ]);
+
   return createBackendCharacterCatalogBridge(
     catalog,
     summariesResult.status === "fulfilled" ? summariesResult.value : null,
-    activeCharacterResult.status === "fulfilled" ? activeCharacterResult.value : null
+    activeCharacterResult.status === "fulfilled" ? activeCharacterResult.value : null,
+    healthResult.status === "fulfilled" ? healthResult.value : null
   );
 }
 
@@ -192,6 +226,16 @@ async function fetchBackendActiveCharacter(fetcher: typeof fetch): Promise<Backe
   }
 
   return (await response.json()) as BackendActiveCharacterResponseDocument;
+}
+
+async function fetchBackendHealth(fetcher: typeof fetch): Promise<BackendHealthPayloadDocument> {
+  const response = await fetcher(buildBackendApiUrl("/health"));
+
+  if (!response.ok) {
+    throw new Error(`Backend health request failed with status ${response.status}.`);
+  }
+
+  return (await response.json()) as BackendHealthPayloadDocument;
 }
 
 function resolveBackendApiBaseUrl(): string {

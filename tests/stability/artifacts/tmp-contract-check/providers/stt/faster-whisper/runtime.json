@@ -1,0 +1,10 @@
+﻿{
+    "entrypoint":  "transcribe.py",
+    "python_executable":  "",
+    "timeout_seconds":  20,
+    "notes":  [
+                  "Optional machine-local adapter overrides for Faster-Whisper invocation.",
+                  "Set python_executable only when Faster-Whisper must run from a separate local environment.",
+                  "Entrypoint paths must stay within NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper."
+              ]
+}

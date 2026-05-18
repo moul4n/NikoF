@@ -1,53 +1,123 @@
 {
-    "scenario_id":  "frontend-stage1-character-flow-runtime",
-    "scenario_name":  "Frontend Stage 1 character flow runtime snapshot",
-    "runner":  "node",
-    "backend_source_runner":  "python",
-    "tracked_inputs":  [
-                           "scripts/testing/frontendStage1CharacterFlow.runtime.ts",
-                           "scripts/testing/Invoke-StabilitySuite.ps1",
-                           "frontend/src/app/App.tsx",
-                           "frontend/src/avatar/loaders/backendCharacterFlow.ts",
-                           "frontend/src/avatar/loaders/characterCatalog.ts",
-                           "frontend/src/shared/types/character.ts",
-                           "backend/app/api/router.py",
-                           "backend/app/core/settings.py",
-                           "backend/app/schemas/session.py",
-                           "backend/app/schemas/character.py",
-                           "backend/app/schemas/health.py",
-                           "backend/app/services/character.py",
-                           "backend/app/services/speech.py",
-                           "backend/app/services/session.py",
-                           "assets/characters/test-vrm-01/manifest.json",
-                           "assets/characters/test-vrm-02/manifest.json",
-                           "assets/characters/test-vrm-03/manifest.json"
-                       ],
-    "local_root":  "\u003cscenario-temp\u003e",
-    "runtime_proof":  {
-                          "bridge_runtime":  {
-                                                 "summaries_connected":  true,
-                                                 "active_character_connected":  true,
-                                                 "active_character_id":  "test-vrm-01",
-                                                 "first_display_name_before":  "Local Placeholder 1",
-                                                 "first_display_name_after":  "Test Character 01",
-                                                 "catalog_envelope_consumed":  true,
-                                                 "catalog_message_count":  0
-                                             },
-                          "success_sync_runtime":  {
-                                                       "requested_character_id":  "test-vrm-03",
-                                                       "backend_confirmed_character_id":  "test-vrm-03",
-                                                       "selected_character_id":  "test-vrm-03",
-                                                       "message":  "Active character updated.",
-                                                       "session_id":  "session-scaffold-01",
-                                                       "matched_backend_confirmed_character":  true
-                                                   },
-                          "rejection_sync_runtime":  {
-                                                         "requested_character_id":  "missing-character",
-                                                         "backend_confirmed_character_id":  "test-vrm-01",
-                                                         "selected_character_id":  "test-vrm-01",
-                                                         "message":  "Requested character is unavailable.",
-                                                         "session_id":  "session-scaffold-01",
-                                                         "matched_backend_confirmed_character":  true
-                                                     }
-                      }
+  "scenario_id": "frontend-stage1-character-flow-runtime",
+  "scenario_name": "Frontend Stage 1 character flow runtime snapshot",
+  "runner": "node",
+  "backend_source_runner": "python",
+  "tracked_inputs": [
+    "scripts/testing/frontendStage1CharacterFlow.runtime.ts",
+    "scripts/testing/Invoke-StabilitySuite.ps1",
+    "frontend/package.json",
+    "frontend/package-lock.json",
+    "frontend/src/app/ControlSurfaceShell.tsx",
+    "frontend/src/app/ControlSurfaceSummaryPanel.tsx",
+    "frontend/src/app/controlSurfaceSummary.ts",
+    "frontend/src/app/useCharacterShellState.ts",
+    "frontend/src/app/surfaceShellPresentation.tsx",
+    "frontend/src/avatar/loaders/backendCharacterFlow.ts",
+    "frontend/src/avatar/loaders/characterCatalog.ts",
+    "frontend/src/shared/types/character.ts",
+    "backend/app/api/router.py",
+    "backend/app/core/settings.py",
+    "backend/app/schemas/session.py",
+    "backend/app/schemas/character.py",
+    "backend/app/schemas/health.py",
+    "backend/app/services/character.py",
+    "backend/app/services/speech.py",
+    "backend/app/services/session.py",
+    "assets/characters/test-vrm-01/manifest.json",
+    "assets/characters/test-vrm-02/manifest.json",
+    "assets/characters/test-vrm-03/manifest.json"
+  ],
+  "local_root": "<scenario-temp>",
+  "runtime_proof": {
+    "bridge_runtime": {
+      "summaries_connected": true,
+      "active_character_connected": true,
+      "active_character_id": "test-vrm-01",
+      "first_display_name_before": "Local Placeholder 1",
+      "first_display_name_after": "Test Character 01",
+      "catalog_envelope_consumed": true,
+      "catalog_message_count": 0
+    },
+    "character_shell_hook_runtime": {
+      "exported_hook_present": true,
+      "backend_bridge_marker_present": true,
+      "active_sync_error_marker_present": true,
+      "active_character_submit_marker_present": true,
+      "success_reconciliation_marker_present": true,
+      "rejection_reconciliation_marker_present": true
+    },
+    "control_surface_summary_runtime": {
+      "prerequisite_lane_count": 3,
+      "backend_health_summary": "Local prerequisite truth is coming from the backend health surface.",
+      "control_shell_dom_mount": {
+        "mounted": true,
+        "summary_panel_found": true,
+        "fact_row_count": 9,
+        "summary_count": 3
+      },
+      "renders_prerequisite_lane_rows": true,
+      "renders_backend_health_summary": true,
+      "renders_visible_prerequisite_summary": true,
+      "rendered_backend_health_summary_text": "Local prerequisite truth is coming from the backend health surface.",
+      "rendered_visible_prerequisite_summary_text": "Prerequisite lanes: LLM lane: missing - Ollama model hint for llama3.1:8b is not ready. Ollama for Windows is not ready. | STT lane: missing - The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet. The Faster-Whisper provider entrypoint is still missing from the managed provider root. | TTS lane: missing - The approved GPT-SoVITS payload has not been placed under the managed TTS root yet. The GPT-SoVITS provider entrypoint is still missing from the managed provider root.",
+      "rendered_prerequisite_lane_rows": [
+        {
+          "id": "llm",
+          "row_text": "LLM lane: missing - Ollama model hint for llama3.1:8b is not ready. Ollama for Windows is not ready.",
+          "rendered": true
+        },
+        {
+          "id": "stt",
+          "row_text": "STT lane: missing - The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet. The Faster-Whisper provider entrypoint is still missing from the managed provider root.",
+          "rendered": true
+        },
+        {
+          "id": "tts",
+          "row_text": "TTS lane: missing - The approved GPT-SoVITS payload has not been placed under the managed TTS root yet. The GPT-SoVITS provider entrypoint is still missing from the managed provider root.",
+          "rendered": true
+        }
+      ],
+      "visible_prerequisite_summary": "Prerequisite lanes: LLM lane: missing - Ollama model hint for llama3.1:8b is not ready. Ollama for Windows is not ready. | STT lane: missing - The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet. The Faster-Whisper provider entrypoint is still missing from the managed provider root. | TTS lane: missing - The approved GPT-SoVITS payload has not been placed under the managed TTS root yet. The GPT-SoVITS provider entrypoint is still missing from the managed provider root.",
+      "prerequisite_lanes": [
+        {
+          "id": "llm",
+          "label": "LLM lane",
+          "state": "missing",
+          "blocker_detail": "Ollama model hint for llama3.1:8b is not ready. Ollama for Windows is not ready.",
+          "status_label": "missing - Ollama model hint for llama3.1:8b is not ready. Ollama for Windows is not ready."
+        },
+        {
+          "id": "stt",
+          "label": "STT lane",
+          "state": "missing",
+          "blocker_detail": "The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet. The Faster-Whisper provider entrypoint is still missing from the managed provider root.",
+          "status_label": "missing - The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet. The Faster-Whisper provider entrypoint is still missing from the managed provider root."
+        },
+        {
+          "id": "tts",
+          "label": "TTS lane",
+          "state": "missing",
+          "blocker_detail": "The approved GPT-SoVITS payload has not been placed under the managed TTS root yet. The GPT-SoVITS provider entrypoint is still missing from the managed provider root.",
+          "status_label": "missing - The approved GPT-SoVITS payload has not been placed under the managed TTS root yet. The GPT-SoVITS provider entrypoint is still missing from the managed provider root."
+        }
+      ]
+    },
+    "success_sync_runtime": {
+      "requested_character_id": "test-vrm-04",
+      "backend_confirmed_character_id": "test-vrm-04",
+      "selected_character_id": "test-vrm-04",
+      "message": "Active character updated.",
+      "session_id": "session-scaffold-01",
+      "matched_backend_confirmed_character": true
+    },
+    "rejection_sync_runtime": {
+      "requested_character_id": "missing-character",
+      "backend_confirmed_character_id": "test-vrm-01",
+      "selected_character_id": "test-vrm-01",
+      "message": "Requested character is unavailable.",
+      "session_id": "session-scaffold-01",
+      "matched_backend_confirmed_character": true
+    }
+  }
 }

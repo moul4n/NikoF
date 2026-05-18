@@ -24,6 +24,7 @@ DEFAULT_SHARED_ANIMATION_IDS = frozenset(
         "speak.loop",
         "reply.speaking.loop",
         "greet.wave.once",
+        "gesture.punch.once",
     }
 )
 
@@ -33,6 +34,7 @@ SESSION_LIFECYCLE_TO_SEMANTIC_ID = {
     "idle": DEFAULT_FALLBACK_SEMANTIC_ID,
     "listen": "listen.loop",
     "speak": "speak.loop",
+    "debug.punch": "gesture.punch.once",
 }
 
 DEFAULT_PLAYBACK_LIBRARY = {
@@ -63,6 +65,12 @@ DEFAULT_PLAYBACK_LIBRARY = {
         mode="oneshot",
         blend_hint="upper_body_additive",
         expected_duration_ms=1400,
+        loop=False,
+    ),
+    "gesture.punch.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=1000,
         loop=False,
     ),
 }

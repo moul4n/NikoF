@@ -1,0 +1,41 @@
+{
+  "files.exclude": {
+    "**/.tmp/**": true,
+    "**/.tmp-mouse-cdp/**": true,
+    "**/.venv/**": true,
+    "**/.venv-test/**": true,
+    "**/frontend/node_modules/**": true,
+    "**/tests/stability/artifacts/current/**": true,
+    "**/tests/stability/artifacts/reports/**": true,
+    "**/Library/**": true,
+    "**/Logs/**": true,
+    "**/ProjectSettings/**": true,
+    "**/UserSettings/**": true
+  },
+  "search.exclude": {
+    "**/.tmp/**": true,
+    "**/.tmp-mouse-cdp/**": true,
+    "**/.venv/**": true,
+    "**/.venv-test/**": true,
+    "**/frontend/node_modules/**": true,
+    "**/tests/stability/artifacts/current/**": true,
+    "**/tests/stability/artifacts/reports/**": true,
+    "**/Library/**": true,
+    "**/Logs/**": true,
+    "**/ProjectSettings/**": true,
+    "**/UserSettings/**": true
+  },
+  "files.watcherExclude": {
+    "**/.tmp/**": true,
+    "**/.tmp-mouse-cdp/**": true,
+    "**/.venv/**": true,
+    "**/.venv-test/**": true,
+    "**/frontend/node_modules/**": true,
+    "**/tests/stability/artifacts/current/**": true,
+    "**/tests/stability/artifacts/reports/**": true,
+    "**/Library/**": true,
+    "**/Logs/**": true,
+    "**/ProjectSettings/**": true,
+    "**/UserSettings/**": true
+  }
+}

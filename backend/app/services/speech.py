@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import json
 from pathlib import Path
+import subprocess
+import sys
+import threading
 import time
-from typing import Iterator, Protocol
+from typing import Any, Iterator, Protocol
 
 from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import (
@@ -28,6 +32,47 @@ from app.services.session import InvalidEventCursor, SessionEventStore
 
 SESSION_STREAM = "session"
 SPEECH_LIFECYCLE_STREAM = "speech.lifecycle"
+RUNTIME_CONFIG_FILE_NAME = "runtime.json"
+PUBLIC_SESSION_SPEECH_ARTIFACT_PREFIX = "/api/session/speech-artifacts"
+_GPT_SOVITS_SYNTHESIS_SINGLE_FLIGHT = threading.Lock()
+
+
+def _read_runtime_config(*roots: Path) -> tuple[dict[str, Any], Path | None]:
+    for root in roots:
+        config_path = root / RUNTIME_CONFIG_FILE_NAME
+        if not config_path.is_file():
+            continue
+
+        try:
+            decoded = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        if isinstance(decoded, dict):
+            return decoded, config_path
+
+    return {}, None
+
+
+def _resolve_relative_entrypoint(provider_root: Path, raw_value: Any) -> Path | None:
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return None
+
+    candidate = (provider_root / raw_value.strip()).resolve()
+    provider_root_resolved = provider_root.resolve()
+    try:
+        candidate.relative_to(provider_root_resolved)
+    except ValueError:
+        return None
+
+    return candidate
+
+
+def _normalize_python_executable(raw_value: Any) -> str:
+    if isinstance(raw_value, str) and raw_value.strip():
+        return raw_value.strip()
+
+    return sys.executable
 
 
 @dataclass(slots=True, frozen=True)
@@ -46,6 +91,8 @@ class SpeechSynthesisRequest:
     locale: str
     profile_id: str = TTS_BASELINE_PROFILE_IDS[0]
     timing: SpeechTimingMetadata | None = None
+    voice_profile_id: str | None = None
+    voice_profile: dict[str, Any] | None = None
 
 
 class SpeechTranscriptionService(Protocol):
@@ -144,6 +191,407 @@ class SpeechAdapterRuntimeBinding:
     model_root: Path
     invocation_entrypoint: Path
     configured: bool
+    runtime_config_path: Path | None = None
+    python_executable: str = sys.executable
+    timeout_seconds: int = 20
+
+
+class SpeechAdapterInvocationError(RuntimeError):
+    """Raised when a local speech adapter cannot complete a request."""
+
+
+def _resolve_invocation_entrypoint(provider_root: Path, primary_name: str, fallback_name: str) -> Path:
+    primary_entrypoint = provider_root / primary_name
+    fallback_entrypoint = provider_root / fallback_name
+    if primary_entrypoint.exists() or not fallback_entrypoint.exists():
+        return primary_entrypoint
+
+    return fallback_entrypoint
+
+
+def _run_json_entrypoint(
+    entrypoint: Path,
+    payload: dict[str, Any],
+    *,
+    python_executable: str = sys.executable,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            [python_executable, str(entrypoint)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise SpeechAdapterInvocationError("execution-failed") from error
+
+    if completed.returncode != 0:
+        raise SpeechAdapterInvocationError("execution-failed")
+
+    try:
+        decoded = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise SpeechAdapterInvocationError("invalid-json") from error
+
+    if not isinstance(decoded, dict):
+        raise SpeechAdapterInvocationError("invalid-payload")
+
+    return decoded
+
+
+def _normalize_contract_status(raw_status: Any, *, success: bool) -> str:
+    normalized = str(raw_status or "").strip().lower()
+    if normalized in {"unavailable", "missing", "not_configured"}:
+        return "unavailable"
+
+    if normalized in {"degraded"}:
+        return "degraded"
+
+    if normalized in {"error", "failed"}:
+        return "error"
+
+    if normalized in {"ready", "ok", "success", "completed", "final"}:
+        return "ready" if success else "error"
+
+    return "ready" if success else "error"
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_audio_format(
+    raw_value: Any,
+    *,
+    fallback: AudioFormatMetadata | None,
+) -> AudioFormatMetadata | None:
+    if not isinstance(raw_value, dict):
+        return fallback
+
+    if fallback is None:
+        fallback = AudioFormatMetadata(
+            container="wav",
+            encoding="pcm_s16le",
+            sample_rate_hz=24000,
+            channels=1,
+        )
+
+    return AudioFormatMetadata(
+        container=str(raw_value.get("container") or fallback.container),
+        encoding=str(raw_value.get("encoding") or fallback.encoding),
+        sample_rate_hz=_coerce_int(raw_value.get("sample_rate_hz"), fallback.sample_rate_hz),
+        channels=_coerce_int(raw_value.get("channels"), fallback.channels),
+    )
+
+
+def _normalize_segment_ranges(raw_value: Any) -> tuple[SpeechSegmentRange, ...]:
+    if not isinstance(raw_value, list):
+        return tuple()
+
+    return tuple(
+        SpeechSegmentRange(
+            start_ms=_coerce_int(item.get("start_ms"), 0),
+            end_ms=_coerce_int(item.get("end_ms"), 0),
+            text=str(item.get("text")) if item.get("text") is not None else None,
+        )
+        for item in raw_value
+        if isinstance(item, dict)
+    )
+
+
+def _normalize_phoneme_slots(raw_value: Any) -> tuple[SpeechPhonemeSlot, ...]:
+    if not isinstance(raw_value, list):
+        return tuple()
+
+    return tuple(
+        SpeechPhonemeSlot(
+            phoneme=str(item.get("phoneme") or ""),
+            start_ms=_coerce_int(item.get("start_ms"), 0),
+            end_ms=_coerce_int(item.get("end_ms"), 0),
+        )
+        for item in raw_value
+        if isinstance(item, dict) and str(item.get("phoneme") or "").strip()
+    )
+
+
+def _normalize_viseme_slots(raw_value: Any) -> tuple[SpeechVisemeSlot, ...]:
+    if not isinstance(raw_value, list):
+        return tuple()
+
+    return tuple(
+        SpeechVisemeSlot(
+            viseme=str(item.get("viseme") or ""),
+            start_ms=_coerce_int(item.get("start_ms"), 0),
+            end_ms=_coerce_int(item.get("end_ms"), 0),
+        )
+        for item in raw_value
+        if isinstance(item, dict) and str(item.get("viseme") or "").strip()
+    )
+
+
+def _normalize_timing(
+    raw_value: Any,
+    *,
+    fallback: SpeechTimingMetadata,
+) -> SpeechTimingMetadata:
+    if not isinstance(raw_value, dict):
+        return fallback
+
+    segment_ranges = _normalize_segment_ranges(raw_value.get("segment_ranges")) or fallback.segment_ranges
+    utterance_duration_ms = _coerce_int(
+        raw_value.get("utterance_duration_ms"),
+        fallback.utterance_duration_ms,
+    )
+    if utterance_duration_ms <= 0 and segment_ranges:
+        utterance_duration_ms = max(segment.end_ms for segment in segment_ranges)
+
+    return SpeechTimingMetadata(
+        utterance_duration_ms=utterance_duration_ms,
+        segment_ranges=segment_ranges,
+        audio_format=_normalize_audio_format(
+            raw_value.get("audio_format"),
+            fallback=fallback.audio_format,
+        ),
+        phoneme_slots=(
+            _normalize_phoneme_slots(raw_value.get("phoneme_slots")) or fallback.phoneme_slots
+        ),
+        viseme_slots=(
+            _normalize_viseme_slots(raw_value.get("viseme_slots")) or fallback.viseme_slots
+        ),
+    )
+
+
+def _normalize_audio_reference(raw_value: Any, *, provider_root: Path, model_root: Path) -> str | None:
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return None
+
+    normalized_value = raw_value.strip()
+    if "://" in normalized_value:
+        return normalized_value
+
+    raw_path = Path(normalized_value)
+    if raw_path.is_absolute():
+        return str(raw_path) if raw_path.exists() else None
+
+    for base_root in (provider_root, model_root):
+        resolved = (base_root / raw_path).resolve()
+        if resolved.exists():
+            return str(resolved)
+
+    return None
+
+
+def _looks_like_machine_local_audio_reference(raw_value: str) -> bool:
+    normalized_value = raw_value.strip()
+    if not normalized_value or normalized_value.startswith("session://"):
+        return False
+
+    if "://" in normalized_value:
+        return False
+
+    return Path(normalized_value).is_absolute()
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+
+    return True
+
+
+def _resolve_public_speech_audio_artifact_path(audio_reference: str) -> Path | None:
+    if not _looks_like_machine_local_audio_reference(audio_reference):
+        return None
+
+    audio_path = Path(audio_reference).resolve()
+    if not audio_path.is_file():
+        return None
+
+    app_paths = get_app_paths()
+    allowed_roots = (
+        app_paths.tts_models_root.resolve(),
+        app_paths.cache_root.resolve(),
+    )
+    if not any(_is_relative_to(audio_path, root) for root in allowed_roots):
+        return None
+
+    return audio_path
+
+
+def build_public_speech_audio_reference(*, event_id: str) -> str:
+    return f"{PUBLIC_SESSION_SPEECH_ARTIFACT_PREFIX}/{event_id}/audio"
+
+
+def project_public_session_event(
+    event: SessionEvent,
+    *,
+    audio_event_id: str | None = None,
+) -> SessionEvent:
+    synthesis = event.synthesis
+    if synthesis is None or synthesis.audio_reference is None or audio_event_id is None:
+        return event
+
+    if _resolve_public_speech_audio_artifact_path(synthesis.audio_reference) is None:
+        return event
+
+    return replace(
+        event,
+        synthesis=replace(
+            synthesis,
+            audio_reference=build_public_speech_audio_reference(event_id=audio_event_id),
+        ),
+    )
+
+
+def project_public_speech_lifecycle_envelope(
+    envelope: SpeechLifecycleEventEnvelope,
+) -> SpeechLifecycleEventEnvelope:
+    projected_event = project_public_session_event(
+        envelope.event,
+        audio_event_id=envelope.event_id,
+    )
+    if projected_event == envelope.event:
+        return envelope
+
+    return replace(envelope, event=projected_event)
+
+
+def project_public_speech_lifecycle_snapshot(
+    snapshot: SpeechLifecycleTransportSnapshot,
+) -> SpeechLifecycleTransportSnapshot:
+    return replace(
+        snapshot,
+        events=tuple(project_public_speech_lifecycle_envelope(envelope) for envelope in snapshot.events),
+    )
+
+
+def resolve_session_speech_artifact_path(
+    event_store: SessionEventStore,
+    *,
+    session_id: str,
+    event_id: str,
+) -> Path | None:
+    for envelope in event_store.read(SPEECH_LIFECYCLE_STREAM, session_id=session_id):
+        if envelope.event_id != event_id:
+            continue
+
+        synthesis = envelope.event.synthesis
+        if synthesis is None or synthesis.audio_reference is None:
+            return None
+
+        return _resolve_public_speech_audio_artifact_path(synthesis.audio_reference)
+
+    return None
+
+
+def _normalize_string(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _normalize_voice_profile_payload(
+    raw_value: Any,
+    *,
+    provider_root: Path,
+    model_root: Path,
+) -> dict[str, Any]:
+    if not isinstance(raw_value, dict):
+        return {}
+
+    normalized: dict[str, Any] = {}
+    for key in (
+        "profile_id",
+        "provider",
+        "style",
+        "notes",
+        "speaker",
+        "prompt_text",
+        "prompt_language",
+        "reference_text",
+        "text_language",
+    ):
+        value = _normalize_string(raw_value.get(key))
+        if value is not None:
+            normalized[key] = value
+
+    reference_audio = _normalize_audio_reference(
+        raw_value.get("reference_audio"),
+        provider_root=provider_root,
+        model_root=model_root,
+    )
+    if reference_audio is not None:
+        normalized["reference_audio"] = reference_audio
+
+    for key in ("speed", "temperature", "top_p", "repetition_penalty"):
+        value = _coerce_float(raw_value.get(key))
+        if value is not None:
+            normalized[key] = value
+
+    top_k = _coerce_int(raw_value.get("top_k"), -1)
+    if top_k >= 0:
+        normalized["top_k"] = top_k
+
+    seed = _coerce_int(raw_value.get("seed"), -1)
+    if seed >= 0:
+        normalized["seed"] = seed
+
+    return normalized
+
+
+def _normalize_runtime_synthesis_options(
+    raw_value: Any,
+    *,
+    locale: str,
+    provider_root: Path,
+    model_root: Path,
+) -> dict[str, Any]:
+    if not isinstance(raw_value, dict):
+        return {}
+
+    source = raw_value.get("synthesis") if isinstance(raw_value.get("synthesis"), dict) else raw_value
+    normalized = _normalize_voice_profile_payload(
+        source,
+        provider_root=provider_root,
+        model_root=model_root,
+    )
+    if "text_language" not in normalized:
+        normalized["text_language"] = locale
+    return normalized
+
+
+def _merge_synthesis_options(
+    runtime_options: dict[str, Any],
+    voice_profile: dict[str, Any],
+) -> dict[str, Any]:
+    if not runtime_options and not voice_profile:
+        return {}
+
+    merged = dict(runtime_options)
+    for key, value in voice_profile.items():
+        if value is None:
+            continue
+
+        merged[key] = value
+
+    return merged
 
 
 def _resolve_profile_family(profile_id: str) -> str:
@@ -186,7 +634,7 @@ class StubSpeechTranscriptionService:
 
 @dataclass(slots=True)
 class FasterWhisperTranscriptionAdapter(StubSpeechTranscriptionService):
-    """Configuration-aware shell for future Faster-Whisper-backed transcription."""
+    """Configuration-aware Faster-Whisper adapter behind the local provider contract."""
 
     app_paths: AppPaths = field(default_factory=get_app_paths)
     model_directories: dict[str, str] = field(
@@ -200,7 +648,15 @@ class FasterWhisperTranscriptionAdapter(StubSpeechTranscriptionService):
         model_directory = self.model_directories.get(request.profile_id, "faster-whisper-medium")
         provider_root = self.app_paths.providers_root / "stt" / "faster-whisper"
         model_root = self.app_paths.stt_models_root / model_directory
-        invocation_entrypoint = provider_root / "transcribe.py"
+        runtime_config, runtime_config_path = _read_runtime_config(model_root, provider_root)
+        invocation_entrypoint = _resolve_relative_entrypoint(
+            provider_root,
+            runtime_config.get("entrypoint"),
+        ) or _resolve_invocation_entrypoint(
+            provider_root,
+            "transcribe.py",
+            "main.py",
+        )
         return SpeechAdapterRuntimeBinding(
             profile_id=request.profile_id,
             modality="stt",
@@ -208,7 +664,83 @@ class FasterWhisperTranscriptionAdapter(StubSpeechTranscriptionService):
             provider_root=provider_root,
             model_root=model_root,
             invocation_entrypoint=invocation_entrypoint,
-            configured=provider_root.exists() and model_root.exists(),
+            configured=provider_root.exists()
+            and model_root.exists()
+            and invocation_entrypoint.exists(),
+            runtime_config_path=runtime_config_path,
+            python_executable=_normalize_python_executable(runtime_config.get("python_executable")),
+            timeout_seconds=max(1, _coerce_int(runtime_config.get("timeout_seconds"), 20)),
+        )
+
+    def transcribe(self, request: SpeechTranscriptionRequest) -> SpeechTranscriptionContract:
+        binding = self.binding_for(request)
+        fallback_timing = request.timing or self.default_timing
+        if not binding.configured:
+            return SpeechTranscriptionContract(
+                profile_id=request.profile_id,
+                status="unavailable",
+                locale=request.locale,
+                transcript=request.transcript_hint or "Local transcription is unavailable.",
+                confidence=request.confidence_hint,
+                timing=fallback_timing,
+            )
+
+        try:
+            response = _run_json_entrypoint(
+                binding.invocation_entrypoint,
+                {
+                    "profile_id": request.profile_id,
+                    "audio_reference": request.audio_reference,
+                    "locale": request.locale,
+                    "transcript_hint": request.transcript_hint,
+                    "confidence_hint": request.confidence_hint,
+                    "model_root": str(binding.model_root),
+                    "provider_root": str(binding.provider_root),
+                    "timing": None if request.timing is None else {
+                        "utterance_duration_ms": request.timing.utterance_duration_ms,
+                        "segment_ranges": [
+                            {
+                                "start_ms": segment.start_ms,
+                                "end_ms": segment.end_ms,
+                                "text": segment.text,
+                            }
+                            for segment in request.timing.segment_ranges
+                        ],
+                    },
+                },
+                python_executable=binding.python_executable,
+                timeout_seconds=binding.timeout_seconds,
+            )
+        except SpeechAdapterInvocationError as error:
+            status = "unavailable" if str(error) == "execution-failed" else "error"
+            return SpeechTranscriptionContract(
+                profile_id=request.profile_id,
+                status=status,
+                locale=request.locale,
+                transcript=request.transcript_hint or "Local transcription is unavailable.",
+                confidence=request.confidence_hint,
+                timing=fallback_timing,
+            )
+
+        transcript = str(
+            response.get("transcript")
+            or response.get("text")
+            or request.transcript_hint
+            or ""
+        )
+        success = bool(transcript.strip())
+        status = _normalize_contract_status(response.get("status"), success=success)
+        confidence = _coerce_float(response.get("confidence"))
+        if confidence is None:
+            confidence = request.confidence_hint
+
+        return SpeechTranscriptionContract(
+            profile_id=request.profile_id,
+            status=status,
+            locale=str(response.get("locale") or request.locale),
+            transcript=transcript,
+            confidence=confidence,
+            timing=_normalize_timing(response.get("timing"), fallback=fallback_timing),
         )
 
 
@@ -267,7 +799,15 @@ class GptSovitsSynthesisAdapter(StubSpeechSynthesisService):
         model_directory = self.model_directories.get(request.profile_id, "gpt-sovits")
         provider_root = self.app_paths.providers_root / "tts" / "gpt-sovits"
         model_root = self.app_paths.tts_models_root / model_directory
-        invocation_entrypoint = provider_root / "api_server.py"
+        runtime_config, runtime_config_path = _read_runtime_config(model_root, provider_root)
+        invocation_entrypoint = _resolve_relative_entrypoint(
+            provider_root,
+            runtime_config.get("entrypoint"),
+        ) or _resolve_invocation_entrypoint(
+            provider_root,
+            "synthesize.py",
+            "api_server.py",
+        )
         return SpeechAdapterRuntimeBinding(
             profile_id=request.profile_id,
             modality="tts",
@@ -275,7 +815,101 @@ class GptSovitsSynthesisAdapter(StubSpeechSynthesisService):
             provider_root=provider_root,
             model_root=model_root,
             invocation_entrypoint=invocation_entrypoint,
-            configured=provider_root.exists() and model_root.exists(),
+            configured=provider_root.exists()
+            and model_root.exists()
+            and invocation_entrypoint.exists(),
+            runtime_config_path=runtime_config_path,
+            python_executable=_normalize_python_executable(runtime_config.get("python_executable")),
+            timeout_seconds=max(1, _coerce_int(runtime_config.get("timeout_seconds"), 20)),
+        )
+
+    def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
+        binding = self.binding_for(request)
+        fallback_timing = request.timing or self.default_timing
+        if not binding.configured:
+            return SpeechSynthesisContract(
+                profile_id=request.profile_id,
+                status="unavailable",
+                text=request.text,
+                locale=request.locale,
+                timing=fallback_timing,
+            )
+
+        runtime_config, _ = _read_runtime_config(binding.model_root, binding.provider_root)
+        voice_profile = _normalize_voice_profile_payload(
+            request.voice_profile,
+            provider_root=binding.provider_root,
+            model_root=binding.model_root,
+        )
+        synthesis_options = _merge_synthesis_options(
+            _normalize_runtime_synthesis_options(
+                runtime_config,
+                locale=request.locale,
+                provider_root=binding.provider_root,
+                model_root=binding.model_root,
+            ),
+            voice_profile,
+        )
+
+        try:
+            with _GPT_SOVITS_SYNTHESIS_SINGLE_FLIGHT:
+                response = _run_json_entrypoint(
+                    binding.invocation_entrypoint,
+                    {
+                        "profile_id": request.profile_id,
+                        "voice_profile_id": request.voice_profile_id
+                        or _normalize_string(voice_profile.get("profile_id"))
+                        or _normalize_string(synthesis_options.get("profile_id")),
+                        "text": request.text,
+                        "locale": request.locale,
+                        "model_root": str(binding.model_root),
+                        "provider_root": str(binding.provider_root),
+                        "voice_profile": voice_profile or None,
+                        "synthesis_options": synthesis_options or None,
+                        "timing": None if request.timing is None else {
+                            "utterance_duration_ms": request.timing.utterance_duration_ms,
+                            "segment_ranges": [
+                                {
+                                    "start_ms": segment.start_ms,
+                                    "end_ms": segment.end_ms,
+                                    "text": segment.text,
+                                }
+                                for segment in request.timing.segment_ranges
+                            ],
+                        },
+                    },
+                    python_executable=binding.python_executable,
+                    timeout_seconds=binding.timeout_seconds,
+                )
+        except SpeechAdapterInvocationError as error:
+            status = "unavailable" if str(error) == "execution-failed" else "error"
+            return SpeechSynthesisContract(
+                profile_id=request.profile_id,
+                status=status,
+                text=request.text,
+                locale=request.locale,
+                timing=fallback_timing,
+            )
+
+        audio_reference = _normalize_audio_reference(
+            response.get("audio_reference")
+            or response.get("audio_path")
+            or response.get("output_path")
+            or response.get("wav_path"),
+            provider_root=binding.provider_root,
+            model_root=binding.model_root,
+        )
+        timing = _normalize_timing(response.get("timing"), fallback=fallback_timing)
+        success = audio_reference is not None
+        status = _normalize_contract_status(response.get("status"), success=success)
+
+        return SpeechSynthesisContract(
+            profile_id=request.profile_id,
+            status=status,
+            text=str(response.get("text") or request.text),
+            locale=str(response.get("locale") or request.locale),
+            audio_reference=audio_reference,
+            timing=timing,
         )
 
 
@@ -303,16 +937,18 @@ class StubSpeechLifecycleSnapshotService:
                 after_cursor=cursor,
             )
             if events or not self.fallback_on_empty:
-                return SpeechLifecycleTransportSnapshot(
-                    schema_version=1,
-                    stream=SPEECH_LIFECYCLE_STREAM,
-                    delivery="snapshot",
-                    session_id=snapshot.session_id,
-                    next_cursor=self.event_store.next_cursor(
-                        SPEECH_LIFECYCLE_STREAM,
+                return project_public_speech_lifecycle_snapshot(
+                    SpeechLifecycleTransportSnapshot(
+                        schema_version=1,
+                        stream=SPEECH_LIFECYCLE_STREAM,
+                        delivery="snapshot",
                         session_id=snapshot.session_id,
-                    ),
-                    events=events,
+                        next_cursor=self.event_store.next_cursor(
+                            SPEECH_LIFECYCLE_STREAM,
+                            session_id=snapshot.session_id,
+                        ),
+                        events=events,
+                    )
                 )
 
         transcription_service = self.transcription_service or StubSpeechTranscriptionService()
@@ -367,13 +1003,15 @@ class StubSpeechLifecycleSnapshotService:
             if sequence > after_sequence
         )
 
-        return SpeechLifecycleTransportSnapshot(
-            schema_version=1,
-            stream=SPEECH_LIFECYCLE_STREAM,
-            delivery="snapshot",
-            session_id=snapshot.session_id,
-            next_cursor=f"{SPEECH_LIFECYCLE_STREAM}:{snapshot.session_id}:{len(events) + 1}",
-            events=envelopes,
+        return project_public_speech_lifecycle_snapshot(
+            SpeechLifecycleTransportSnapshot(
+                schema_version=1,
+                stream=SPEECH_LIFECYCLE_STREAM,
+                delivery="snapshot",
+                session_id=snapshot.session_id,
+                next_cursor=f"{SPEECH_LIFECYCLE_STREAM}:{snapshot.session_id}:{len(events) + 1}",
+                events=envelopes,
+            )
         )
 
 

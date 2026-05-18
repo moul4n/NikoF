@@ -5,7 +5,7 @@
     "promotion_status": "not_promoted",
     "source": {
         "kind": "unity_text_animation_clip",
-        "path": "assets/animations/raw/Action",
+        "path": "assets/animations/raw/Action Idle To Fight Idle.anim",
         "provenance": "raw_source_asset"
     },
     "unity_clip": {

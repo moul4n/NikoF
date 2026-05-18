@@ -21,16 +21,24 @@ implemented.
 - Real HTTP handlers belong in `app/api/` once FastAPI is introduced.
 - Local STT, LLM, TTS, and memory providers should sit behind dedicated services, not route modules.
 - Normalized speech adapter contracts live in `app/schemas/session.py`. The Faster-Whisper and GPT-SoVITS adapters now execute behind those schema types instead of widening route payloads or introducing provider-shaped API responses.
+- The backend-owned `POST /session/operator-command` seam now pins `text_question` to `llm.ollama.llama3.1-8b-2026` and `tts_preview` to `tts.gpt-sovits.2026-stable`, while keeping the request and response envelopes unchanged.
+- `text_question` now shapes the Ollama prompt for spoken-output discipline and only invokes GPT-SoVITS when the assistant reply is actually ready, so degraded LLM states no longer synthesize fallback error text as if the voice lane were healthy.
 - Baseline speech profile ids are locked for planning and fixture coverage: `stt.faster-whisper.medium-2026`, `stt.faster-whisper.small-2026`, and `tts.gpt-sovits.2026-stable`.
 - Persistent session state can replace the in-memory session stub without changing route contracts.
 
-## Local Speech Adapter Expectations
+## Local AI Adapter Expectations
+
+- `app/services/llm.py` resolves the Ollama-backed LLaMA lane only from `NIKOF_LLM_MODELS_ROOT` and `NIKOF_PROVIDERS_ROOT`. The default binding expects `NIKOF_PROVIDERS_ROOT/llm/ollama/` plus `NIKOF_LLM_MODELS_ROOT/ollama-llama3.1-8b/` to exist.
+- The Ollama adapter uses `http://127.0.0.1:11434/api/generate` by default and `llama3.1:8b` as the default model tag. If a local machine needs a different tag or endpoint, place a machine-local `runtime.json` under the model root or provider root instead of adding new repo-tracked settings.
+- When the local Ollama roots are present but the runtime is unreachable, the adapter returns the existing normalized `unavailable` or `error` assistant contract instead of leaking the raw Ollama payload or transport failure.
 
 - `app/services/speech.py` resolves speech runtimes only from the bootstrap-managed local roots in `NIKOF_STT_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, and `NIKOF_PROVIDERS_ROOT`.
-- Faster-Whisper transcription first tries inline execution when `faster_whisper` is importable in the backend environment. If that package is unavailable, it falls back to a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT/stt/faster-whisper/transcribe.py` or `main.py` and sends one JSON request over stdin.
-- GPT-SoVITS synthesis executes through a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT/tts/gpt-sovits/synthesize.py` or `api_server.py`, again using one JSON request over stdin and one JSON response over stdout.
-- Provider entrypoints must return normalized JSON fields only: `status`, `locale`, optional `transcript` or `text`, optional `confidence`, and optional `timing` with `utterance_duration_ms`, `segment_ranges`, `audio_format`, and optional `phoneme_slots` or `viseme_slots`.
-- When the local model payload, audio input, runtime, or provider entrypoint is absent, the adapters return deterministic normalized `unavailable` or `error` contracts instead of raising raw provider failures into route payloads.
+- Faster-Whisper transcription is still a normalized stub contract in the current repo slice. The backend already resolves the expected `NIKOF_STT_MODELS_ROOT` and `NIKOF_PROVIDERS_ROOT` locations for the future adapter, but real inline or provider-entrypoint execution is not landed yet.
+- GPT-SoVITS synthesis now executes through a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT/tts/gpt-sovits/synthesize.py`, falling back to `api_server.py` only when the dedicated synth entrypoint is absent. The backend sends one JSON request over stdin and expects one JSON response over stdout.
+- GPT-SoVITS request shaping now merges the active character's checked-in `voice/profile.json` defaults with machine-local `runtime.json` overrides under the configured TTS model root or provider root. Keep speaker references, prompt text, reference audio, and other vendor payload details in those local roots rather than in git.
+- Provider entrypoints must return normalized JSON fields only: `status`, `locale`, optional `transcript` or `text`, optional `confidence`, optional `audio_reference`, and optional `timing` with `utterance_duration_ms`, `segment_ranges`, `audio_format`, and optional `phoneme_slots` or `viseme_slots`.
+- GPT-SoVITS ready-state normalization now requires a real `audio_reference`. Missing local roots or entrypoints produce `unavailable`; invocation failures or malformed payloads produce `error`.
+- When the local model payload, runtime, or provider entrypoint is absent, the adapters return deterministic normalized `unavailable` or `error` contracts instead of raising raw provider failures into route payloads.
 
 ## Quick check
 
@@ -38,8 +46,15 @@ From the repo root:
 
 ```powershell
 Set-Location backend
-python -m app.main
-python -m compileall app
+..\.venv\Scripts\python.exe -m app.dev_server
+..\.venv\Scripts\python.exe -m app.main
+..\.venv\Scripts\python.exe -m compileall app
 ```
 
-`python -m app.main` prints a normalized contract snapshot for the current scaffold so you can inspect Stage 1 responses without FastAPI or any STT, TTS, LLM, or memory providers installed.
+`..\.venv\Scripts\python.exe -m app.dev_server` is the canonical backend dev start command and binds the API to `http://127.0.0.1:8000`.
+
+If port `8000` is already occupied, `app.dev_server` now fails fast with a specific message that distinguishes an already-healthy backend from a stale listener that is holding the port without answering `/health`.
+
+If required local LLM or TTS prerequisites are still missing, `app.dev_server` stays in degraded mode but now prints the exact expected path, the matching bootstrap resume hook when one exists, and the generated hint-file path for the missing prerequisite.
+
+`..\.venv\Scripts\python.exe -m app.main` prints a normalized contract snapshot for the current scaffold so you can inspect Stage 1 responses without FastAPI or any STT, TTS, LLM, or memory providers installed.

@@ -4,6 +4,10 @@
   "runner": "python",
   "tracked_inputs": [
     "backend/app/api/router.py",
+    "backend/app/api/router_composition.py",
+    "backend/app/api/read_routes.py",
+    "backend/app/api/active_character_routes.py",
+    "backend/app/api/response_builders.py",
     "backend/app/core/settings.py",
     "backend/app/schemas/session.py",
     "backend/app/schemas/character.py",
@@ -19,10 +23,7 @@
     "response_keys": [
       "characters",
       "get_active_character",
-      "get_speech_lifecycle",
       "health",
-      "post_operator_command_text_question",
-      "post_operator_command_tts_preview",
       "put_active_character",
       "put_active_character_invalid"
     ],
@@ -34,6 +35,7 @@
     "health_diagnostics_keys": [
       "character_packages_available",
       "notes",
+      "prerequisite_lanes",
       "storage_probes"
     ],
     "health_storage_probe_keys": [
@@ -41,6 +43,17 @@
       "configured_by",
       "name",
       "required_for_stage"
+    ],
+    "health_prerequisite_lane_keys": [
+      "blockers",
+      "display_name",
+      "id",
+      "state"
+    ],
+    "health_prerequisite_blocker_keys": [
+      "id",
+      "status",
+      "summary"
     ],
     "character_catalog_keys": [
       "active_character_id",

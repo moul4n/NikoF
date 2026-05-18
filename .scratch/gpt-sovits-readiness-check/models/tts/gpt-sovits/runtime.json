@@ -1,0 +1,9 @@
+{
+  "weights_root": ".\\weights",
+  "speaker_manifest": ".\\speakers\\default.json",
+  "reference_audio_root": ".\\reference-audio",
+  "notes": [
+    "Machine-local GPT-SoVITS model metadata belongs here after you place the vendor payload under NIKOF_TTS_MODELS_ROOT\\gpt-sovits.",
+    "The current backend adapter does not require these keys yet, but bootstrap and startup guidance treat this file as the canonical model-side local manifest."
+  ]
+}

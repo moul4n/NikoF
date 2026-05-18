@@ -22,7 +22,7 @@ function describeOverlayChannel(channel: ReturnType<AvatarRuntimeBridge["snapsho
 }
 
 export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }: AvatarStageProps): JSX.Element {
-  const mountPoints = getAvatarRuntimeMountPoints();
+  const mountPoints = getAvatarRuntimeMountPoints(variant);
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
 
   useEffect(() => {
@@ -51,12 +51,12 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
           : snapshot.mounted
             ? "mounted"
             : "pending mount";
-    const baseLayerLabel = snapshot.baseAnimation?.id ?? snapshot.pendingAnimation?.id ?? snapshot.currentState;
-    const activeOverlayChannels = snapshot.overlayChannels.filter((channel) => channel.active);
-    const overlayActivityLabel =
-      activeOverlayChannels.length > 0 ? activeOverlayChannels.map(describeOverlayChannel).join(" + ") : "overlay idle";
-    const runtimeActivityLabel = `base ${baseLayerLabel} · ${overlayActivityLabel}`;
-    const headerStatusLabel = `${runtimeStatusLabel} · ${runtimeActivityLabel}`;
+  const baseLayerLabel = snapshot.baseAnimation?.id ?? snapshot.pendingAnimation?.id ?? "neutral";
+  const activeOverlayChannels = snapshot.overlayChannels.filter((channel) => channel.active);
+  const overlayActivityLabel =
+    activeOverlayChannels.length > 0 ? activeOverlayChannels.map(describeOverlayChannel).join(" + ") : "overlay idle";
+  const runtimeActivityLabel = `base ${baseLayerLabel} · ${overlayActivityLabel}`;
+  const headerStatusLabel = `${runtimeStatusLabel} · ${runtimeActivityLabel}`;
 
   const shellTitle = variant === "display" ? "Dedicated avatar render window" : "Default character shell";
   const shellEyebrow = variant === "display" ? "Display surface" : "Avatar runtime";
@@ -90,6 +90,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
               <span className="avatar-stage__display-chip">{runtimeStatusLabel}</span>
               <span className="avatar-stage__display-chip">base {baseLayerLabel}</span>
               <span className="avatar-stage__display-chip">{overlayActivityLabel}</span>
+              <span className="avatar-stage__display-chip">left drag rotate · right drag pan · wheel zoom</span>
             </div>
           ) : null}
           <div id={mountPoints.viewportElementId} className="avatar-stage__viewport" />

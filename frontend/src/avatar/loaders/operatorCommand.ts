@@ -7,6 +7,8 @@ type BackendErrorResponseDocument = {
   detail?: string;
 };
 
+export const OPERATOR_COMMAND_ROUTE_PATH = "/session/operator-command";
+
 export class OperatorCommandSubmitError extends Error {
   readonly status: number;
   readonly detail: string | null;
@@ -25,7 +27,7 @@ export async function submitOperatorCommand(
   command: BackendOperatorCommandRequestDocument,
   fetcher: typeof fetch = fetch
 ): Promise<BackendOperatorCommandResponseDocument> {
-  const response = await fetcher(buildBackendApiUrl("/session/operator-command"), {
+  const response = await fetcher(buildBackendApiUrl(OPERATOR_COMMAND_ROUTE_PATH), {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -70,7 +72,7 @@ async function parseOperatorCommandResponse(response: Response): Promise<unknown
 }
 
 function resolveBackendApiBaseUrl(): string {
-  const configuredBaseUrl = import.meta.env.VITE_BACKEND_API_BASE_URL?.trim();
+  const configuredBaseUrl = import.meta.env?.VITE_BACKEND_API_BASE_URL?.trim();
 
   if (!configuredBaseUrl) {
     return "/api";

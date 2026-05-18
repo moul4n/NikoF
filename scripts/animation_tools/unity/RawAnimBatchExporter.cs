@@ -25,6 +25,12 @@ namespace NikoF.AnimationTools
         private const float RightLowerArmFlexRadians = 0.9f;
         private const float LeftLowerArmTwistRadians = 0.2f;
         private const float RightLowerArmTwistRadians = -0.2f;
+        private const string PunchBoneComparisonSemanticId = "gesture.punch.once";
+
+        private static bool IsIdleBoneComparisonSemanticId(string semanticId)
+        {
+            return semanticId.StartsWith("idle.", StringComparison.Ordinal);
+        }
 
         public static void RunFromCommandLine()
         {
@@ -111,11 +117,12 @@ namespace NikoF.AnimationTools
 
             AddDerivedElbowFlexChannels(channels);
             AddDerivedLowerArmRotationHintChannels(channels);
+            var boneTransformComparison = BuildBoneTransformComparison(semanticId, channels, times);
 
             var playbackMode = DeterminePlaybackMode(semanticId, clipSettings.loopTime, channels);
             var rootMotion = DetermineRootMotion(rootX, rootZ);
             var motionProfile = ResolveMotionProfile(semanticId);
-            var exportAudit = BuildExportAudit(channels);
+            var exportAudit = BuildExportAudit(semanticId, channels, boneTransformComparison);
 
             var runtimeDocument = new RuntimeAnimationDocument
             {
@@ -455,26 +462,618 @@ namespace NikoF.AnimationTools
             AddDerivedComponentChannel(channels, displayNamePrefix, normalizedNamePrefix, "w", flexChannel.group, wSamples);
         }
 
-        private static RuntimeExportAuditDocument BuildExportAudit(IReadOnlyCollection<RuntimeChannelDocument> channels)
+        private static RuntimeBoneTransformComparisonDocument BuildBoneTransformComparison(
+            string semanticId,
+            IReadOnlyList<RuntimeChannelDocument> channels,
+            IReadOnlyList<float> times)
+        {
+            if (!ShouldExportBoneTransformComparison(semanticId))
+            {
+                return null;
+            }
+
+            var sampledMuscleChannels = ResolveHumanoidMuscleChannels(channels);
+            var comparisonDefinitions = GetPunchBoneComparisonDefinitions();
+            var rig = CreatePunchComparisonRig();
+
+            // Resolve per-frame body position from RootT channels (critical for correct muscle-to-bone mapping)
+            var rootTxChannel = channels.FirstOrDefault(c => string.Equals(c.normalized_name, "roott_x", StringComparison.Ordinal));
+            var rootTyChannel = channels.FirstOrDefault(c => string.Equals(c.normalized_name, "roott_y", StringComparison.Ordinal));
+            var rootTzChannel = channels.FirstOrDefault(c => string.Equals(c.normalized_name, "roott_z", StringComparison.Ordinal));
+
+            // Resolve per-frame body rotation from RootQ channels
+            var rootQxChannel = channels.FirstOrDefault(c => string.Equals(c.normalized_name, "rootq_x", StringComparison.Ordinal));
+            var rootQyChannel = channels.FirstOrDefault(c => string.Equals(c.normalized_name, "rootq_y", StringComparison.Ordinal));
+            var rootQzChannel = channels.FirstOrDefault(c => string.Equals(c.normalized_name, "rootq_z", StringComparison.Ordinal));
+            var rootQwChannel = channels.FirstOrDefault(c => string.Equals(c.normalized_name, "rootq_w", StringComparison.Ordinal));
+
+            try
+            {
+                var pose = new HumanPose
+                {
+                    bodyPosition = Vector3.zero,
+                    bodyRotation = Quaternion.identity,
+                    muscles = new float[HumanTrait.MuscleCount],
+                };
+
+                var comparisonBones = comparisonDefinitions
+                    .Select(definition => new RuntimeBoneRotationComparisonBoneDocument
+                    {
+                        name = definition.name,
+                        human_body_bone = definition.humanBodyBone.ToString(),
+                        group = definition.group,
+                        muscle_channels = definition.muscleChannels,
+                        local_rotation_samples = new RuntimeQuaternionComponentSamplesDocument
+                        {
+                            x = new float[times.Count],
+                            y = new float[times.Count],
+                            z = new float[times.Count],
+                            w = new float[times.Count],
+                        },
+                    })
+                    .ToArray();
+
+                for (var sampleIndex = 0; sampleIndex < times.Count; sampleIndex += 1)
+                {
+                    Array.Clear(pose.muscles, 0, pose.muscles.Length);
+
+                    foreach (var sampledMuscleChannel in sampledMuscleChannels)
+                    {
+                        pose.muscles[sampledMuscleChannel.muscleIndex] = sampledMuscleChannel.channel.samples[sampleIndex];
+                    }
+
+                    // Set per-frame body position from RootT channels
+                    pose.bodyPosition = new Vector3(
+                        rootTxChannel?.samples != null && sampleIndex < rootTxChannel.samples.Length ? rootTxChannel.samples[sampleIndex] : 0f,
+                        rootTyChannel?.samples != null && sampleIndex < rootTyChannel.samples.Length ? rootTyChannel.samples[sampleIndex] : 0f,
+                        rootTzChannel?.samples != null && sampleIndex < rootTzChannel.samples.Length ? rootTzChannel.samples[sampleIndex] : 0f);
+
+                    // Set per-frame body rotation from RootQ channels
+                    if (rootQxChannel?.samples != null && rootQyChannel?.samples != null &&
+                        rootQzChannel?.samples != null && rootQwChannel?.samples != null &&
+                        sampleIndex < rootQxChannel.samples.Length)
+                    {
+                        pose.bodyRotation = new Quaternion(
+                            rootQxChannel.samples[sampleIndex],
+                            rootQyChannel.samples[sampleIndex],
+                            rootQzChannel.samples[sampleIndex],
+                            rootQwChannel.samples[sampleIndex]);
+                    }
+                    else
+                    {
+                        pose.bodyRotation = Quaternion.identity;
+                    }
+
+                    rig.poseHandler.SetHumanPose(ref pose);
+
+                    for (var boneIndex = 0; boneIndex < comparisonDefinitions.Length; boneIndex += 1)
+                    {
+                        var localRotation = SampleLocalRotation(rig.animator, comparisonDefinitions[boneIndex].humanBodyBone);
+                        var rotationSamples = comparisonBones[boneIndex].local_rotation_samples;
+
+                        rotationSamples.x[sampleIndex] = Quantize(localRotation.x);
+                        rotationSamples.y[sampleIndex] = Quantize(localRotation.y);
+                        rotationSamples.z[sampleIndex] = Quantize(localRotation.z);
+                        rotationSamples.w[sampleIndex] = Quantize(localRotation.w);
+
+                        if (sampleIndex == 0)
+                        {
+                            comparisonBones[boneIndex].first_local_rotation = ToQuaternionDocument(localRotation);
+                            continue;
+                        }
+
+                        var firstRotation = FromQuaternionDocument(comparisonBones[boneIndex].first_local_rotation);
+                        var angleFromFirstFrame = Quantize(Quaternion.Angle(firstRotation, localRotation));
+                        comparisonBones[boneIndex].max_angle_from_first_frame_deg = Mathf.Max(
+                            comparisonBones[boneIndex].max_angle_from_first_frame_deg,
+                            angleFromFirstFrame);
+                    }
+                }
+
+                foreach (var comparisonBone in comparisonBones)
+                {
+                    var lastSampleIndex = comparisonBone.local_rotation_samples.x.Length - 1;
+                    var finalRotation = new Quaternion(
+                        comparisonBone.local_rotation_samples.x[lastSampleIndex],
+                        comparisonBone.local_rotation_samples.y[lastSampleIndex],
+                        comparisonBone.local_rotation_samples.z[lastSampleIndex],
+                        comparisonBone.local_rotation_samples.w[lastSampleIndex]);
+                    comparisonBone.final_local_rotation = ToQuaternionDocument(finalRotation);
+                    comparisonBone.final_angle_from_first_frame_deg = Quantize(Quaternion.Angle(
+                        FromQuaternionDocument(comparisonBone.first_local_rotation),
+                        finalRotation));
+                }
+
+                return new RuntimeBoneTransformComparisonDocument
+                {
+                    clip_gate_semantic_id = semanticId,
+                    comparison_kind = ResolveBoneTransformComparisonKind(semanticId),
+                    sampling_mode = "sampled_humanoid_pose_to_animator_bone_local_rotations",
+                    avatar_source = "temporary_humanoid_reference_rig",
+                    uses_runtime_sampling_times = true,
+                    bone_count = comparisonBones.Length,
+                    bones = comparisonBones,
+                };
+            }
+            finally
+            {
+                if (rig.poseHandler != null)
+                {
+                    rig.poseHandler.Dispose();
+                }
+
+                if (rig.avatar != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(rig.avatar);
+                }
+
+                if (rig.root != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(rig.root);
+                }
+            }
+        }
+
+        private static RuntimeExportAuditDocument BuildExportAudit(
+            string semanticId,
+            IReadOnlyCollection<RuntimeChannelDocument> channels,
+            RuntimeBoneTransformComparisonDocument boneTransformComparison)
         {
             var rootTransformChannelCount = channels.Count(channel => string.Equals(channel.channel_space, "root_transform", StringComparison.Ordinal));
             var humanoidMuscleChannelCount = channels.Count(channel => string.Equals(channel.channel_space, "humanoid_muscle", StringComparison.Ordinal));
             var derivedHintChannelCount = channels.Count(channel => string.Equals(channel.channel_space, "derived_humanoid_hint", StringComparison.Ordinal));
+            var hasBoneTransformComparison = boneTransformComparison != null;
 
             return new RuntimeExportAuditDocument
             {
-                extraction_mode = "curve_bindings_plus_derived_hints",
+                extraction_mode = hasBoneTransformComparison
+                    ? ResolveBoneTransformExtractionMode(semanticId)
+                    : "curve_bindings_plus_derived_hints",
                 curve_binding_channel_count = rootTransformChannelCount + humanoidMuscleChannelCount,
                 humanoid_muscle_channel_count = humanoidMuscleChannelCount,
                 root_transform_channel_count = rootTransformChannelCount,
                 derived_hint_channel_count = derivedHintChannelCount,
-                samples_humanoid_bone_transforms = false,
-                uses_animator_get_bone_transform = false,
-                limb_rotation_space = derivedHintChannelCount > 0 ? "derived_hint_not_bone_local" : "humanoid_muscle_not_bone_local",
+                samples_humanoid_bone_transforms = hasBoneTransformComparison,
+                uses_animator_get_bone_transform = hasBoneTransformComparison,
+                limb_rotation_space = hasBoneTransformComparison
+                    ? "comparison_metadata_contains_bone_local_rotations"
+                    : (derivedHintChannelCount > 0 ? "derived_hint_not_bone_local" : "humanoid_muscle_not_bone_local"),
                 lower_arm_rotation_hint_source = derivedHintChannelCount > 0
                     ? "quaternion_composed_from_elbow_flex_and_forearm_twist"
                     : string.Empty,
-                recommended_next_experiment = "sample Animator.GetBoneTransform(HumanBodyBones) local rotations per frame on a humanoid instance and record explicit axis-remap metadata alongside those bone-local channels",
+                recommended_next_experiment = hasBoneTransformComparison
+                    ? ResolveBoneTransformRecommendedNextExperiment(semanticId)
+                    : "sample Animator.GetBoneTransform(HumanBodyBones) local rotations per frame on a humanoid instance and record explicit axis-remap metadata alongside those bone-local channels",
+                bone_transform_comparison = boneTransformComparison,
+            };
+        }
+
+        private static bool ShouldExportBoneTransformComparison(string semanticId)
+        {
+            return string.Equals(semanticId, PunchBoneComparisonSemanticId, StringComparison.Ordinal)
+                || IsIdleBoneComparisonSemanticId(semanticId);
+        }
+
+        private static string ResolveBoneTransformComparisonKind(string semanticId)
+        {
+            if (string.Equals(semanticId, PunchBoneComparisonSemanticId, StringComparison.Ordinal))
+            {
+                return "punch_bone_local_rotation_discriminator";
+            }
+
+            if (IsIdleBoneComparisonSemanticId(semanticId))
+            {
+                return "idle_bone_local_rotation_reference";
+            }
+
+            return "bone_local_rotation_reference";
+        }
+
+        private static string ResolveBoneTransformExtractionMode(string semanticId)
+        {
+            if (string.Equals(semanticId, PunchBoneComparisonSemanticId, StringComparison.Ordinal))
+            {
+                return "curve_bindings_plus_derived_hints_and_punch_bone_local_comparison";
+            }
+
+            if (IsIdleBoneComparisonSemanticId(semanticId))
+            {
+                return "curve_bindings_plus_derived_hints_and_idle_bone_local_comparison";
+            }
+
+            return "curve_bindings_plus_derived_hints_and_bone_local_comparison";
+        }
+
+        private static string ResolveBoneTransformRecommendedNextExperiment(string semanticId)
+        {
+            if (string.Equals(semanticId, PunchBoneComparisonSemanticId, StringComparison.Ordinal))
+            {
+                return "compare gesture.punch.once muscle channels and derived hints against the sampled bone-local rotations before widening this path beyond the punch clip";
+            }
+
+            if (IsIdleBoneComparisonSemanticId(semanticId))
+            {
+                return $"compare {semanticId} grounded stance frames against the sampled bone-local rotations before promoting this route beyond idle clips";
+            }
+
+            return "compare sampled humanoid muscle channels and derived hints against the exported bone-local rotations before widening this route";
+        }
+
+        private static SampledMuscleChannel[] ResolveHumanoidMuscleChannels(IReadOnlyCollection<RuntimeChannelDocument> channels)
+        {
+            var muscleIndexByName = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (var index = 0; index < HumanTrait.MuscleCount; index += 1)
+            {
+                muscleIndexByName[NormalizeChannelName(HumanTrait.MuscleName[index])] = index;
+            }
+
+            return channels
+                .Where(channel =>
+                    string.Equals(channel.channel_space, "humanoid_muscle", StringComparison.Ordinal) &&
+                    channel.samples != null &&
+                    muscleIndexByName.ContainsKey(channel.normalized_name))
+                .Select(channel => new SampledMuscleChannel
+                {
+                    muscleIndex = muscleIndexByName[channel.normalized_name],
+                    channel = channel,
+                })
+                .ToArray();
+        }
+
+        private static PunchComparisonRig CreatePunchComparisonRig()
+        {
+            var root = new GameObject("PunchComparisonRigRoot")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+
+            var hips = CreateBone(root.transform, "Hips", new Vector3(0f, 1f, 0f), Quaternion.Euler(4f, 0f, 0f));
+            var spine = CreateBone(hips, "Spine", new Vector3(0f, 0.12f, -0.01f), Quaternion.Euler(3f, 0f, 0f));
+            var chest = CreateBone(spine, "Chest", new Vector3(0f, 0.14f, -0.005f), Quaternion.Euler(2.5f, 0f, 0f));
+            var upperChest = CreateBone(chest, "UpperChest", new Vector3(0f, 0.12f, 0.01f), Quaternion.Euler(1.5f, 0f, 0f));
+            var neck = CreateBone(upperChest, "Neck", new Vector3(0f, 0.12f, 0f), Quaternion.Euler(3f, 0f, 0f));
+            CreateBone(neck, "Head", new Vector3(0f, 0.12f, 0f), Quaternion.Euler(-2f, 0f, 0f));
+
+            var leftShoulder = CreateBone(upperChest, "LeftShoulder", new Vector3(-0.07f, 0.1f, 0f), Quaternion.Euler(0f, 0f, 3f));
+            var leftUpperArm = CreateBone(leftShoulder, "LeftUpperArm", new Vector3(-0.18f, 0f, 0f));
+            var leftLowerArm = CreateBone(leftUpperArm, "LeftLowerArm", new Vector3(-0.28f, 0f, 0f));
+            CreateBone(leftLowerArm, "LeftHand", new Vector3(-0.22f, 0f, 0f));
+
+            var rightShoulder = CreateBone(upperChest, "RightShoulder", new Vector3(0.07f, 0.1f, 0f), Quaternion.Euler(0f, 0f, -3f));
+            var rightUpperArm = CreateBone(rightShoulder, "RightUpperArm", new Vector3(0.18f, 0f, 0f));
+            var rightLowerArm = CreateBone(rightUpperArm, "RightLowerArm", new Vector3(0.28f, 0f, 0f));
+            CreateBone(rightLowerArm, "RightHand", new Vector3(0.22f, 0f, 0f));
+
+            var leftUpperLeg = CreateBone(hips, "LeftUpperLeg", new Vector3(-0.09f, -0.12f, 0f));
+            var leftLowerLeg = CreateBone(leftUpperLeg, "LeftLowerLeg", new Vector3(0f, -0.46f, 0f));
+                var leftFoot = CreateBone(leftLowerLeg, "LeftFoot", new Vector3(0f, -0.44f, 0.08f));
+                CreateBone(leftFoot, "LeftToes", new Vector3(0f, 0f, 0.14f));
+
+            var rightUpperLeg = CreateBone(hips, "RightUpperLeg", new Vector3(0.09f, -0.12f, 0f));
+            var rightLowerLeg = CreateBone(rightUpperLeg, "RightLowerLeg", new Vector3(0f, -0.46f, 0f));
+                var rightFoot = CreateBone(rightLowerLeg, "RightFoot", new Vector3(0f, -0.44f, 0.08f));
+                CreateBone(rightFoot, "RightToes", new Vector3(0f, 0f, 0.14f));
+
+            var animator = root.AddComponent<Animator>();
+            var avatar = AvatarBuilder.BuildHumanAvatar(root, new HumanDescription
+            {
+                skeleton = BuildSkeletonBones(root.transform),
+                human = BuildHumanBones(),
+                armStretch = 0.05f,
+                legStretch = 0.05f,
+                upperArmTwist = 0.5f,
+                lowerArmTwist = 0.5f,
+                upperLegTwist = 0.5f,
+                lowerLegTwist = 0.5f,
+                feetSpacing = 0f,
+                hasTranslationDoF = false,
+            });
+
+            if (avatar == null || !avatar.isValid || !avatar.isHuman)
+            {
+                throw new InvalidOperationException("Unable to build temporary humanoid avatar for punch bone transform comparison.");
+            }
+
+            animator.avatar = avatar;
+            animator.applyRootMotion = false;
+            animator.Rebind();
+            animator.Update(0f);
+
+            return new PunchComparisonRig
+            {
+                root = root,
+                avatar = avatar,
+                animator = animator,
+                poseHandler = new HumanPoseHandler(avatar, root.transform),
+            };
+        }
+
+        private static Transform CreateBone(Transform parent, string boneName, Vector3 localPosition)
+        {
+            return CreateBone(parent, boneName, localPosition, Quaternion.identity);
+        }
+
+        private static Transform CreateBone(Transform parent, string boneName, Vector3 localPosition, Quaternion localRotation)
+        {
+            var bone = new GameObject(boneName)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+            }.transform;
+            bone.SetParent(parent, false);
+            bone.localPosition = localPosition;
+            bone.localRotation = localRotation;
+            bone.localScale = Vector3.one;
+            return bone;
+        }
+
+        private static SkeletonBone[] BuildSkeletonBones(Transform root)
+        {
+            var skeletonBones = new List<SkeletonBone>();
+            AddSkeletonBoneRecursive(root, skeletonBones);
+            return skeletonBones.ToArray();
+        }
+
+        private static void AddSkeletonBoneRecursive(Transform transform, ICollection<SkeletonBone> skeletonBones)
+        {
+            skeletonBones.Add(new SkeletonBone
+            {
+                name = transform.name,
+                position = transform.localPosition,
+                rotation = transform.localRotation,
+                scale = transform.localScale,
+            });
+
+            for (var childIndex = 0; childIndex < transform.childCount; childIndex += 1)
+            {
+                AddSkeletonBoneRecursive(transform.GetChild(childIndex), skeletonBones);
+            }
+        }
+
+        private static HumanBone[] BuildHumanBones()
+        {
+            return new[]
+            {
+                CreateHumanBone("Hips", HumanBodyBones.Hips),
+                CreateHumanBone("Spine", HumanBodyBones.Spine),
+                CreateHumanBone("Chest", HumanBodyBones.Chest),
+                CreateHumanBone("UpperChest", HumanBodyBones.UpperChest),
+                CreateHumanBone("Neck", HumanBodyBones.Neck),
+                CreateHumanBone("Head", HumanBodyBones.Head),
+                CreateHumanBone("LeftShoulder", HumanBodyBones.LeftShoulder),
+                CreateHumanBone("LeftUpperArm", HumanBodyBones.LeftUpperArm),
+                CreateHumanBone("LeftLowerArm", HumanBodyBones.LeftLowerArm),
+                CreateHumanBone("LeftHand", HumanBodyBones.LeftHand),
+                CreateHumanBone("RightShoulder", HumanBodyBones.RightShoulder),
+                CreateHumanBone("RightUpperArm", HumanBodyBones.RightUpperArm),
+                CreateHumanBone("RightLowerArm", HumanBodyBones.RightLowerArm),
+                CreateHumanBone("RightHand", HumanBodyBones.RightHand),
+                CreateHumanBone("LeftUpperLeg", HumanBodyBones.LeftUpperLeg),
+                CreateHumanBone("LeftLowerLeg", HumanBodyBones.LeftLowerLeg),
+                CreateHumanBone("LeftFoot", HumanBodyBones.LeftFoot),
+                CreateHumanBone("LeftToes", HumanBodyBones.LeftToes),
+                CreateHumanBone("RightUpperLeg", HumanBodyBones.RightUpperLeg),
+                CreateHumanBone("RightLowerLeg", HumanBodyBones.RightLowerLeg),
+                CreateHumanBone("RightFoot", HumanBodyBones.RightFoot),
+                CreateHumanBone("RightToes", HumanBodyBones.RightToes),
+            };
+        }
+
+        private static HumanBone CreateHumanBone(string boneName, HumanBodyBones humanBodyBone)
+        {
+            return new HumanBone
+            {
+                boneName = boneName,
+                humanName = HumanTrait.BoneName[(int)humanBodyBone],
+                limit = new HumanLimit
+                {
+                    useDefaultValues = true,
+                },
+            };
+        }
+
+        private static Quaternion SampleLocalRotation(Animator animator, HumanBodyBones humanBodyBone)
+        {
+            var boneTransform = animator.GetBoneTransform(humanBodyBone);
+            if (boneTransform == null)
+            {
+                throw new InvalidOperationException($"Temporary humanoid rig is missing mapped transform for '{humanBodyBone}'.");
+            }
+
+            return boneTransform.localRotation;
+        }
+
+        private static RuntimeQuaternionDocument ToQuaternionDocument(Quaternion quaternion)
+        {
+            return new RuntimeQuaternionDocument
+            {
+                x = Quantize(quaternion.x),
+                y = Quantize(quaternion.y),
+                z = Quantize(quaternion.z),
+                w = Quantize(quaternion.w),
+            };
+        }
+
+        private static Quaternion FromQuaternionDocument(RuntimeQuaternionDocument quaternion)
+        {
+            return new Quaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+        }
+
+        private static PunchComparisonBoneDefinition[] GetPunchBoneComparisonDefinitions()
+        {
+            return new[]
+            {
+                new PunchComparisonBoneDefinition
+                {
+                    name = "hips",
+                    humanBodyBone = HumanBodyBones.Hips,
+                    group = "torso",
+                    muscleChannels = Array.Empty<string>(),
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "spine",
+                    humanBodyBone = HumanBodyBones.Spine,
+                    group = "torso",
+                    muscleChannels = new[] { "spine.front_back", "spine.left_right", "spine.twist.left_right" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "chest",
+                    humanBodyBone = HumanBodyBones.Chest,
+                    group = "torso",
+                    muscleChannels = new[] { "chest.front_back", "chest.left_right", "chest.twist.left_right" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "upperChest",
+                    humanBodyBone = HumanBodyBones.UpperChest,
+                    group = "torso",
+                    muscleChannels = new[] { "upperchest.front_back", "upperchest.left_right", "upperchest.twist.left_right" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "neck",
+                    humanBodyBone = HumanBodyBones.Neck,
+                    group = "head",
+                    muscleChannels = new[] { "neck.nod.down_up", "neck.tilt.left_right", "neck.turn.left_right" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "head",
+                    humanBodyBone = HumanBodyBones.Head,
+                    group = "head",
+                    muscleChannels = new[] { "head.nod.down_up", "head.tilt.left_right", "head.turn.left_right" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftShoulder",
+                    humanBodyBone = HumanBodyBones.LeftShoulder,
+                    group = "upper_body",
+                    muscleChannels = new[] { "left.shoulder.down_up", "left.shoulder.front_back" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftUpperArm",
+                    humanBodyBone = HumanBodyBones.LeftUpperArm,
+                    group = "upper_body",
+                    muscleChannels = new[] { "left.arm.down_up", "left.arm.front_back", "left.arm.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftLowerArm",
+                    humanBodyBone = HumanBodyBones.LeftLowerArm,
+                    group = "upper_body",
+                    muscleChannels = new[]
+                    {
+                        "left.forearm.stretch",
+                        "left.forearm.twist.in_out",
+                        "left.elbow.flex",
+                        "left.lower_arm.rotation.x",
+                        "left.lower_arm.rotation.y",
+                        "left.lower_arm.rotation.z",
+                        "left.lower_arm.rotation.w",
+                    },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftHand",
+                    humanBodyBone = HumanBodyBones.LeftHand,
+                    group = "upper_body",
+                    muscleChannels = new[] { "left.hand.down_up", "left.hand.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightUpperArm",
+                    humanBodyBone = HumanBodyBones.RightUpperArm,
+                    group = "upper_body",
+                    muscleChannels = new[] { "right.arm.down_up", "right.arm.front_back", "right.arm.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightLowerArm",
+                    humanBodyBone = HumanBodyBones.RightLowerArm,
+                    group = "upper_body",
+                    muscleChannels = new[]
+                    {
+                        "right.forearm.stretch",
+                        "right.forearm.twist.in_out",
+                        "right.elbow.flex",
+                        "right.lower_arm.rotation.x",
+                        "right.lower_arm.rotation.y",
+                        "right.lower_arm.rotation.z",
+                        "right.lower_arm.rotation.w",
+                    },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightHand",
+                    humanBodyBone = HumanBodyBones.RightHand,
+                    group = "upper_body",
+                    muscleChannels = new[] { "right.hand.down_up", "right.hand.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightShoulder",
+                    humanBodyBone = HumanBodyBones.RightShoulder,
+                    group = "upper_body",
+                    muscleChannels = new[] { "right.shoulder.down_up", "right.shoulder.front_back" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftUpperLeg",
+                    humanBodyBone = HumanBodyBones.LeftUpperLeg,
+                    group = "locomotion",
+                    muscleChannels = new[] { "left.upper.leg.front_back", "left.upper.leg.in_out", "left.upper.leg.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftLowerLeg",
+                    humanBodyBone = HumanBodyBones.LeftLowerLeg,
+                    group = "locomotion",
+                    muscleChannels = new[] { "left.lower.leg.stretch", "left.lower.leg.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftFoot",
+                    humanBodyBone = HumanBodyBones.LeftFoot,
+                    group = "locomotion",
+                    muscleChannels = new[] { "left.foot.up_down", "left.foot.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "leftToes",
+                    humanBodyBone = HumanBodyBones.LeftToes,
+                    group = "locomotion",
+                    muscleChannels = new[] { "left.toes.up_down" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightUpperLeg",
+                    humanBodyBone = HumanBodyBones.RightUpperLeg,
+                    group = "locomotion",
+                    muscleChannels = new[] { "right.upper.leg.front_back", "right.upper.leg.in_out", "right.upper.leg.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightLowerLeg",
+                    humanBodyBone = HumanBodyBones.RightLowerLeg,
+                    group = "locomotion",
+                    muscleChannels = new[] { "right.lower.leg.stretch", "right.lower.leg.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightFoot",
+                    humanBodyBone = HumanBodyBones.RightFoot,
+                    group = "locomotion",
+                    muscleChannels = new[] { "right.foot.up_down", "right.foot.twist.in_out" },
+                },
+                new PunchComparisonBoneDefinition
+                {
+                    name = "rightToes",
+                    humanBodyBone = HumanBodyBones.RightToes,
+                    group = "locomotion",
+                    muscleChannels = new[] { "right.toes.up_down" },
+                },
             };
         }
 
@@ -676,6 +1275,51 @@ namespace NikoF.AnimationTools
             public string limb_rotation_space;
             public string lower_arm_rotation_hint_source;
             public string recommended_next_experiment;
+            public RuntimeBoneTransformComparisonDocument bone_transform_comparison;
+        }
+
+        [Serializable]
+        private sealed class RuntimeBoneTransformComparisonDocument
+        {
+            public string clip_gate_semantic_id;
+            public string comparison_kind;
+            public string sampling_mode;
+            public string avatar_source;
+            public bool uses_runtime_sampling_times;
+            public int bone_count;
+            public RuntimeBoneRotationComparisonBoneDocument[] bones;
+        }
+
+        [Serializable]
+        private sealed class RuntimeBoneRotationComparisonBoneDocument
+        {
+            public string name;
+            public string human_body_bone;
+            public string group;
+            public string[] muscle_channels;
+            public RuntimeQuaternionDocument first_local_rotation;
+            public RuntimeQuaternionDocument final_local_rotation;
+            public float max_angle_from_first_frame_deg;
+            public float final_angle_from_first_frame_deg;
+            public RuntimeQuaternionComponentSamplesDocument local_rotation_samples;
+        }
+
+        [Serializable]
+        private sealed class RuntimeQuaternionComponentSamplesDocument
+        {
+            public float[] x;
+            public float[] y;
+            public float[] z;
+            public float[] w;
+        }
+
+        [Serializable]
+        private sealed class RuntimeQuaternionDocument
+        {
+            public float x;
+            public float y;
+            public float z;
+            public float w;
         }
 
         [Serializable]
@@ -805,6 +1449,28 @@ namespace NikoF.AnimationTools
             public float start_time;
             public float stop_time;
             public float loop_time;
+        }
+
+        private sealed class SampledMuscleChannel
+        {
+            public int muscleIndex;
+            public RuntimeChannelDocument channel;
+        }
+
+        private sealed class PunchComparisonRig
+        {
+            public GameObject root;
+            public Avatar avatar;
+            public Animator animator;
+            public HumanPoseHandler poseHandler;
+        }
+
+        private sealed class PunchComparisonBoneDefinition
+        {
+            public string name;
+            public HumanBodyBones humanBodyBone;
+            public string group;
+            public string[] muscleChannels;
         }
     }
 }

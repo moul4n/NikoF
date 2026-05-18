@@ -31,7 +31,7 @@
         "semantic_id": "gesture.punch.once"
     },
     "provenance": {
-        "raw_source_path": "assets/animations/raw/Action",
+        "raw_source_path": "assets/animations/raw/Action Idle To Fight Idle.anim",
         "staged_sidecar_path": "assets/animations/dsl/shared/gesture.punch.once.json",
         "generated_runtime_path": "assets/animations/generated/shared/gesture.punch.once/gesture.punch.once.runtime.json",
         "exporter": "unity_batch_raw_anim_exporter"

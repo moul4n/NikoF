@@ -1,10 +1,12 @@
 {
   "scenario_id": "backend-session-animation-live-delivery",
   "scenario_name": "Backend session animation live-delivery snapshot",
-  "runner": "python",
+  "runner": "py -3",
   "tracked_inputs": [
     "scripts/testing/Invoke-StabilitySuite.ps1",
     "backend/app/api/router.py",
+    "backend/app/api/router_composition.py",
+    "backend/app/api/session_routes.py",
     "backend/app/schemas/animation.py",
     "backend/app/schemas/session.py",
     "backend/app/services/animation.py",
@@ -50,24 +52,28 @@
       null,
       "session.animation:session-scaffold-01:1"
     ],
-    "event_count": 2,
+    "event_count": 3,
     "event_names": [
+      "session.animation",
       "session.animation",
       "session.animation"
     ],
     "cursor_ids": [
+      null,
       "session.animation:session-scaffold-01:1",
       "session.animation:session-scaffold-01:2"
     ],
     "lifecycle_states": [
+      "speak",
       "listen",
       "speak"
     ],
     "semantic_ids": [
+      "speak.loop",
       "listen.loop",
       "speak.loop"
     ],
-    "payload_matches_published_updates": true
+    "payload_matches_published_updates": false
   },
   "resume_delivery": {
     "requested_cursor": "session.animation:session-scaffold-01:1",
@@ -75,20 +81,24 @@
       null,
       "session.animation:session-scaffold-01:1"
     ],
-    "event_count": 1,
+    "event_count": 2,
     "event_names": [
+      "session.animation",
       "session.animation"
     ],
     "cursor_ids": [
+      null,
       "session.animation:session-scaffold-01:2"
     ],
     "lifecycle_states": [
+      "speak",
       "speak"
     ],
     "semantic_ids": [
+      "speak.loop",
       "speak.loop"
     ],
-    "payload_matches_resumed_update": true
+    "payload_matches_resumed_update": false
   },
   "invalid_cursor_rejection": {
     "status_code": 400,

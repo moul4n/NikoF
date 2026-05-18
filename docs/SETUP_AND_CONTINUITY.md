@@ -46,7 +46,7 @@ Expectations:
 3. Run `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\bootstrap.ps1` from the repo root.
 4. Let bootstrap create or validate the local storage roots under `%LOCALAPPDATA%\NikoF` by default, or fall back to the documented repo-local sandbox only when `LOCALAPPDATA` is unavailable.
 5. Review the generated report under `.local/bootstrap/bootstrap-report.json` and the session helper `.local/bootstrap/session-env.ps1`.
-6. Complete the documented manual steps for blocked providers or runtimes. The bootstrap scaffold does not pull heavyweight model payloads automatically.
+6. Review the printed provider states and the matching `.local/bootstrap/hints/*.txt` files for blocked providers or runtimes. A normal bootstrap run now scaffolds the Faster-Whisper Medium and GPT-SoVITS local-only `runtime.json` and `install-plan.json` files automatically, while only the safe Ollama model pull remains automated. Faster-Whisper and GPT-SoVITS payload acquisition and provider entrypoint placement are still explicit manual steps.
 7. Run repository validation commands, starting with the contract validation script, then backend and frontend startup checks.
 8. Continue work only after the environment matches the documented baseline.
 
@@ -72,8 +72,34 @@ The bootstrap scaffold's current contract is intentionally conservative:
 
 - It creates the expected local folder layout and writes a machine-local session env helper.
 - It checks required tools such as Git, Python, and Node.js.
-- It reports missing provider assets and points to manual next actions.
-- It does not download GGUF, Whisper, GPT-SoVITS, embedding, or other heavyweight payloads blindly.
+- It exports per-provider hint files under `.local/bootstrap/hints/` and prints a bootstrap hook command for every missing provider prerequisite.
+- It scaffolds the Faster-Whisper Medium machine-local `runtime.json` files and `install-plan.json` during a normal bootstrap run so startup warnings and bootstrap hints point at the same concrete STT paths on a fresh machine.
+- It can safely run `ollama pull llama3.1:8b` through `bootstrap.ps1 -RunHook ollama-pull-llama3.1-8b` when Ollama is already installed.
+- It scaffolds the GPT-SoVITS machine-local `runtime.json` files and `install-plan.json` during a normal bootstrap run so startup warnings and bootstrap hints point at the same concrete paths on a fresh machine.
+- It records explicit Faster-Whisper Medium acceptance targets and blocker details in the generated bootstrap report and hint files so a scaffolded machine can still tell you whether the missing proof is the model payload root, the provider entrypoint, or both.
+- It records explicit GPT-SoVITS acceptance targets and blocker details in the generated bootstrap report and hint files so a scaffolded machine can still tell you whether the missing proof is the payload root, the provider entrypoint, or both.
+- It keeps the Faster-Whisper manual hook surface as a re-scaffold path if those local manifests are deleted mid-setup.
+- It keeps the GPT-SoVITS manual hook surface as a re-scaffold path if those local manifests are deleted mid-setup.
+- Faster-Whisper scaffold files alone are not a ready install: bootstrap and backend startup now report `scaffolded` until a non-manifest payload exists under `NIKOF_STT_MODELS_ROOT\faster-whisper-medium` and a provider entrypoint exists under `NIKOF_PROVIDERS_ROOT\stt\faster-whisper`.
+- GPT-SoVITS scaffold files alone are not a ready install: bootstrap and backend startup now report `scaffolded` until a non-manifest payload exists under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` and a provider entrypoint exists under `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits`.
+- It does not blindly download Whisper, GPT-SoVITS, embedding, or other heavyweight payloads with uncertain redistribution or installer side effects.
+
+Current concrete local asset expectations:
+
+- Ollama runtime install path stays machine-managed, but NikoF uses `NIKOF_PROVIDERS_ROOT\llm\ollama` for repo-facing notes or endpoint hints and `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b` for the local readiness marker after a successful `ollama pull llama3.1:8b`.
+- Faster-Whisper Medium payloads live under `NIKOF_STT_MODELS_ROOT\faster-whisper-medium` and remain outside git.
+- The backend-facing Faster-Whisper wrapper lives under `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\transcribe.py` or `main.py`.
+- Machine-local Faster-Whisper runtime shaping can live in `runtime.json` under that STT model root or the matching provider root. Keep machine-specific model and execution details there rather than in repo-tracked config.
+- GPT-SoVITS payloads live under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` and remain outside git.
+- The backend-facing GPT-SoVITS wrapper lives under `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\synthesize.py` or `api_server.py`.
+- Machine-local GPT-SoVITS runtime shaping can live in `runtime.json` under that TTS model root or the matching provider root. Keep speaker ids, reference audio paths, prompt text, and other vendor-specific payload details there rather than in repo-tracked config.
+- The local-only runtime manifests live at `NIKOF_PROVIDERS_ROOT\llm\ollama\runtime.json`, `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b\runtime.json`, `NIKOF_STT_MODELS_ROOT\faster-whisper-medium\runtime.json`, `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\runtime.json`, `NIKOF_TTS_MODELS_ROOT\gpt-sovits\runtime.json`, and `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\runtime.json`.
+- The manual Faster-Whisper acquisition checklist lives at `NIKOF_STT_MODELS_ROOT\faster-whisper-medium\install-plan.json` and is created by the `stt-manual-medium` hook.
+- The manual GPT-SoVITS acquisition checklist lives at `NIKOF_TTS_MODELS_ROOT\gpt-sovits\install-plan.json` and is created by the `tts-manual-gpt-sovits` hook.
+
+Startup behavior now mirrors that contract: `backend/app/dev_server.py` warns on missing required local LLM, STT, and TTS prerequisites before Uvicorn starts, prints the expected canonical path, prints the runtime-config or install-plan path when one exists, includes the matching bootstrap resume hook command, and points at the generated hint file so a crashed or fresh session can reopen the exact remediation path.
+For Faster-Whisper Medium specifically, startup now also prints the managed acceptance targets and any still-blocked local proof so the user can see whether the remaining issue is model payload placement, provider entrypoint placement, or both.
+For GPT-SoVITS specifically, startup now also prints the managed acceptance targets and any still-blocked local proof so the user can see whether the remaining issue is payload placement, provider entrypoint placement, or both.
 
 ## Squad Continuity Expectations
 

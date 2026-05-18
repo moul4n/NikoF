@@ -2,6 +2,7 @@ import type {
   BackendActiveCharacterResponseDocument,
   BackendCharacterCatalogResponseDocument,
   BackendCharacterSummaryDocument,
+  BackendHealthPayloadDocument,
   CharacterCatalog,
   CharacterCatalogEntry,
   CharacterId
@@ -12,6 +13,7 @@ export interface BackendCharacterCatalogBridge {
   activeCharacterId: CharacterId | null;
   summariesConnected: boolean;
   activeCharacterConnected: boolean;
+  healthPayload: BackendHealthPayloadDocument | null;
   sessionId: string | null;
   messages: string[];
 }
@@ -34,7 +36,8 @@ export function resolveSelectedCharacterId(catalog: CharacterCatalog, preferredC
 export function createBackendCharacterCatalogBridge(
   catalog: CharacterCatalog,
   summariesDocument: BackendCharacterCatalogResponseDocument | null,
-  activeCharacterDocument: BackendActiveCharacterResponseDocument | null
+  activeCharacterDocument: BackendActiveCharacterResponseDocument | null,
+  healthPayload: BackendHealthPayloadDocument | null
 ): BackendCharacterCatalogBridge {
   const messages: string[] = [];
 
@@ -65,6 +68,7 @@ export function createBackendCharacterCatalogBridge(
     activeCharacterId,
     summariesConnected,
     activeCharacterConnected,
+    healthPayload,
     sessionId,
     messages
   };

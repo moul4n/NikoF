@@ -115,6 +115,7 @@ select {
 
 .app-shell__display-rail {
   display: grid;
+  gap: 1rem;
   align-content: start;
 }
 
@@ -228,6 +229,45 @@ select {
 .surface-panel__summary:last-child,
 .surface-panel__message:last-child {
   margin-bottom: 0;
+}
+
+.surface-panel__message--pending,
+.surface-panel__summary--pending,
+.surface-panel__message--error,
+.surface-panel__summary--error {
+  padding: 0.8rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(160, 175, 200, 0.22);
+}
+
+.surface-panel__message--pending,
+.surface-panel__summary--pending {
+  border-color: rgba(214, 181, 92, 0.46);
+  background: rgba(77, 57, 18, 0.34);
+}
+
+.surface-panel__message--pending {
+  color: #ffe2a0;
+  font-weight: 600;
+}
+
+.surface-panel__summary--pending {
+  color: #f2d28a;
+}
+
+.surface-panel__message--error,
+.surface-panel__summary--error {
+  border-color: rgba(220, 104, 104, 0.52);
+  background: rgba(90, 24, 30, 0.34);
+}
+
+.surface-panel__message--error {
+  color: #ffd0d0;
+  font-weight: 600;
+}
+
+.surface-panel__summary--error {
+  color: #ffc2c2;
 }
 
 .operator-panel {
@@ -375,6 +415,12 @@ select {
   transform: translateY(-1px);
 }
 
+.dev-animation-panel__button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .dev-animation-panel__button--active {
   border-color: rgba(123, 211, 193, 0.8);
   background: rgba(30, 63, 71, 0.7);
@@ -387,6 +433,92 @@ select {
 .dev-animation-panel__button-summary {
   color: #a9b6ca;
   font-size: 0.92rem;
+}
+
+.punch-comparison-panel__count--stale {
+  color: #c5b58a;
+}
+
+.punch-comparison-panel__table-wrap {
+  overflow-x: auto;
+}
+
+.punch-comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.punch-comparison-table th,
+.punch-comparison-table td {
+  vertical-align: top;
+  text-align: left;
+  padding: 0.8rem 0.6rem;
+  border-top: 1px solid rgba(160, 175, 200, 0.14);
+}
+
+.punch-comparison-table thead th {
+  color: #8ca0bf;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-top: 0;
+}
+
+.punch-comparison-table tbody th {
+  min-width: 9rem;
+}
+
+.punch-comparison-table__bone-name,
+.punch-comparison-table__bone-id,
+.punch-comparison-table__summary,
+.punch-comparison-table__detail {
+  display: block;
+}
+
+.punch-comparison-table__bone-name,
+.punch-comparison-table__summary {
+  color: #eef4ff;
+}
+
+.punch-comparison-table__bone-name {
+  font-weight: 600;
+}
+
+.punch-comparison-table__bone-id,
+.punch-comparison-table__detail {
+  margin-top: 0.3rem;
+  color: #a9b6ca;
+  font-size: 0.86rem;
+}
+
+.punch-comparison-table__badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.punch-comparison-table__badge--ok {
+  background: rgba(46, 125, 50, 0.22);
+  color: #b8f0bc;
+}
+
+.punch-comparison-table__badge--warn {
+  background: rgba(191, 132, 46, 0.22);
+  color: #ffd99a;
+}
+
+.punch-comparison-table__badge--mismatch {
+  background: rgba(181, 65, 65, 0.22);
+  color: #ffb8b8;
+}
+
+.punch-comparison-table__badge--missing {
+  background: rgba(86, 100, 126, 0.28);
+  color: #d3dced;
 }
 
 .speech-panel__summary-list {
@@ -527,6 +659,7 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  pointer-events: none;
 }
 
 .avatar-stage__display-chip {
@@ -556,6 +689,14 @@ select {
   height: 100%;
 }
 
+.avatar-stage__canvas--interactive {
+  cursor: grab;
+}
+
+.avatar-stage__canvas--interactive:active {
+  cursor: grabbing;
+}
+
 .avatar-stage__viewport-message {
   position: absolute;
   left: 1.25rem;
@@ -568,6 +709,7 @@ select {
   border: 1px solid rgba(140, 160, 191, 0.22);
   color: #dce6f5;
   backdrop-filter: blur(8px);
+  pointer-events: none;
 }
 
 .avatar-stage__viewport-message--loading {
@@ -612,6 +754,10 @@ select {
   .app-shell__display,
   .app-shell__header--display {
     width: min(1200px, 100%);
+  }
+
+  .app-shell__display {
+    grid-template-columns: 1fr;
   }
 
   .app-shell__display-toolbar {

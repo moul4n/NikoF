@@ -4,6 +4,10 @@
   "runner": "python",
   "tracked_inputs": [
     "backend/app/api/router.py",
+    "backend/app/api/router_composition.py",
+    "backend/app/api/read_routes.py",
+    "backend/app/api/active_character_routes.py",
+    "backend/app/api/response_builders.py",
     "backend/app/core/settings.py",
     "backend/app/schemas/session.py",
     "backend/app/schemas/character.py",
@@ -31,16 +35,6 @@
       "method": "GET",
       "path": "/session/active-character",
       "name": "get_active_character"
-    },
-    {
-      "method": "GET",
-      "path": "/session/speech-lifecycle",
-      "name": "get_speech_lifecycle"
-    },
-    {
-      "method": "POST",
-      "path": "/session/operator-command",
-      "name": "submit_operator_command"
     },
     {
       "method": "PUT",
@@ -78,6 +72,59 @@
             "configured_by": "NIKOF_CACHE_ROOT",
             "required_for_stage": "stage-3",
             "available": false
+          }
+        ],
+        "prerequisite_lanes": [
+          {
+            "id": "llm",
+            "display_name": "LLM",
+            "state": "missing",
+            "blockers": [
+              {
+                "id": "llm-model-ollama-llama3.1-8b",
+                "status": "missing",
+                "summary": "Ollama model hint for llama3.1:8b is not ready."
+              },
+              {
+                "id": "provider-ollama",
+                "status": "missing",
+                "summary": "Ollama for Windows is not ready."
+              }
+            ]
+          },
+          {
+            "id": "stt",
+            "display_name": "STT",
+            "state": "missing",
+            "blockers": [
+              {
+                "id": "missing-faster-whisper-medium-payload-proof",
+                "status": "missing",
+                "summary": "The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet."
+              },
+              {
+                "id": "missing-faster-whisper-provider-entrypoint",
+                "status": "missing",
+                "summary": "The Faster-Whisper provider entrypoint is still missing from the managed provider root."
+              }
+            ]
+          },
+          {
+            "id": "tts",
+            "display_name": "TTS",
+            "state": "missing",
+            "blockers": [
+              {
+                "id": "missing-gpt-sovits-payload-proof",
+                "status": "missing",
+                "summary": "The approved GPT-SoVITS payload has not been placed under the managed TTS root yet."
+              },
+              {
+                "id": "missing-gpt-sovits-provider-entrypoint",
+                "status": "missing",
+                "summary": "The GPT-SoVITS provider entrypoint is still missing from the managed provider root."
+              }
+            ]
           }
         ],
         "notes": [
@@ -166,396 +213,6 @@
         "timestamp": "<generated-at>"
       }
     },
-    "get_speech_lifecycle": {
-      "schema_version": 1,
-      "stream": "speech.lifecycle",
-      "delivery": "snapshot",
-      "session_id": "session-scaffold-01",
-      "next_cursor": "speech.lifecycle:session-scaffold-01:3",
-      "events": [
-        {
-          "event_id": "speech-lifecycle-0001",
-          "sequence": 1,
-          "cursor": "speech.lifecycle:session-scaffold-01:1",
-          "event": {
-            "schema_version": 1,
-            "event_type": "transcription.status",
-            "session_id": "session-scaffold-01",
-            "character_id": "test-vrm-01",
-            "status": "unavailable",
-            "timestamp": "<generated-at>",
-            "reason": "turn.pipeline",
-            "transcription": {
-              "profile_id": "stt.faster-whisper.medium-2026",
-              "status": "unavailable",
-              "locale": "en-US",
-              "transcript": "Hey Niko, can you wave after you answer?",
-              "confidence": 0.98,
-              "timing": {
-                "utterance_duration_ms": 1890,
-                "segment_ranges": [
-                  {
-                    "start_ms": 0,
-                    "end_ms": 640,
-                    "text": "Hey Niko,"
-                  },
-                  {
-                    "start_ms": 640,
-                    "end_ms": 1890,
-                    "text": "can you wave after you answer?"
-                  }
-                ],
-                "audio_format": {
-                  "container": "wav",
-                  "encoding": "pcm_s16le",
-                  "sample_rate_hz": 16000,
-                  "channels": 1
-                },
-                "phoneme_slots": [],
-                "viseme_slots": []
-              }
-            },
-            "assistant": null,
-            "synthesis": null
-          }
-        },
-        {
-          "event_id": "speech-lifecycle-0002",
-          "sequence": 2,
-          "cursor": "speech.lifecycle:session-scaffold-01:2",
-          "event": {
-            "schema_version": 1,
-            "event_type": "speech.synthesis",
-            "session_id": "session-scaffold-01",
-            "character_id": "test-vrm-01",
-            "status": "unavailable",
-            "timestamp": "<generated-at>",
-            "reason": "turn.pipeline",
-            "transcription": null,
-            "assistant": null,
-            "synthesis": {
-              "profile_id": "tts.gpt-sovits.2026-stable",
-              "status": "unavailable",
-              "text": "Sure. I can wave once I finish speaking.",
-              "locale": "en-US",
-              "audio_reference": null,
-              "timing": {
-                "utterance_duration_ms": 2120,
-                "segment_ranges": [
-                  {
-                    "start_ms": 0,
-                    "end_ms": 880,
-                    "text": "Sure."
-                  },
-                  {
-                    "start_ms": 880,
-                    "end_ms": 2120,
-                    "text": "I can wave once I finish speaking."
-                  }
-                ],
-                "audio_format": {
-                  "container": "wav",
-                  "encoding": "pcm_s16le",
-                  "sample_rate_hz": 24000,
-                  "channels": 1
-                },
-                "phoneme_slots": [
-                  {
-                    "phoneme": "S",
-                    "start_ms": 0,
-                    "end_ms": 110
-                  },
-                  {
-                    "phoneme": "UH",
-                    "start_ms": 110,
-                    "end_ms": 260
-                  }
-                ],
-                "viseme_slots": [
-                  {
-                    "viseme": "sil",
-                    "start_ms": 0,
-                    "end_ms": 45
-                  },
-                  {
-                    "viseme": "smile",
-                    "start_ms": 45,
-                    "end_ms": 310
-                  }
-                ]
-              }
-            }
-          }
-        }
-      ]
-    },
-    "post_operator_command_text_question": {
-      "request": {
-        "command_type": "text_question",
-        "text": "What should I do next?",
-        "locale": "en-US"
-      },
-      "response": {
-        "schema_version": 1,
-        "session_id": "session-scaffold-01",
-        "command_type": "text_question",
-        "character_id": "test-vrm-01",
-        "status": "unavailable",
-        "session_event": {
-          "schema_version": 1,
-          "event_type": "session.operator.text-question",
-          "session_id": "session-scaffold-01",
-          "character_id": "test-vrm-01",
-          "status": "unavailable",
-          "timestamp": "<generated-at>",
-          "reason": "operator.text-question",
-          "assistant": {
-            "profile_id": "llm.ollama.llama3.1-8b-2026",
-            "status": "unavailable",
-            "text": "Local text generation is unavailable.",
-            "locale": "en-US"
-          }
-        },
-        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:5",
-        "speech_lifecycle_events": [
-          {
-            "event_id": "speech-lifecycle-0003",
-            "sequence": 3,
-            "cursor": "speech.lifecycle:session-scaffold-01:3",
-            "event": {
-              "schema_version": 1,
-              "event_type": "assistant.message",
-              "session_id": "session-scaffold-01",
-              "character_id": "test-vrm-01",
-              "status": "unavailable",
-              "timestamp": "<generated-at>",
-              "reason": "operator.text-question",
-              "transcription": null,
-              "assistant": {
-                "profile_id": "llm.ollama.llama3.1-8b-2026",
-                "status": "unavailable",
-                "text": "Local text generation is unavailable.",
-                "locale": "en-US"
-              },
-              "synthesis": null
-            }
-          },
-          {
-            "event_id": "speech-lifecycle-0004",
-            "sequence": 4,
-            "cursor": "speech.lifecycle:session-scaffold-01:4",
-            "event": {
-              "schema_version": 1,
-              "event_type": "speech.synthesis",
-              "session_id": "session-scaffold-01",
-              "character_id": "test-vrm-01",
-              "status": "unavailable",
-              "timestamp": "<generated-at>",
-              "reason": "operator.text-question",
-              "transcription": null,
-              "assistant": null,
-              "synthesis": {
-                "profile_id": "tts.gpt-sovits.2026-stable",
-                "status": "unavailable",
-                "text": "Local text generation is unavailable.",
-                "locale": "en-US",
-                "audio_reference": null,
-                "timing": {
-                  "utterance_duration_ms": 2120,
-                  "segment_ranges": [
-                    {
-                      "start_ms": 0,
-                      "end_ms": 880,
-                      "text": "Sure."
-                    },
-                    {
-                      "start_ms": 880,
-                      "end_ms": 2120,
-                      "text": "I can wave once I finish speaking."
-                    }
-                  ],
-                  "audio_format": {
-                    "container": "wav",
-                    "encoding": "pcm_s16le",
-                    "sample_rate_hz": 24000,
-                    "channels": 1
-                  },
-                  "phoneme_slots": [
-                    {
-                      "phoneme": "S",
-                      "start_ms": 0,
-                      "end_ms": 110
-                    },
-                    {
-                      "phoneme": "UH",
-                      "start_ms": 110,
-                      "end_ms": 260
-                    }
-                  ],
-                  "viseme_slots": [
-                    {
-                      "viseme": "sil",
-                      "start_ms": 0,
-                      "end_ms": 45
-                    },
-                    {
-                      "viseme": "smile",
-                      "start_ms": 45,
-                      "end_ms": 310
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
-    "post_operator_command_tts_preview": {
-      "request": {
-        "command_type": "tts_preview",
-        "text": "This is a voice preview.",
-        "locale": "en-US"
-      },
-      "response": {
-        "schema_version": 1,
-        "session_id": "session-scaffold-01",
-        "command_type": "tts_preview",
-        "character_id": "test-vrm-01",
-        "status": "unavailable",
-        "session_event": {
-          "schema_version": 1,
-          "event_type": "session.operator.tts-preview",
-          "session_id": "session-scaffold-01",
-          "character_id": "test-vrm-01",
-          "status": "unavailable",
-          "timestamp": "<generated-at>",
-          "reason": "operator.tts-preview",
-          "synthesis": {
-            "profile_id": "tts.gpt-sovits.2026-stable",
-            "status": "unavailable",
-            "text": "This is a voice preview.",
-            "locale": "en-US",
-            "timing": {
-              "utterance_duration_ms": 2120,
-              "segment_ranges": [
-                {
-                  "start_ms": 0,
-                  "end_ms": 880,
-                  "text": "Sure."
-                },
-                {
-                  "start_ms": 880,
-                  "end_ms": 2120,
-                  "text": "I can wave once I finish speaking."
-                }
-              ],
-              "audio_format": {
-                "container": "wav",
-                "encoding": "pcm_s16le",
-                "sample_rate_hz": 24000,
-                "channels": 1
-              },
-              "phoneme_slots": [
-                {
-                  "phoneme": "S",
-                  "start_ms": 0,
-                  "end_ms": 110
-                },
-                {
-                  "phoneme": "UH",
-                  "start_ms": 110,
-                  "end_ms": 260
-                }
-              ],
-              "viseme_slots": [
-                {
-                  "viseme": "sil",
-                  "start_ms": 0,
-                  "end_ms": 45
-                },
-                {
-                  "viseme": "smile",
-                  "start_ms": 45,
-                  "end_ms": 310
-                }
-              ]
-            }
-          }
-        },
-        "next_speech_cursor": "speech.lifecycle:session-scaffold-01:6",
-        "speech_lifecycle_events": [
-          {
-            "event_id": "speech-lifecycle-0005",
-            "sequence": 5,
-            "cursor": "speech.lifecycle:session-scaffold-01:5",
-            "event": {
-              "schema_version": 1,
-              "event_type": "speech.synthesis",
-              "session_id": "session-scaffold-01",
-              "character_id": "test-vrm-01",
-              "status": "unavailable",
-              "timestamp": "<generated-at>",
-              "reason": "operator.tts-preview",
-              "transcription": null,
-              "assistant": null,
-              "synthesis": {
-                "profile_id": "tts.gpt-sovits.2026-stable",
-                "status": "unavailable",
-                "text": "This is a voice preview.",
-                "locale": "en-US",
-                "audio_reference": null,
-                "timing": {
-                  "utterance_duration_ms": 2120,
-                  "segment_ranges": [
-                    {
-                      "start_ms": 0,
-                      "end_ms": 880,
-                      "text": "Sure."
-                    },
-                    {
-                      "start_ms": 880,
-                      "end_ms": 2120,
-                      "text": "I can wave once I finish speaking."
-                    }
-                  ],
-                  "audio_format": {
-                    "container": "wav",
-                    "encoding": "pcm_s16le",
-                    "sample_rate_hz": 24000,
-                    "channels": 1
-                  },
-                  "phoneme_slots": [
-                    {
-                      "phoneme": "S",
-                      "start_ms": 0,
-                      "end_ms": 110
-                    },
-                    {
-                      "phoneme": "UH",
-                      "start_ms": 110,
-                      "end_ms": 260
-                    }
-                  ],
-                  "viseme_slots": [
-                    {
-                      "viseme": "sil",
-                      "start_ms": 0,
-                      "end_ms": 45
-                    },
-                    {
-                      "viseme": "smile",
-                      "start_ms": 45,
-                      "end_ms": 310
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
     "put_active_character": {
       "request": {
         "character_id": "test-vrm-03",
@@ -590,8 +247,7 @@
           "session_id": "session-scaffold-01",
           "character_id": "test-vrm-03",
           "status": "applied",
-          "timestamp": "<generated-at>",
-          "reason": "user_selected"
+          "timestamp": "<generated-at>"
         }
       }
     },

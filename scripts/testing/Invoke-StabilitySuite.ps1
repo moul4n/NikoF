@@ -172,6 +172,8 @@ function Invoke-BootstrapPrerequisiteSnapshot {
     New-DirectoryIfMissing -Path $scenarioTempRoot
 
     $storageLayout = Get-NikoFStorageLayout -RepoRoot $RepoRoot -Config $config -LocalRootOverride $scenarioTempRoot
+    $null = @(Initialize-NikoFStorageLayout -StorageLayout $storageLayout)
+    $null = @(Initialize-NikoFBootstrapArtifacts -Config $config -StorageLayout $storageLayout)
     $providerResults = @(Get-NikoFProviderStatus -Config $config -StorageLayout $storageLayout)
 
     return [ordered]@{
@@ -190,11 +192,70 @@ function Invoke-BootstrapPrerequisiteSnapshot {
         )
         provider_payloads = @(
             $providerResults | ForEach-Object {
-                [ordered]@{
+                $providerPayload = [ordered]@{
                     id = $_.id
+                    state = [string]$_.state
                     present = [bool]$_.present
                     expected_path = Normalize-Text -Text $_.expected_path -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                    runtime_config_path = if ($_.runtime_config_path) {
+                        Normalize-Text -Text $_.runtime_config_path -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                    }
+                    else {
+                        $null
+                    }
+                    install_plan_path = if ($_.install_plan_path) {
+                        Normalize-Text -Text $_.install_plan_path -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                    }
+                    else {
+                        $null
+                    }
+                    manual_install = $_.manual_install
                 }
+
+                if ($_.PSObject.Properties.Name -contains 'acceptance_targets' -and $_.acceptance_targets) {
+                    $providerPayload.acceptance_targets = @(
+                        $_.acceptance_targets | ForEach-Object {
+                            [ordered]@{
+                                id = $_.id
+                                label = $_.label
+                                satisfied = [bool]$_.satisfied
+                                expected_path = Normalize-Text -Text $_.expected_path -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                                accepted_paths = @(
+                                    @($_.accepted_paths) | ForEach-Object {
+                                        Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                                    }
+                                )
+                                acceptance_proof = $_.acceptance_proof
+                            }
+                        }
+                    )
+                }
+
+                if ($_.PSObject.Properties.Name -contains 'blocker_details' -and $_.blocker_details) {
+                    $providerPayload.blocker_details = @(
+                        $_.blocker_details | ForEach-Object {
+                            [ordered]@{
+                                id = $_.id
+                                status = $_.status
+                                summary = $_.summary
+                                expected_path = Normalize-Text -Text $_.expected_path -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                                accepted_paths = @(
+                                    @($_.accepted_paths) | ForEach-Object {
+                                        Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                                    }
+                                )
+                                remediation = $_.remediation
+                                evidence = @(
+                                    @($_.evidence) | ForEach-Object {
+                                        Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
+
+                $providerPayload
             }
         )
         missing_provider_payloads = @($providerResults | Where-Object { -not $_.present } | ForEach-Object { $_.id })
@@ -228,6 +289,210 @@ function Get-InterfacePropertyNamesFromSource {
             ForEach-Object { $_.Groups['name'].Value } |
             Sort-Object
     )
+}
+
+function Get-BalancedBlockText {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceText,
+        [Parameter(Mandatory)]
+        [string]$StartToken,
+        [char]$OpenChar = '{',
+        [char]$CloseChar = '}'
+    )
+
+    $startIndex = $SourceText.IndexOf($StartToken)
+    if ($startIndex -lt 0) {
+        return $null
+    }
+
+    $openIndex = $SourceText.IndexOf([string]$OpenChar, $startIndex)
+    if ($openIndex -lt 0) {
+        return $null
+    }
+
+    $depth = 0
+    for ($index = $openIndex; $index -lt $SourceText.Length; $index++) {
+        $currentCharacter = $SourceText[$index]
+
+        if ($currentCharacter -ceq $OpenChar) {
+            $depth += 1
+            continue
+        }
+
+        if ($currentCharacter -ceq $CloseChar) {
+            $depth -= 1
+
+            if ($depth -eq 0) {
+                return $SourceText.Substring($openIndex, ($index - $openIndex) + 1)
+            }
+        }
+    }
+
+    return $null
+}
+
+function Get-AvatarRuntimeIdleBranchProof {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RuntimeSource,
+        [Parameter(Mandatory)]
+        [string]$PlaybackRouteSource
+    )
+
+    $resolveHumanoidPlaybackBody = Get-BalancedBlockText -SourceText $RuntimeSource -StartToken 'function resolveHumanoidPlayback'
+    if (-not $resolveHumanoidPlaybackBody) {
+        return [ordered]@{
+            has_resolve_humanoid_playback = $false
+            has_idle_gate = $false
+            idle_gate_requires_official_path = $false
+            idle_gate_attempts_official_playback = $false
+            idle_gate_returns_official_playback = $false
+            idle_gate_falls_back_to_humanoid = $false
+        }
+    }
+
+    $delegatesToPlaybackRoute = $resolveHumanoidPlaybackBody -match 'resolveAvatarRuntimePlayback\(vrm,\s*payload,\s*\{'
+    $idleBranchSource = if ($delegatesToPlaybackRoute) {
+        $PlaybackRouteSource
+    }
+    else {
+        $resolveHumanoidPlaybackBody
+    }
+
+    $idleBranchMatch = [regex]::Match(
+        $idleBranchSource,
+        'if\s*\(animationPlaybackPath === "official_idle_stability"\s*&&\s*isIdleSemanticAnimationPayload\(payload\)\)'
+    )
+    $idleBranchBody = if ($idleBranchMatch.Success) {
+        Get-BalancedBlockText -SourceText $idleBranchSource -StartToken $idleBranchMatch.Value
+    }
+    else {
+        $null
+    }
+
+    return [ordered]@{
+        has_resolve_humanoid_playback = $true
+        has_idle_gate = $null -ne $idleBranchBody
+        idle_gate_requires_official_path = $idleBranchMatch.Success
+        idle_gate_attempts_official_playback = ($idleBranchBody -match 'createOfficialBoneLocalClipPlayback\(vrm,\s*payload\)')
+        idle_gate_returns_official_playback =
+            ($idleBranchBody -match 'if\s*\(officialIdlePlayback\)\s*\{[\s\S]*?playback:\s*officialIdlePlayback[\s\S]*?playbackPath:\s*"official_idle_stability"')
+        idle_gate_falls_back_to_humanoid =
+            ($idleBranchBody -match 'return\s*\{[\s\S]*?playback:\s*createHumanoidChannelPlayback\(vrm,\s*payload\)[\s\S]*?playbackPath:\s*"idle_fallback_humanoid"')
+    }
+}
+
+function Get-BackendStage1TrackedCharacterIds {
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario
+    )
+
+    return @(
+        foreach ($trackedInput in @($Scenario.tracked_inputs)) {
+            if ($trackedInput -match '^assets/characters/([^/\\]+)/manifest\.json$') {
+                $Matches[1]
+            }
+        }
+    )
+}
+
+function ConvertTo-BackendStage1ScopedSnapshot {
+    param(
+        [Parameter(Mandatory)]$SnapshotObject,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario
+    )
+
+    $trackedCharacterIds = @(Get-BackendStage1TrackedCharacterIds -Scenario $Scenario)
+    $charactersResponse = $SnapshotObject.responses.characters
+    $scopedCharacters = @(
+        foreach ($characterId in $trackedCharacterIds) {
+            @($charactersResponse.characters | Where-Object { $_.character_id -ceq $characterId } | Select-Object -First 1)
+        }
+    )
+    $currentActiveCharacterResponse = $SnapshotObject.responses.get_active_character
+    $currentActiveCharacter = $currentActiveCharacterResponse.active_character
+    $selectedCharacter = if ($scopedCharacters.Count -gt 0) {
+        $scopedCharacters[-1]
+    }
+    else {
+        $currentActiveCharacter
+    }
+
+    $healthResponse = $SnapshotObject.responses.health
+    $scopedHealthResponse = [pscustomobject][ordered]@{
+        status = $healthResponse.status
+        mode = $healthResponse.mode
+        diagnostics = [pscustomobject][ordered]@{
+            character_packages_available = $scopedCharacters.Count
+            storage_probes = @($healthResponse.diagnostics.storage_probes)
+            prerequisite_lanes = if ($healthResponse.diagnostics.PSObject.Properties.Name -contains 'prerequisite_lanes') {
+                @($healthResponse.diagnostics.prerequisite_lanes)
+            }
+            else {
+                @()
+            }
+            notes = @($healthResponse.diagnostics.notes)
+        }
+    }
+
+    $scopedCharactersResponse = [pscustomobject][ordered]@{
+        schema_version = $charactersResponse.schema_version
+        active_character_id = $charactersResponse.active_character_id
+        characters = @($scopedCharacters)
+    }
+
+    $putActiveCharacterResponse = $SnapshotObject.responses.put_active_character
+    $scopedPutActiveCharacterResponse = [pscustomobject][ordered]@{
+        request = [pscustomobject][ordered]@{
+            character_id = $selectedCharacter.character_id
+            reason = $putActiveCharacterResponse.request.reason
+        }
+        response = [pscustomobject][ordered]@{
+            schema_version = $putActiveCharacterResponse.response.schema_version
+            session_id = $putActiveCharacterResponse.response.session_id
+            lifecycle_state = $putActiveCharacterResponse.response.lifecycle_state
+            active_character = $selectedCharacter
+            selection = [pscustomobject][ordered]@{
+                requested_character_id = $selectedCharacter.character_id
+                applied = $putActiveCharacterResponse.response.selection.applied
+                message = $putActiveCharacterResponse.response.selection.message
+            }
+            session_event = [pscustomobject][ordered]@{
+                schema_version = $putActiveCharacterResponse.response.session_event.schema_version
+                event_type = $putActiveCharacterResponse.response.session_event.event_type
+                session_id = $putActiveCharacterResponse.response.session_event.session_id
+                character_id = $selectedCharacter.character_id
+                status = $putActiveCharacterResponse.response.session_event.status
+                timestamp = $putActiveCharacterResponse.response.session_event.timestamp
+            }
+        }
+    }
+
+    $scopedResponses = [ordered]@{
+        health = $scopedHealthResponse
+        characters = $scopedCharactersResponse
+        get_active_character = $currentActiveCharacterResponse
+        put_active_character = $scopedPutActiveCharacterResponse
+    }
+
+    if ($SnapshotObject.responses.PSObject.Properties.Name -contains 'put_active_character_invalid') {
+        $scopedResponses.put_active_character_invalid = $SnapshotObject.responses.put_active_character_invalid
+    }
+
+    $allowedRoutes = @(
+        [ordered]@{ method = 'GET'; path = '/health'; name = 'healthcheck' }
+        [ordered]@{ method = 'GET'; path = '/characters'; name = 'list_characters' }
+        [ordered]@{ method = 'GET'; path = '/session/active-character'; name = 'get_active_character' }
+        [ordered]@{ method = 'PUT'; path = '/session/active-character'; name = 'set_active_character' }
+    )
+
+    return [pscustomobject][ordered]@{
+        routes = @($allowedRoutes)
+        responses = [pscustomobject]$scopedResponses
+    }
 }
 
 function Get-AsyncFunctionReturnTypeFromSource {
@@ -294,6 +559,40 @@ function Test-StringArrayEquality {
     return $true
 }
 
+function Get-RepoRelativePath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [string]$RepoRoot
+    )
+
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path -replace '\\', '/'
+    $resolvedRepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path -replace '\\', '/'
+
+    if ($resolvedPath.StartsWith("$resolvedRepoRoot/")) {
+        return $resolvedPath.Substring($resolvedRepoRoot.Length + 1)
+    }
+
+    return $resolvedPath
+}
+
+function Get-SourceMarkerMatches {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceText,
+        [Parameter(Mandatory)]
+        [object[]]$Markers
+    )
+
+    return @(
+        $Markers |
+            Where-Object { [regex]::IsMatch($SourceText, $_.pattern) } |
+            ForEach-Object { $_.name } |
+            Sort-Object
+    )
+}
+
 function Invoke-BootstrapReportSurfaceSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -316,8 +615,9 @@ function Invoke-BootstrapReportSurfaceSnapshot {
     $createdPaths = @(Initialize-NikoFStorageLayout -StorageLayout $storageLayout)
     $toolResults = @(Test-NikoFTooling -Config $config)
     $providerResults = @(Get-NikoFProviderStatus -Config $config -StorageLayout $storageLayout)
+    $hintFiles = Export-NikoFRemediationHints -StorageLayout $storageLayout -ProviderResults $providerResults
     $envFilePath = Export-NikoFSessionEnvFile -StorageLayout $storageLayout -Config $config
-    $reportPath = Export-NikoFBootstrapReport -StorageLayout $storageLayout -Config $config -CreatedPaths $createdPaths -ToolResults $toolResults -ProviderResults $providerResults -EnvFilePath $envFilePath
+    $reportPath = Export-NikoFBootstrapReport -StorageLayout $storageLayout -Config $config -CreatedPaths $createdPaths -ToolResults $toolResults -ProviderResults $providerResults -HintFiles $hintFiles -EnvFilePath $envFilePath
     $reportPayload = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
 
     return [ordered]@{
@@ -360,16 +660,38 @@ function Invoke-FrontendStage1BridgeSurfaceSnapshot {
     $backendSurface = Get-Content -LiteralPath $backendSurfacePath -Raw | ConvertFrom-Json
     $backendContractsPath = Join-Path $RepoRoot 'tests\stability\baselines\backend-stage1-contracts.json'
     $backendContracts = Get-Content -LiteralPath $backendContractsPath -Raw | ConvertFrom-Json
-    $appPath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
+    $characterShellStatePath = Join-Path $RepoRoot 'frontend\src\app\useCharacterShellState.ts'
+    $surfaceShellPresentationPath = Join-Path $RepoRoot 'frontend\src\app\surfaceShellPresentation.tsx'
+    $backendCharacterFlowPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\backendCharacterFlow.ts'
     $characterTypesPath = Join-Path $RepoRoot 'frontend\src\shared\types\character.ts'
     $catalogLoaderPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\characterCatalog.ts'
-    $appSource = Get-Content -LiteralPath $appPath -Raw
+    $characterShellStateSource = Get-Content -LiteralPath $characterShellStatePath -Raw
+    $surfaceShellPresentationSource = Get-Content -LiteralPath $surfaceShellPresentationPath -Raw
+    $backendCharacterFlowSource = Get-Content -LiteralPath $backendCharacterFlowPath -Raw
     $characterTypesSource = Get-Content -LiteralPath $characterTypesPath -Raw
     $catalogLoaderSource = Get-Content -LiteralPath $catalogLoaderPath -Raw
 
     $expectedCatalogKeys = @($backendSurface.response_surface.character_catalog_keys)
     $expectedActiveKeys = @($backendSurface.response_surface.active_character_keys)
     $expectedInvalidSelectionKeys = @($backendSurface.response_surface.invalid_selection_keys)
+    $expectedHealthDiagnosticsKeys = if ($backendSurface.response_surface.PSObject.Properties.Name -contains 'health_diagnostics_keys') {
+        @($backendSurface.response_surface.health_diagnostics_keys)
+    }
+    else {
+        @()
+    }
+    $expectedHealthLaneKeys = if ($backendSurface.response_surface.PSObject.Properties.Name -contains 'health_prerequisite_lane_keys') {
+        @($backendSurface.response_surface.health_prerequisite_lane_keys)
+    }
+    else {
+        @()
+    }
+    $expectedHealthBlockerKeys = if ($backendSurface.response_surface.PSObject.Properties.Name -contains 'health_prerequisite_blocker_keys') {
+        @($backendSurface.response_surface.health_prerequisite_blocker_keys)
+    }
+    else {
+        @()
+    }
     $invalidActiveCharacterResponse = $backendContracts.responses.put_active_character_invalid.response
     $invalidActiveCharacterKeys = @(Get-OrderedPropertyNames -InputObject $invalidActiveCharacterResponse)
     $invalidSelectionKeys = @(Get-OrderedPropertyNames -InputObject $invalidActiveCharacterResponse.selection)
@@ -377,19 +699,24 @@ function Invoke-FrontendStage1BridgeSurfaceSnapshot {
     $catalogFetchReturnType = "Promise<$catalogInterfaceName>"
     $catalogInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName $catalogInterfaceName)
     $activeInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName 'BackendActiveCharacterResponseDocument')
+    $healthDiagnosticsInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName 'BackendHealthDiagnosticsDocument')
+    $healthLaneInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName 'BackendRuntimePrerequisiteLaneDocument')
+    $healthBlockerInterfaceKeys = @(Get-InterfacePropertyNamesFromSource -SourceText $characterTypesSource -InterfaceName 'BackendRuntimePrerequisiteLaneBlockerDocument')
     $fetchSummariesReturnType = Get-AsyncFunctionReturnTypeFromSource -SourceText $catalogLoaderSource -FunctionName 'fetchBackendCharacterSummaries'
-    $usesCatalogEnvelopeCharacters = [regex]::IsMatch($catalogLoaderSource, '\.characters\b')
-    $readsCatalogActiveCharacterId = [regex]::IsMatch($catalogLoaderSource, '\.active_character_id\b')
+    $usesCatalogEnvelopeCharacters = [regex]::IsMatch($backendCharacterFlowSource, 'summariesDocument\.characters\b')
+    $readsCatalogActiveCharacterId = [regex]::IsMatch($backendCharacterFlowSource, 'summariesDocument\.active_character_id\b')
+    $readsHealthPrerequisiteLanes = [regex]::IsMatch($surfaceShellPresentationSource, 'healthPayload\?\.diagnostics\.prerequisite_lanes\s*\?\?\s*\[\]')
+    $readsHealthLaneBlockers = [regex]::IsMatch($surfaceShellPresentationSource, 'lane\.blockers\s*\?\?\s*\[\]')
     $loaderExportsStructuredSyncError = [regex]::IsMatch($catalogLoaderSource, '(?ms)export class\s+ActiveCharacterSyncError\s+extends\s+Error')
     $loaderPreservesRejectionDocument = [regex]::IsMatch(
         $catalogLoaderSource,
         '(?ms)readonly response:\s*BackendActiveCharacterResponseDocument\s*;.*?throw new ActiveCharacterSyncError\(document,\s*response\.status\)'
     )
-    $appHandlesStructuredSyncError = [regex]::IsMatch($appSource, 'error\s+instanceof\s+ActiveCharacterSyncError')
-    $appUsesRejectedSelectionMessage = [regex]::IsMatch($appSource, 'error\.response\.selection\.message')
+    $appHandlesStructuredSyncError = [regex]::IsMatch($characterShellStateSource, 'error\s+instanceof\s+ActiveCharacterSyncError')
+    $appUsesRejectedSelectionMessage = [regex]::IsMatch($backendCharacterFlowSource, 'response\.selection\.message')
     $appReconcilesRejectedSelection = [regex]::IsMatch(
-        $appSource,
-        '(?ms)if\s*\(error\s+instanceof\s+ActiveCharacterSyncError\)\s*\{.*?const\s+(?<reconciledId>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*loadState\.catalog\s*\?\s*resolveSelectedCharacterId\(\s*loadState\.catalog\s*,\s*error\.response\.active_character\.character_id\s*\)\s*:\s*selectedCharacterId\s*;.*?setSelectedCharacterId\(\s*\k<reconciledId>\s*\);.*?error\.response\.selection\.message'
+        $characterShellStateSource,
+        '(?ms)if\s*\(error\s+instanceof\s+ActiveCharacterSyncError\)\s*\{.*?createRejectedActiveCharacterSyncState\(loadState\.catalog,\s*error\.response\).*?setSelectedCharacterId\(nextSyncState\.selectedCharacterId\).*?setBackendSyncState\(\(currentState\)\s*=>\s*\(\{.*?\.\.\.currentState,.*?\.\.\.nextSyncState'
     )
 
     return [ordered]@{
@@ -401,6 +728,9 @@ function Invoke-FrontendStage1BridgeSurfaceSnapshot {
             active_character_keys = @($expectedActiveKeys)
             rejection_active_character_keys = @($invalidActiveCharacterKeys)
             rejection_selection_keys = @($invalidSelectionKeys)
+            health_diagnostics_keys = @($expectedHealthDiagnosticsKeys)
+            health_prerequisite_lane_keys = @($expectedHealthLaneKeys)
+            health_prerequisite_blocker_keys = @($expectedHealthBlockerKeys)
         }
         frontend_bridge_surface = [ordered]@{
             catalog_response_interface = if ($catalogInterfaceKeys.Count -gt 0) { $catalogInterfaceName } else { '<missing>' }
@@ -410,6 +740,14 @@ function Invoke-FrontendStage1BridgeSurfaceSnapshot {
             catalog_reads_active_character_id = [bool]$readsCatalogActiveCharacterId
             active_response_interface = 'BackendActiveCharacterResponseDocument'
             active_response_keys = @($activeInterfaceKeys)
+            health_diagnostics_interface = 'BackendHealthDiagnosticsDocument'
+            health_diagnostics_keys = @($healthDiagnosticsInterfaceKeys)
+            health_prerequisite_lane_interface = 'BackendRuntimePrerequisiteLaneDocument'
+            health_prerequisite_lane_keys = @($healthLaneInterfaceKeys)
+            health_prerequisite_blocker_interface = 'BackendRuntimePrerequisiteLaneBlockerDocument'
+            health_prerequisite_blocker_keys = @($healthBlockerInterfaceKeys)
+            app_reads_prerequisite_lanes = [bool]$readsHealthPrerequisiteLanes
+            app_reads_prerequisite_lane_blockers = [bool]$readsHealthLaneBlockers
             sync_error_class = if ($loaderExportsStructuredSyncError) { 'ActiveCharacterSyncError' } else { '<missing>' }
             sync_error_preserves_rejection_document = [bool]$loaderPreservesRejectionDocument
             app_handles_structured_rejection = [bool]$appHandlesStructuredSyncError
@@ -422,12 +760,368 @@ function Invoke-FrontendStage1BridgeSurfaceSnapshot {
             catalog_consumes_envelope_characters = [bool]$usesCatalogEnvelopeCharacters
             catalog_reads_active_character_id = [bool]$readsCatalogActiveCharacterId
             active_response_keys_match = Test-StringArrayEquality -Left $activeInterfaceKeys -Right $expectedActiveKeys
+            health_diagnostics_keys_match = Test-StringArrayEquality -Left $healthDiagnosticsInterfaceKeys -Right $expectedHealthDiagnosticsKeys
+            health_prerequisite_lane_keys_match = Test-StringArrayEquality -Left $healthLaneInterfaceKeys -Right $expectedHealthLaneKeys
+            health_prerequisite_blocker_keys_match = Test-StringArrayEquality -Left $healthBlockerInterfaceKeys -Right $expectedHealthBlockerKeys
+            app_reads_prerequisite_lanes = [bool]$readsHealthPrerequisiteLanes
+            app_reads_prerequisite_lane_blockers = [bool]$readsHealthLaneBlockers
             rejection_active_response_keys_match = Test-StringArrayEquality -Left $invalidActiveCharacterKeys -Right $expectedActiveKeys
             rejection_selection_keys_match = Test-StringArrayEquality -Left $invalidSelectionKeys -Right $expectedInvalidSelectionKeys
             sync_error_preserves_rejection_document = [bool]$loaderPreservesRejectionDocument
             app_handles_structured_rejection = [bool]$appHandlesStructuredSyncError
             app_uses_rejection_selection_message = [bool]$appUsesRejectedSelectionMessage
             app_reconciles_rejected_selection = [bool]$appReconcilesRejectedSelection
+        }
+    }
+}
+
+function Invoke-FrontendShellSplitSurfaceSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $entrypointRoot = Join-Path $RepoRoot 'frontend\src'
+    $appRoot = Join-Path $RepoRoot 'frontend\src\app'
+    $stylesPath = Join-Path $RepoRoot 'frontend\src\styles.css'
+    $avatarStagePath = Join-Path $RepoRoot 'frontend\src\avatar\components\AvatarStage.tsx'
+    $operatorCommandLoaderPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\operatorCommand.ts'
+    $sharedTypesPath = Join-Path $RepoRoot 'frontend\src\shared\types\character.ts'
+    $mainEntrypointPath = Join-Path $RepoRoot 'frontend\src\main.tsx'
+    $appSurfacePath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
+    $surfaceShellPresentationPath = Join-Path $RepoRoot 'frontend\src\app\surfaceShellPresentation.tsx'
+    $entrypointMarkers = @(
+        [pscustomobject]@{ name = 'create-root'; pattern = '\bcreateRoot\b' }
+        [pscustomobject]@{ name = 'import-app'; pattern = 'from\s+["'']\./app/App["'']' }
+        [pscustomobject]@{ name = 'render-app'; pattern = 'render\(\s*<App\b' }
+    )
+    $backendSyncMarkers = @(
+        [pscustomobject]@{ name = 'active-sync-error'; pattern = '\bActiveCharacterSyncError\b' }
+        [pscustomobject]@{ name = 'bridge-character-catalog'; pattern = '\bbridgeCharacterCatalogWithBackend\b' }
+        [pscustomobject]@{ name = 'resolve-selected-character'; pattern = '\bresolveSelectedCharacterId\b' }
+        [pscustomobject]@{ name = 'sync-active-character-selection'; pattern = '\bsyncActiveCharacterSelection\b' }
+    )
+    $backendSyncOwnershipMarkers = @(
+        'active-sync-error'
+        'bridge-character-catalog'
+        'sync-active-character-selection'
+    )
+    $speechLifecycleMarkers = @(
+        [pscustomobject]@{ name = 'speech-lifecycle-stream'; pattern = 'speech\.lifecycle' }
+        [pscustomobject]@{ name = 'speech-lifecycle-snapshot-type'; pattern = '\bConsumedSpeechLifecycleSnapshot\b' }
+        [pscustomobject]@{ name = 'speech-lifecycle-delivery-mode'; pattern = '\bSpeechLifecycleDeliveryMode\b' }
+        [pscustomobject]@{ name = 'start-speech-lifecycle-live-consumption'; pattern = '\bstartSpeechLifecycleLiveConsumption\b' }
+    )
+    $speechLifecycleOwnershipMarkers = @(
+        'start-speech-lifecycle-live-consumption'
+    )
+    $sessionAnimationMarkers = @(
+        [pscustomobject]@{ name = 'session-animation-snapshot-type'; pattern = '\bConsumedSessionAnimationSnapshot\b' }
+        [pscustomobject]@{ name = 'session-animation-delivery-mode'; pattern = '\bSessionAnimationDeliveryMode\b' }
+        [pscustomobject]@{ name = 'start-session-animation-live-consumption'; pattern = '\bstartSessionAnimationLiveConsumption\b' }
+        [pscustomobject]@{ name = 'update-session-animation-lifecycle-state'; pattern = '\bupdateSessionAnimationLifecycleState\b' }
+    )
+    $sessionAnimationOwnershipMarkers = @(
+        'start-session-animation-live-consumption'
+        'update-session-animation-lifecycle-state'
+    )
+    $operatorCommandMarkers = @(
+        [pscustomobject]@{ name = 'submit-operator-command'; pattern = '\bsubmitOperatorCommand\b' }
+        [pscustomobject]@{ name = 'text-question-command'; pattern = '"text_question"' }
+        [pscustomobject]@{ name = 'tts-preview-command'; pattern = '"tts_preview"' }
+    )
+
+    $entrypointFiles = @(
+        Get-ChildItem -LiteralPath $entrypointRoot -File -Filter '*.tsx' |
+            Sort-Object FullName
+    )
+    $surfaceFiles = @(
+        Get-ChildItem -LiteralPath $appRoot -Recurse -File |
+            Where-Object { $_.Extension -in @('.ts', '.tsx') } |
+            Sort-Object FullName
+    )
+    $entrypointRecords = New-Object System.Collections.Generic.List[object]
+    $surfaceRecords = New-Object System.Collections.Generic.List[object]
+
+    foreach ($entrypointFile in $entrypointFiles) {
+        $sourceText = Get-Content -LiteralPath $entrypointFile.FullName -Raw
+        $relativePath = Get-RepoRelativePath -Path $entrypointFile.FullName -RepoRoot $RepoRoot
+        $matchedEntrypointMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $entrypointMarkers)
+        $matchedBackendSyncMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $backendSyncMarkers)
+        $matchedSpeechLifecycleMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $speechLifecycleMarkers)
+        $matchedSessionAnimationMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $sessionAnimationMarkers)
+        $rendersApp = ($matchedEntrypointMarkers -contains 'import-app') -and ($matchedEntrypointMarkers -contains 'render-app')
+
+        $entrypointRecords.Add(
+            [pscustomobject][ordered]@{
+                path = $relativePath
+                entrypoint_markers = $matchedEntrypointMarkers
+                backend_sync_markers = $matchedBackendSyncMarkers
+                speech_lifecycle_markers = $matchedSpeechLifecycleMarkers
+                session_animation_markers = $matchedSessionAnimationMarkers
+                renders_app = $rendersApp
+                owns_backend_sync_path = $matchedBackendSyncMarkers.Count -gt 0
+                owns_speech_lifecycle_path = $matchedSpeechLifecycleMarkers.Count -gt 0
+                owns_session_animation_path = $matchedSessionAnimationMarkers.Count -gt 0
+            }
+        ) | Out-Null
+    }
+
+    foreach ($surfaceFile in $surfaceFiles) {
+        $sourceText = Get-Content -LiteralPath $surfaceFile.FullName -Raw
+        $relativePath = Get-RepoRelativePath -Path $surfaceFile.FullName -RepoRoot $RepoRoot
+        $matchedBackendSyncMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $backendSyncMarkers)
+        $matchedSpeechLifecycleMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $speechLifecycleMarkers)
+        $matchedSessionAnimationMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $sessionAnimationMarkers)
+        $matchedOperatorCommandMarkers = @(Get-SourceMarkerMatches -SourceText $sourceText -Markers $operatorCommandMarkers)
+        $matchedBackendSyncOwnershipMarkers = @($matchedBackendSyncMarkers | Where-Object { $_ -in $backendSyncOwnershipMarkers })
+        $matchedSpeechLifecycleOwnershipMarkers = @($matchedSpeechLifecycleMarkers | Where-Object { $_ -in $speechLifecycleOwnershipMarkers })
+        $matchedSessionAnimationOwnershipMarkers = @($matchedSessionAnimationMarkers | Where-Object { $_ -in $sessionAnimationOwnershipMarkers })
+        $ownsBackendSyncPath = $matchedBackendSyncOwnershipMarkers.Count -gt 0
+        $ownsSpeechLifecyclePath = $matchedSpeechLifecycleOwnershipMarkers.Count -gt 0
+        $ownsSessionAnimationPath = $matchedSessionAnimationOwnershipMarkers.Count -gt 0
+        $ownsOperatorCommandClient = $matchedOperatorCommandMarkers.Count -gt 0
+
+        $surfaceRecords.Add(
+            [pscustomobject][ordered]@{
+                path = $relativePath
+                backend_sync_markers = $matchedBackendSyncMarkers
+                speech_lifecycle_markers = $matchedSpeechLifecycleMarkers
+                session_animation_markers = $matchedSessionAnimationMarkers
+                operator_command_markers = $matchedOperatorCommandMarkers
+                owns_backend_sync_path = $ownsBackendSyncPath
+                owns_speech_lifecycle_path = $ownsSpeechLifecyclePath
+                owns_session_animation_path = $ownsSessionAnimationPath
+                owns_operator_command_client = $ownsOperatorCommandClient
+                presentation_only = (-not $ownsBackendSyncPath) -and (-not $ownsSpeechLifecyclePath) -and (-not $ownsSessionAnimationPath) -and (-not $ownsOperatorCommandClient)
+            }
+        ) | Out-Null
+    }
+
+    $entrypointBackendSyncOwnerFiles = @($entrypointRecords | Where-Object { $_.owns_backend_sync_path } | ForEach-Object { $_.path })
+    $entrypointSpeechLifecycleOwnerFiles = @($entrypointRecords | Where-Object { $_.owns_speech_lifecycle_path } | ForEach-Object { $_.path })
+    $entrypointSessionAnimationOwnerFiles = @($entrypointRecords | Where-Object { $_.owns_session_animation_path } | ForEach-Object { $_.path })
+    $entrypointsWithoutApp = @($entrypointRecords | Where-Object { -not $_.renders_app } | ForEach-Object { $_.path })
+    $backendSyncOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_backend_sync_path } | ForEach-Object { $_.path })
+    $speechLifecycleOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_speech_lifecycle_path } | ForEach-Object { $_.path })
+    $sessionAnimationOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_session_animation_path } | ForEach-Object { $_.path })
+    $operatorCommandOwnerFiles = @($surfaceRecords | Where-Object { $_.owns_operator_command_client } | ForEach-Object { $_.path })
+    $splitEntrypointsPresent = $entrypointRecords.Count -gt 1
+    $entrypointsRouteThroughApp =
+        ($entrypointsWithoutApp.Count -eq 0) -and
+        ($entrypointBackendSyncOwnerFiles.Count -eq 0) -and
+        ($entrypointSpeechLifecycleOwnerFiles.Count -eq 0) -and
+        ($entrypointSessionAnimationOwnerFiles.Count -eq 0)
+    $operatorCommandLoaderSource = Get-Content -LiteralPath $operatorCommandLoaderPath -Raw
+    $sharedTypesSource = Get-Content -LiteralPath $sharedTypesPath -Raw
+    $mainEntrypointSource = Get-Content -LiteralPath $mainEntrypointPath -Raw
+    $appSurfaceSource = Get-Content -LiteralPath $appSurfacePath -Raw
+    $surfaceShellPresentationSource = Get-Content -LiteralPath $surfaceShellPresentationPath -Raw
+    $stylesSource = Get-Content -LiteralPath $stylesPath -Raw
+    $avatarStageSource = Get-Content -LiteralPath $avatarStagePath -Raw
+    $operatorCommandRouteMatch = [regex]::Match($operatorCommandLoaderSource, 'buildBackendApiUrl\(\s*["''](?<path>[^"'']+)["'']\s*\)')
+    $operatorCommandTypeMatch = [regex]::Match($sharedTypesSource, '(?m)^export\s+type\s+BackendOperatorCommandType\s*=\s*(?<types>.+);\s*$')
+    $publishedCommandTypes = if ($operatorCommandTypeMatch.Success) {
+        @([regex]::Matches($operatorCommandTypeMatch.Groups['types'].Value, '["''](?<type>[^"'']+)["'']') | ForEach-Object { $_.Groups['type'].Value })
+    }
+    else {
+        @()
+    }
+    $displayReadOnlyForOperatorCommands = -not (@($surfaceRecords | Where-Object { $_.path -eq 'frontend/src/app/App.tsx' -and $_.owns_operator_command_client }).Count -gt 0)
+    $appSelectsDisplayShell = [regex]::IsMatch($appSurfaceSource, '(?s)if\s*\(\s*surfaceMode\s*===\s*"display"\s*\)\s*\{\s*return\s*\(\s*<DisplaySurfaceShell\b')
+    $appFallsBackToControlShell = [regex]::IsMatch($appSurfaceSource, '(?s)return\s*\(\s*<ControlSurfaceShell\b')
+    $displayBranchMatch = [regex]::Match($surfaceShellPresentationSource, '(?s)export function\s+DisplaySurfaceShell\b.*?return\s*\((?<branch>.*?)\);\s*\}')
+    $controlBranchMatch = [regex]::Match($surfaceShellPresentationSource, '(?s)export function\s+ControlSurfaceShell\b.*?return\s*\((?<branch>.*?)\);\s*\}')
+    $displayBranchSource = if ($displayBranchMatch.Success) { $displayBranchMatch.Groups['branch'].Value } else { '' }
+    $controlBranchSource = if ($controlBranchMatch.Success) { $controlBranchMatch.Groups['branch'].Value } else { '' }
+    $displayRailMatch = [regex]::Match($displayBranchSource, '(?s)<aside\s+className="app-shell__display-rail">\s*(?<rail>.*?)\s*</aside>')
+    $displayRailSource = if ($displayRailMatch.Success) { $displayRailMatch.Groups['rail'].Value } else { '' }
+    $displayPathMapsToDisplay = [regex]::IsMatch($mainEntrypointSource, '(?s)if\s*\(\s*normalizedPath\.endsWith\("/display"\)\s*\)\s*\{\s*return\s*"display";\s*\}')
+    $controlPathMapsToControl = [regex]::IsMatch($mainEntrypointSource, '(?s)if\s*\(\s*normalizedPath\.endsWith\("/control"\)\s*\)\s*\{\s*return\s*"control";\s*\}')
+    $nonSurfacePathsReturnNull = [regex]::IsMatch($mainEntrypointSource, '(?s)return\s*null;\s*\}')
+    $pathSelectionPrecedesBodyDataset = [regex]::IsMatch($mainEntrypointSource, '(?s)const\s+surfaceModeFromPath\s*=\s*resolveSurfaceModeFromPath\(window\.location\.pathname\);\s*if\s*\(\s*surfaceModeFromPath\s*\)\s*\{\s*return\s+surfaceModeFromPath;\s*\}\s*const\s+declaredSurfaceMode\s*=\s*document\.body\.dataset\.surfaceMode;')
+    $bodyDatasetFallbackPresent = [regex]::IsMatch($mainEntrypointSource, '(?s)if\s*\(\s*declaredSurfaceMode\s*===\s*"control"\s*\|\|\s*declaredSurfaceMode\s*===\s*"display"\s*\)\s*\{\s*return\s+declaredSurfaceMode;\s*\}')
+    $defaultSurfaceFallsBackToControl = [regex]::IsMatch($mainEntrypointSource, 'return\s+"control";')
+    $surfaceModeWrittenToBodyDataset = [regex]::IsMatch($mainEntrypointSource, 'document\.body\.dataset\.surfaceMode\s*=\s*surfaceMode;')
+    $surfaceModeWrittenToRootDataset = [regex]::IsMatch($mainEntrypointSource, 'rootElement\.dataset\.surfaceMode\s*=\s*surfaceMode;')
+    $displayBranchPresent = $displayBranchMatch.Success
+    $displayBranchTitlePresent = [regex]::IsMatch($displayBranchSource, 'NikoF avatar display surface')
+    $displayBranchStatusPanelPresent = [regex]::IsMatch($displayBranchSource, '\bDisplaySurfaceStatusPanel\b')
+    $displayBranchUsesDisplayAvatarVariant = [regex]::IsMatch($displayBranchSource, '(?s)<AvatarStage\b.*?\bvariant\s*=\s*"display"')
+    $displayBranchContainsDisplayRail = $displayRailMatch.Success
+    $displayBranchRendersAvatarStageBeforeDisplayRail = [regex]::IsMatch($displayBranchSource, '(?s)<AvatarStage\b.*?<aside\s+className="app-shell__display-rail">')
+    $displayBranchStatusPanelInDisplayRail = [regex]::IsMatch($displayRailSource, '\bDisplaySurfaceStatusPanel\b')
+    $displayBranchDevPanelsGatePreserved = [regex]::IsMatch($displayRailSource, '(?s)\{\s*isDevAnimationSwitcherEnabled\s*\?\s*\(.*?<DevAnimationSwitcherPanel\b.*?<PunchComparisonPanel\b.*?\)\s*:\s*null\s*\}')
+    $displayBranchDevAnimationPanelInDisplayRail = [regex]::IsMatch($displayRailSource, '\bDevAnimationSwitcherPanel\b')
+    $displayBranchPunchComparisonPanelInDisplayRail = [regex]::IsMatch($displayRailSource, '\bPunchComparisonPanel\b')
+    $displayBranchExcludesControlOperatorPanel = -not [regex]::IsMatch($displayBranchSource, '\bControlSurfaceOperatorCommandPanel\b')
+    $displayBranchExcludesCatalogPanel = -not [regex]::IsMatch($displayBranchSource, '\bCharacterCatalogPanel\b')
+    $displayBranchExcludesSpeechLifecyclePanel = -not [regex]::IsMatch($displayBranchSource, '\bSpeechLifecyclePanel\b')
+    $controlBranchPresent = $controlBranchMatch.Success
+    $controlBranchTitlePresent = [regex]::IsMatch($controlBranchSource, 'NikoF control surface')
+    $controlBranchContainsOperatorPanel = [regex]::IsMatch($controlBranchSource, '\bControlSurfaceOperatorCommandPanel\b')
+    $controlBranchContainsCatalogPanel = [regex]::IsMatch($controlBranchSource, '\bCharacterCatalogPanel\b')
+    $controlBranchContainsSpeechLifecyclePanel = [regex]::IsMatch($controlBranchSource, '\bSpeechLifecyclePanel\b')
+    $controlBranchExcludesDisplayStatusPanel = -not [regex]::IsMatch($controlBranchSource, '\bDisplaySurfaceStatusPanel\b')
+    $displayShellUsesTwoColumnGrid = [regex]::IsMatch($stylesSource, '(?s)\.app-shell__display\s*\{.*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s*minmax\(260px,\s*320px\);')
+    $displayRailUsesStackedGrid = [regex]::IsMatch($stylesSource, '(?s)\.app-shell__display-rail\s*\{.*?display:\s*grid;.*?gap:\s*1rem;.*?align-content:\s*start;')
+    $displayShellCollapsesToSingleColumnOnMobile = [regex]::IsMatch($stylesSource, '(?s)@media\s*\(max-width:\s*900px\)\s*\{.*?\.app-shell__display(?:\s*,[^\{]+)?\s*\{.*?grid-template-columns:\s*1fr;')
+    $displayAvatarVariantUsesSingleColumnSurface = [regex]::IsMatch($stylesSource, '(?s)\.avatar-stage__surface--display\s*\{.*?grid-template-columns:\s*minmax\(0,\s*1fr\);')
+    $displayAvatarViewportMinHeightLocked = [regex]::IsMatch($stylesSource, '(?s)\.avatar-stage--display\s+\.avatar-stage__viewport-shell,\s*\.avatar-stage--display\s+\.avatar-stage__viewport\s*\{.*?min-height:\s*calc\(100vh\s*-\s*11\.5rem\);')
+    $displayAvatarVariantHidesOverlay = [regex]::IsMatch($avatarStageSource, '(?s)\{\s*variant\s*===\s*"display"\s*\?\s*null\s*:\s*\(\s*<aside\b')
+    $surfaceModeResolutionLocked =
+        $displayPathMapsToDisplay -and
+        $controlPathMapsToControl -and
+        $nonSurfacePathsReturnNull -and
+        $pathSelectionPrecedesBodyDataset -and
+        $bodyDatasetFallbackPresent -and
+        $defaultSurfaceFallsBackToControl -and
+        $surfaceModeWrittenToBodyDataset -and
+        $surfaceModeWrittenToRootDataset
+    $surfaceBranchesRenderDistinctShells =
+        $appSelectsDisplayShell -and
+        $appFallsBackToControlShell -and
+        $displayBranchPresent -and
+        $displayBranchTitlePresent -and
+        $displayBranchStatusPanelPresent -and
+        $displayBranchUsesDisplayAvatarVariant -and
+        $displayBranchContainsDisplayRail -and
+        $displayBranchRendersAvatarStageBeforeDisplayRail -and
+        $displayBranchStatusPanelInDisplayRail -and
+        $displayBranchExcludesControlOperatorPanel -and
+        $displayBranchExcludesCatalogPanel -and
+        $displayBranchExcludesSpeechLifecyclePanel -and
+        $controlBranchPresent -and
+        $controlBranchTitlePresent -and
+        $controlBranchContainsOperatorPanel -and
+        $controlBranchContainsCatalogPanel -and
+        $controlBranchContainsSpeechLifecyclePanel -and
+        $controlBranchExcludesDisplayStatusPanel
+    $displayLayoutContractLocked =
+        $displayShellUsesTwoColumnGrid -and
+        $displayRailUsesStackedGrid -and
+        $displayShellCollapsesToSingleColumnOnMobile -and
+        $displayAvatarVariantUsesSingleColumnSurface -and
+        $displayAvatarViewportMinHeightLocked -and
+        $displayAvatarVariantHidesOverlay
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        tracked_inputs = @($Scenario.tracked_inputs)
+        mode_resolution_state = [ordered]@{
+            owner_file = 'frontend/src/main.tsx'
+            display_path_maps_to_display = $displayPathMapsToDisplay
+            control_path_maps_to_control = $controlPathMapsToControl
+            non_surface_paths_return_null = $nonSurfacePathsReturnNull
+            path_selection_precedes_body_dataset = $pathSelectionPrecedesBodyDataset
+            body_dataset_fallback_present = $bodyDatasetFallbackPresent
+            default_surface_falls_back_to_control = $defaultSurfaceFallsBackToControl
+            surface_mode_written_to_body_dataset = $surfaceModeWrittenToBodyDataset
+            surface_mode_written_to_root_dataset = $surfaceModeWrittenToRootDataset
+            surface_mode_resolution_locked = $surfaceModeResolutionLocked
+        }
+        entrypoint_state = [ordered]@{
+            entrypoint_files = @($entrypointRecords | ForEach-Object { $_.path })
+            total_entrypoint_file_count = $entrypointRecords.Count
+            split_entrypoints_present = $splitEntrypointsPresent
+            entrypoints_render_app = $entrypointsWithoutApp.Count -eq 0
+            entrypoints_without_app = $entrypointsWithoutApp
+            entrypoint_backend_sync_owner_files = $entrypointBackendSyncOwnerFiles
+            entrypoint_speech_lifecycle_owner_files = $entrypointSpeechLifecycleOwnerFiles
+            entrypoint_session_animation_owner_files = $entrypointSessionAnimationOwnerFiles
+            dependency = if ($splitEntrypointsPresent) {
+                $null
+            }
+            else {
+                "Switch's real control/display entrypoint split is still absent under frontend/src/*.tsx, so this guard is prepared but blocked until separate /control and /display surfaces route through the same App-owned frontend shell seams."
+            }
+        }
+        app_owner_state = [ordered]@{
+            app_files = @($surfaceRecords | ForEach-Object { $_.path })
+            total_app_surface_file_count = $surfaceRecords.Count
+            backend_sync_owner_files = $backendSyncOwnerFiles
+            speech_lifecycle_owner_files = $speechLifecycleOwnerFiles
+            session_animation_owner_files = $sessionAnimationOwnerFiles
+            operator_command_owner_files = $operatorCommandOwnerFiles
+            secondary_backend_sync_path_present = $backendSyncOwnerFiles.Count -gt 1
+            secondary_speech_lifecycle_path_present = $speechLifecycleOwnerFiles.Count -gt 1
+            secondary_session_animation_path_present = $sessionAnimationOwnerFiles.Count -gt 1
+        }
+        operator_command_state = [ordered]@{
+            owner_files = $operatorCommandOwnerFiles
+            single_operator_command_owner = $operatorCommandOwnerFiles.Count -eq 1
+            owner_outside_app = ($operatorCommandOwnerFiles.Count -eq 1) -and ($operatorCommandOwnerFiles[0] -cne 'frontend/src/app/App.tsx')
+            display_surface_read_only = $displayReadOnlyForOperatorCommands
+            backend_operator_command_path = if ($operatorCommandRouteMatch.Success) { $operatorCommandRouteMatch.Groups['path'].Value } else { $null }
+            backend_operator_command_seam_locked = $operatorCommandRouteMatch.Success -and ($operatorCommandRouteMatch.Groups['path'].Value -ceq '/session/operator-command')
+            published_command_types = $publishedCommandTypes
+            published_command_types_locked = Test-StringArrayEquality -Left $publishedCommandTypes -Right @('text_question', 'tts_preview')
+        }
+        surface_branch_state = [ordered]@{
+            owner_files = @(
+                'frontend/src/app/App.tsx'
+                'frontend/src/app/surfaceShellPresentation.tsx'
+            )
+            app_selects_display_shell = $appSelectsDisplayShell
+            app_falls_back_to_control_shell = $appFallsBackToControlShell
+            display_branch_present = $displayBranchPresent
+            display_branch_title_present = $displayBranchTitlePresent
+            display_branch_status_panel_present = $displayBranchStatusPanelPresent
+            display_branch_uses_display_avatar_variant = $displayBranchUsesDisplayAvatarVariant
+            display_branch_contains_display_rail = $displayBranchContainsDisplayRail
+            display_branch_renders_avatar_stage_before_display_rail = $displayBranchRendersAvatarStageBeforeDisplayRail
+            display_branch_status_panel_in_display_rail = $displayBranchStatusPanelInDisplayRail
+            display_branch_dev_panels_gate_preserved = $displayBranchDevPanelsGatePreserved
+            display_branch_dev_animation_panel_in_display_rail = $displayBranchDevAnimationPanelInDisplayRail
+            display_branch_punch_comparison_panel_in_display_rail = $displayBranchPunchComparisonPanelInDisplayRail
+            display_branch_excludes_control_operator_panel = $displayBranchExcludesControlOperatorPanel
+            display_branch_excludes_catalog_panel = $displayBranchExcludesCatalogPanel
+            display_branch_excludes_speech_lifecycle_panel = $displayBranchExcludesSpeechLifecyclePanel
+            control_branch_present = $controlBranchPresent
+            control_branch_title_present = $controlBranchTitlePresent
+            control_branch_contains_operator_panel = $controlBranchContainsOperatorPanel
+            control_branch_contains_catalog_panel = $controlBranchContainsCatalogPanel
+            control_branch_contains_speech_lifecycle_panel = $controlBranchContainsSpeechLifecyclePanel
+            control_branch_excludes_display_status_panel = $controlBranchExcludesDisplayStatusPanel
+            surface_branches_render_distinct_shells = $surfaceBranchesRenderDistinctShells
+        }
+        display_layout_state = [ordered]@{
+            owner_files = @(
+                'frontend/src/app/surfaceShellPresentation.tsx'
+                'frontend/src/styles.css'
+                'frontend/src/avatar/components/AvatarStage.tsx'
+            )
+            display_shell_uses_two_column_grid = $displayShellUsesTwoColumnGrid
+            display_rail_uses_stacked_grid = $displayRailUsesStackedGrid
+            display_shell_collapses_to_single_column_on_mobile = $displayShellCollapsesToSingleColumnOnMobile
+            display_avatar_variant_uses_single_column_surface = $displayAvatarVariantUsesSingleColumnSurface
+            display_avatar_viewport_min_height_locked = $displayAvatarViewportMinHeightLocked
+            display_avatar_variant_hides_overlay = $displayAvatarVariantHidesOverlay
+            display_layout_contract_locked = $displayLayoutContractLocked
+        }
+        entrypoint_files = @($entrypointRecords | ForEach-Object { $_ })
+        surface_files = @($surfaceRecords | ForEach-Object { $_ })
+        alignment = [ordered]@{
+            single_backend_sync_owner = $backendSyncOwnerFiles.Count -eq 1
+            single_speech_lifecycle_owner = $speechLifecycleOwnerFiles.Count -eq 1
+            single_session_animation_owner = $sessionAnimationOwnerFiles.Count -eq 1
+            single_operator_command_owner = $operatorCommandOwnerFiles.Count -eq 1
+            duplicate_backend_sync_path_blocked = $backendSyncOwnerFiles.Count -le 1
+            duplicate_speech_lifecycle_path_blocked = $speechLifecycleOwnerFiles.Count -le 1
+            duplicate_session_animation_path_blocked = $sessionAnimationOwnerFiles.Count -le 1
+            duplicate_operator_command_owner_blocked = $operatorCommandOwnerFiles.Count -le 1
+            entrypoints_route_through_app = $entrypointsRouteThroughApp
+            split_batch_unblocked = $splitEntrypointsPresent -and $entrypointsRouteThroughApp
+            entrypoint_split_present = $splitEntrypointsPresent
+            surface_mode_resolution_locked = $surfaceModeResolutionLocked
+            surface_branches_render_distinct_shells = $surfaceBranchesRenderDistinctShells
+            display_surface_read_only_for_operator_commands = $displayReadOnlyForOperatorCommands
+            display_layout_contract_locked = $displayLayoutContractLocked
         }
     }
 }
@@ -810,12 +1504,12 @@ function Invoke-BackendStage1ContractSnapshot {
         return $snapshotSource
     }
 
-    $snapshotObject = $snapshotSource.snapshot
+    $snapshotObject = ConvertTo-BackendStage1ScopedSnapshot -SnapshotObject $snapshotSource.snapshot -Scenario $Scenario
 
     return [ordered]@{
         scenario_id = $Scenario.id
         scenario_name = $Scenario.name
-        runner = $snapshotSource.runner
+        runner = 'python'
         tracked_inputs = @($Scenario.tracked_inputs)
         local_root = $snapshotSource.local_root
         routes = @(
@@ -1063,9 +1757,14 @@ function Invoke-BackendOperatorCommandSurfaceSnapshot {
     }
 
     $routerPath = Join-Path $RepoRoot 'backend\app\api\router.py'
+    $operatorRoutesPath = Join-Path $RepoRoot 'backend\app\api\operator_routes.py'
     $sessionSchemaPath = Join-Path $RepoRoot 'backend\app\schemas\session.py'
     $speechServicePath = Join-Path $RepoRoot 'backend\app\services\speech.py'
     $routerSource = Get-Content -LiteralPath $routerPath -Raw
+    $operatorRouteSources = @($routerSource)
+    if (Test-Path -LiteralPath $operatorRoutesPath) {
+        $operatorRouteSources += Get-Content -LiteralPath $operatorRoutesPath -Raw
+    }
     $sessionSchemaSource = Get-Content -LiteralPath $sessionSchemaPath -Raw
     $speechServiceSource = Get-Content -LiteralPath $speechServicePath -Raw
     $pythonLauncher = Get-PythonLauncher
@@ -1297,15 +1996,6 @@ sys.stdout.write("\n")
 
     $executionSnapshot = ($probeOutput -join [Environment]::NewLine) | ConvertFrom-Json
 
-    $routes = @(
-        $snapshotSource.snapshot.routes | ForEach-Object {
-            [ordered]@{
-                method = $_.method
-                path = $_.path
-                name = $_.name
-            }
-        }
-    )
     $writeRoutes = @($executionSnapshot.writable_routes)
     $nonSelectionWriteRoutes = @(
         $writeRoutes |
@@ -1319,13 +2009,14 @@ sys.stdout.write("\n")
             ForEach-Object { $_.Groups['name'].Value }
     )
     $operatorRouteMarkers = @(
-        [regex]::Matches(
-            $routerSource,
-            '(?m)^\s*@router\.(?:post|put|patch|delete)\(\s*["''](?<path>[^"'']*(?:operator|command)[^"'']*)["'']'
-        ) |
-            ForEach-Object { $_.Groups['path'].Value } |
-            Select-Object -Unique
-    )
+        foreach ($sourceText in $operatorRouteSources) {
+            [regex]::Matches(
+                $sourceText,
+                '(?m)^\s*@router\.(?:post|put|patch|delete)\(\s*["''](?<path>[^"'']*(?:operator|command)[^"'']*)["'']'
+            ) |
+                ForEach-Object { $_.Groups['path'].Value }
+        }
+    ) | Select-Object -Unique
     $backendTurnRequestFields = @(Get-DataclassFieldNamesFromSource -SourceText $speechServiceSource -ClassName 'BackendTurnRequest')
     $transcriptionRequestFields = @(Get-DataclassFieldNamesFromSource -SourceText $speechServiceSource -ClassName 'SpeechTranscriptionRequest')
     $synthesisRequestFields = @(Get-DataclassFieldNamesFromSource -SourceText $speechServiceSource -ClassName 'SpeechSynthesisRequest')
@@ -1433,7 +2124,7 @@ function Invoke-BackendStage1PayloadSurfaceSnapshot {
         return $snapshotSource
     }
 
-    $snapshotObject = $snapshotSource.snapshot
+    $snapshotObject = ConvertTo-BackendStage1ScopedSnapshot -SnapshotObject $snapshotSource.snapshot -Scenario $Scenario
     $healthResponse = $snapshotObject.responses.health
     $charactersResponse = $snapshotObject.responses.characters
     $activeCharacterResponse = $snapshotObject.responses.get_active_character
@@ -1460,13 +2151,30 @@ function Invoke-BackendStage1PayloadSurfaceSnapshot {
     return [ordered]@{
         scenario_id = $Scenario.id
         scenario_name = $Scenario.name
-        runner = $snapshotSource.runner
+        runner = 'python'
         tracked_inputs = @($Scenario.tracked_inputs)
         response_surface = [ordered]@{
             response_keys = @(Get-OrderedPropertyNames -InputObject $snapshotObject.responses)
             health_keys = @(Get-OrderedPropertyNames -InputObject $healthResponse)
             health_diagnostics_keys = @(Get-OrderedPropertyNames -InputObject $healthResponse.diagnostics)
             health_storage_probe_keys = @(Get-OrderedPropertyNames -InputObject $healthResponse.diagnostics.storage_probes[0])
+            health_prerequisite_lane_keys = if ($healthResponse.diagnostics.PSObject.Properties.Name -contains 'prerequisite_lanes' -and $healthResponse.diagnostics.prerequisite_lanes.Count -gt 0) {
+                @(Get-OrderedPropertyNames -InputObject $healthResponse.diagnostics.prerequisite_lanes[0])
+            }
+            else {
+                @()
+            }
+            health_prerequisite_blocker_keys = if (
+                ($healthResponse.diagnostics.PSObject.Properties.Name -contains 'prerequisite_lanes') -and
+                $healthResponse.diagnostics.prerequisite_lanes.Count -gt 0 -and
+                ($healthResponse.diagnostics.prerequisite_lanes[0].PSObject.Properties.Name -contains 'blockers') -and
+                $healthResponse.diagnostics.prerequisite_lanes[0].blockers.Count -gt 0
+            ) {
+                @(Get-OrderedPropertyNames -InputObject $healthResponse.diagnostics.prerequisite_lanes[0].blockers[0])
+            }
+            else {
+                @()
+            }
             character_catalog_keys = @($characterCatalogKeys)
             character_summary_keys = if ($null -ne $characterSummary) {
                 @(Get-OrderedPropertyNames -InputObject $characterSummary)
@@ -1527,17 +2235,81 @@ function Invoke-FrontendStage1CharacterFlowRuntimeSnapshot {
     $snapshotPath = Join-Path $scenarioTempRoot 'backend-stage1-contracts.json'
     $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendStage1CharacterFlow.runtime.ts'
     $runtimeScriptPath = Join-Path $scenarioTempRoot 'scripts\testing\frontendStage1CharacterFlow.runtime.js'
+    $characterShellHookPath = Join-Path $RepoRoot 'frontend\src\app\useCharacterShellState.ts'
+    $controlSurfaceShellPath = Join-Path $RepoRoot 'frontend\src\app\ControlSurfaceShell.tsx'
+    $surfaceShellPresentationPath = Join-Path $RepoRoot 'frontend\src\app\surfaceShellPresentation.tsx'
+    $controlSurfaceSummaryPanelPath = Join-Path $RepoRoot 'frontend\src\app\ControlSurfaceSummaryPanel.tsx'
+    $controlSurfaceSummaryPath = Join-Path $RepoRoot 'frontend\src\app\controlSurfaceSummary.ts'
+    $viteEnvPath = Join-Path $RepoRoot 'frontend\src\vite-env.d.ts'
+    $reactShimPath = Join-Path $scenarioTempRoot 'react-shim.d.ts'
+    $scenarioNodeModulesPath = Join-Path $scenarioTempRoot 'node_modules'
     $compileTargets = @(
         $runtimeScriptSourcePath
+        $reactShimPath
+        $viteEnvPath
+        $controlSurfaceShellPath
+        $controlSurfaceSummaryPanelPath
+        $controlSurfaceSummaryPath
+        $characterShellHookPath
+        (Join-Path $RepoRoot 'frontend\src\app\ControlSurfaceOperatorCommandPanel.tsx')
+        (Join-Path $RepoRoot 'frontend\src\app\useSpeechLifecycleState.ts')
+        (Join-Path $RepoRoot 'frontend\src\avatar\components\CharacterCatalogPanel.tsx')
         (Join-Path $RepoRoot 'frontend\src\avatar\loaders\backendCharacterFlow.ts')
+        (Join-Path $RepoRoot 'frontend\src\avatar\loaders\operatorCommand.ts')
+        (Join-Path $RepoRoot 'frontend\src\avatar\loaders\speechLifecycle.ts')
         (Join-Path $RepoRoot 'frontend\src\shared\types\character.ts')
     )
 
     New-DirectoryIfMissing -Path $scenarioTempRoot
+    Set-Content -LiteralPath $reactShimPath -Encoding Ascii -Value @'
+declare namespace JSX {
+    interface Element {}
+    interface IntrinsicElements {
+        [elementName: string]: any;
+    }
+}
+
+declare module "react" {
+    const React: {
+        createElement(type: unknown, props?: Record<string, unknown> | null, ...children: unknown[]): JSX.Element;
+        Fragment: unknown;
+    };
+    export default React;
+    export function useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void;
+    export function useState<T>(initialState: T | (() => T)): [T, (value: T | ((currentValue: T) => T)) => void];
+}
+
+declare module "react-dom/server" {
+    export function renderToStaticMarkup(element: unknown): string;
+}
+
+declare module "react-dom" {
+    export function flushSync<T>(callback: () => T): T;
+}
+
+declare module "react-dom/client" {
+    export interface Root {
+        render(children: unknown): void;
+        unmount(): void;
+    }
+
+    export function createRoot(container: Element | DocumentFragment): Root;
+}
+
+declare module "jsdom" {
+    export class JSDOM {
+        constructor(html?: string, options?: { url?: string });
+        window: any;
+    }
+}
+'@
     Set-Content -LiteralPath $snapshotPath -Value (ConvertTo-StableJson -InputObject $snapshotSource.snapshot) -Encoding Ascii
+    if (-not (Test-Path -LiteralPath $scenarioNodeModulesPath)) {
+        New-Item -ItemType Junction -Path $scenarioNodeModulesPath -Target (Join-Path $RepoRoot 'frontend\node_modules') | Out-Null
+    }
 
     $compileOutput = @(
-        & $nodeLauncher.executable $tscPath --target ES2020 --lib ES2020,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $scenarioTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
+        & $nodeLauncher.executable $tscPath --target ES2020 --lib ES2020,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --resolveJsonModule --esModuleInterop --strict --skipLibCheck --jsx react --types node --typeRoots $typeRootsPath --outDir $scenarioTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
             ForEach-Object { [string]$_ }
     )
     $compileExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
@@ -1559,7 +2331,7 @@ function Invoke-FrontendStage1CharacterFlowRuntimeSnapshot {
     }
 
     $runtimeOutput = @(
-        & $nodeLauncher.executable --experimental-specifier-resolution=node $runtimeScriptPath $snapshotPath 2>&1 |
+        & $nodeLauncher.executable --experimental-specifier-resolution=node $runtimeScriptPath $snapshotPath $characterShellHookPath 2>&1 |
             ForEach-Object { [string]$_ }
     )
     $runtimeExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
@@ -1586,7 +2358,7 @@ function Invoke-FrontendStage1CharacterFlowRuntimeSnapshot {
         scenario_id = $Scenario.id
         scenario_name = $Scenario.name
         runner = $nodeLauncher.runner
-        backend_source_runner = $snapshotSource.runner
+        backend_source_runner = 'python'
         tracked_inputs = @($Scenario.tracked_inputs)
         local_root = $snapshotSource.local_root
         runtime_proof = $runtimeProof
@@ -1620,20 +2392,39 @@ function Invoke-FrontendSpeechLifecycleRuntimeSnapshot {
     $snapshotPath = Join-Path $scenarioTempRoot 'backend-speech-contracts.json'
     $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendSpeechLifecycle.runtime.ts'
     $runtimeScriptPath = Join-Path $scenarioTempRoot 'scripts\testing\frontendSpeechLifecycle.runtime.js'
+    $speechLifecycleLoaderPath = Join-Path $RepoRoot 'frontend\src\avatar\loaders\speechLifecycle.ts'
+    $avatarRuntimeSourcePath = Join-Path $RepoRoot 'frontend\src\avatar\runtime\avatarRuntime.ts'
+    $appSourcePath = Join-Path $RepoRoot 'frontend\src\app\App.tsx'
+    $speechPlaybackAudioSourcePath = Join-Path $RepoRoot 'frontend\src\app\speechPlaybackAudioSource.ts'
+    $speechPlaybackBridgeHookPath = Join-Path $RepoRoot 'frontend\src\app\useSpeechPlaybackBridge.ts'
+    $speechLifecycleHookPath = Join-Path $RepoRoot 'frontend\src\app\useSpeechLifecycleState.ts'
+    $viteEnvPath = Join-Path $RepoRoot 'frontend\src\vite-env.d.ts'
+    $reactShimPath = Join-Path $scenarioTempRoot 'react-shim.d.ts'
     $compileTargets = @(
         $runtimeScriptSourcePath
-        (Join-Path $RepoRoot 'frontend\src\avatar\loaders\speechLifecycle.ts')
+        $reactShimPath
+        $viteEnvPath
+        $speechPlaybackAudioSourcePath
+        $speechPlaybackBridgeHookPath
+        $speechLifecycleHookPath
+        $speechLifecycleLoaderPath
         (Join-Path $RepoRoot 'frontend\src\shared\types\character.ts')
     )
 
     New-DirectoryIfMissing -Path $scenarioTempRoot
+    Set-Content -LiteralPath $reactShimPath -Encoding Ascii -Value @'
+declare module "react" {
+    export function useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void;
+    export function useState<T>(initialState: T | (() => T)): [T, (value: T | ((currentValue: T) => T)) => void];
+}
+'@
     $speechContractsSnapshot = [ordered]@{
         contracts = $snapshotSource.snapshot.contracts
     }
     Set-Content -LiteralPath $snapshotPath -Value (ConvertTo-StableJson -InputObject $speechContractsSnapshot) -Encoding Ascii
 
     $compileOutput = @(
-        & $nodeLauncher.executable $tscPath --target ES2020 --module NodeNext --moduleResolution NodeNext --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $scenarioTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
+        & $nodeLauncher.executable $tscPath --target ES2020 --lib ES2020,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $scenarioTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
             ForEach-Object { [string]$_ }
     )
     $compileExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
@@ -1655,7 +2446,7 @@ function Invoke-FrontendSpeechLifecycleRuntimeSnapshot {
     }
 
     $runtimeOutput = @(
-        & $nodeLauncher.executable $runtimeScriptPath $snapshotPath 2>&1 |
+        & $nodeLauncher.executable --experimental-specifier-resolution=node $runtimeScriptPath $snapshotPath $speechLifecycleLoaderPath $avatarRuntimeSourcePath $appSourcePath $speechLifecycleHookPath $speechPlaybackBridgeHookPath 2>&1 |
             ForEach-Object { [string]$_ }
     )
     $runtimeExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
@@ -1707,49 +2498,80 @@ function Invoke-FrontendAvatarIdleDefaultRuntimeSnapshot {
     }
 
     $scenarioTempRoot = Join-Path $RunRoot 'frontend-avatar-idle-default-runtime'
+    $runtimeTempRoot = Join-Path $RepoRoot (Join-Path 'frontend\node_modules\.cache\nikof-stability\frontend-avatar-idle-default-runtime' (Split-Path -Leaf $RunRoot))
     $typeRootsPath = Join-Path $RepoRoot 'frontend\node_modules\@types'
     $snapshotPath = Join-Path $scenarioTempRoot 'frontend-avatar-idle-default-runtime.json'
-    $backendSnapshotScriptPath = Join-Path $scenarioTempRoot 'backend-session-idle-default.py'
+    $backendSnapshotScriptPath = Join-Path $scenarioTempRoot 'backend-session-animation.py'
     $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendAvatarIdleDefault.runtime.ts'
-    $runtimeScriptPath = Join-Path $scenarioTempRoot 'scripts\testing\frontendAvatarIdleDefault.runtime.js'
+    $runtimeScriptPath = Join-Path $runtimeTempRoot 'scripts\testing\frontendAvatarIdleDefault.runtime.js'
     $compileTargets = @(
         $runtimeScriptSourcePath
         (Join-Path $RepoRoot 'frontend\src\avatar\loaders\sessionAnimation.ts')
         (Join-Path $RepoRoot 'frontend\src\avatar\runtime\baseAnimationMotionProfile.ts')
         (Join-Path $RepoRoot 'frontend\src\avatar\runtime\defaultBaseAnimation.ts')
+        (Join-Path $RepoRoot 'frontend\src\avatar\runtime\avatarRuntimePlaybackRoute.ts')
+        (Join-Path $RepoRoot 'frontend\src\avatar\runtime\officialPunchClipPlayback.ts')
         (Join-Path $RepoRoot 'frontend\src\avatar\runtime\humanoidChannelPlayback.ts')
-        (Join-Path $RepoRoot 'frontend\src\vite-env.d.ts')
         (Join-Path $RepoRoot 'frontend\src\shared\types\animation.ts')
         (Join-Path $RepoRoot 'frontend\src\shared\types\character.ts')
+        (Join-Path $RepoRoot 'frontend\src\vite-env.d.ts')
+    )
+    $representativeChannelNames = @(
+        'chest.front_back'
+        'head.nod.down_up'
+        'head.turn.left_right'
     )
 
     New-DirectoryIfMissing -Path $scenarioTempRoot
+    New-DirectoryIfMissing -Path $runtimeTempRoot
 
     $backendSnapshotScript = @'
 from __future__ import annotations
 
 import json
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 
 repo_root = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(repo_root / "backend"))
 
-from app.api.router import build_api_contract_snapshot
+from app.api.router import _serialize_dataclass_payload
+from app.schemas.animation import ANIMATION_SCHEMA_VERSION
+from app.schemas.session import SessionSnapshot
+from app.services.animation import DefaultAnimationService
 
 
-contract_snapshot = build_api_contract_snapshot()
-snapshot_document = contract_snapshot["responses"]["get_session_animation"]
-updated_snapshot_document = contract_snapshot["responses"]["put_session_lifecycle_state"]["response"]
-active_character_id = snapshot_document["active_character_id"]
+service = DefaultAnimationService()
+session_id = "session-scaffold-01"
+
+
+def build_snapshot(character_id: str, lifecycle_state: str) -> dict[str, object]:
+    command = service.resolve_session_command(
+        SessionSnapshot(
+            session_id=session_id,
+            active_character_id=character_id,
+            lifecycle_state=lifecycle_state,
+        )
+    )
+
+    return {
+        "session_id": session_id,
+        "lifecycle_state": lifecycle_state,
+        "active_character_id": character_id,
+        "command": _serialize_dataclass_payload(command),
+        "schema_version": ANIMATION_SCHEMA_VERSION,
+    }
+
+
+idle_snapshot = build_snapshot("test-vrm-01", "idle")
+updated_snapshot = build_snapshot("test-vrm-04", "speak")
 
 json.dump(
     {
-        "active_character_id": active_character_id,
-        "snapshot_document": snapshot_document,
-        "updated_snapshot_document": updated_snapshot_document,
+        "active_character_id": idle_snapshot["active_character_id"],
+        "snapshot_document": idle_snapshot,
+        "updated_snapshot_document": updated_snapshot,
     },
     sys.stdout,
     indent=2,
@@ -1780,139 +2602,115 @@ sys.stdout.write("\n")
         }
     }
 
-    $backendSnapshot = ($backendOutput -join [Environment]::NewLine) | ConvertFrom-Json
-
-    function New-GeneratedRuntimePayloadSurface {
-        param(
-            [Parameter(Mandatory)]
-            [string]$RuntimeFilePath
-        )
-
-        $runtimeDocument = Get-Content -LiteralPath $RuntimeFilePath -Raw | ConvertFrom-Json
-        $representativeChannels = @(
-            'chest.front_back'
-            'head.nod.down_up'
-            'head.turn.left_right'
-        ) | ForEach-Object {
-            $normalizedName = $_
-            $channel = @($runtimeDocument.channels | Where-Object { $_.normalized_name -eq $normalizedName }) | Select-Object -First 1
-
-            if ($null -eq $channel) {
-                return $null
-            }
-
-            [ordered]@{
-                normalized_name = $channel.normalized_name
-                sample_count = @($channel.samples).Count
-                min_value = if ($null -ne $channel.min_value) { [double]$channel.min_value } else { $null }
-                max_value = if ($null -ne $channel.max_value) { [double]$channel.max_value } else { $null }
-            }
-        } | Where-Object { $null -ne $_ }
-
-        return [ordered]@{
-            runtime_document = [ordered]@{
-                semantic_id = $runtimeDocument.semantic_id
-                playback = [ordered]@{
-                    mode = $runtimeDocument.playback.mode
-                    loop = [bool]$runtimeDocument.playback.loop
-                    duration_ms = [int]$runtimeDocument.playback.duration_ms
-                }
-                motion_profile = [ordered]@{
-                    speed_multiplier = [double]$runtimeDocument.motion_profile.speed_multiplier
-                    bob_amplitude = [double]$runtimeDocument.motion_profile.bob_amplitude
-                    secondary_bob_amplitude = [double]$runtimeDocument.motion_profile.secondary_bob_amplitude
-                    lean_amplitude = [double]$runtimeDocument.motion_profile.lean_amplitude
-                    nod_amplitude = [double]$runtimeDocument.motion_profile.nod_amplitude
-                    yaw_amplitude = [double]$runtimeDocument.motion_profile.yaw_amplitude
-                }
-            }
-            exported_channel_summary = [ordered]@{
-                channel_space = $runtimeDocument.channel_space
-                channel_count = @($runtimeDocument.channels).Count
-                playback_sample_count = if ($null -ne $runtimeDocument.playback.sample_count) {
-                    [int]$runtimeDocument.playback.sample_count
-                }
-                else {
-                    $null
-                }
-                representative_channels = @($representativeChannels)
-            }
-        }
-    }
-
-    $registryPath = Join-Path $RepoRoot 'assets\animations\dsl\shared\animations.json'
-    $registry = Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json
-    $registryEntry = $registry.sidecars.'idle.default'
-    if ($null -eq $registryEntry) {
-        throw 'Shared animation registry does not declare idle.default.'
-    }
-
-    $sidecarPath = Join-Path $RepoRoot ($registryEntry.path -replace '/', '\\')
-    $sidecar = Get-Content -LiteralPath $sidecarPath -Raw | ConvertFrom-Json
-    $schemaDocPath = Join-Path $RepoRoot 'docs\ANIMATION_DSL_SCHEMA.md'
-    $schemaDoc = Get-Content -LiteralPath $schemaDocPath -Raw
+    $backendSnapshotSurface = ($backendOutput -join [Environment]::NewLine | ConvertFrom-Json)
     $appSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\app\App.tsx') -Raw
-    $runtimeSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\avatar\runtime\avatarRuntime.ts') -Raw
-    $humanoidPlaybackSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\avatar\runtime\humanoidChannelPlayback.ts') -Raw
     $loaderSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\avatar\loaders\sessionAnimation.ts') -Raw
-    $idleRuntimePayloadSurface = New-GeneratedRuntimePayloadSurface -RuntimeFilePath (Join-Path $RepoRoot 'assets\animations\generated\shared\idle.default\idle.default.runtime.json')
-    $speakRuntimePayloadSurface = New-GeneratedRuntimePayloadSurface -RuntimeFilePath (Join-Path $RepoRoot 'assets\animations\generated\shared\speak.loop\speak.loop.runtime.json')
+    $avatarRuntimeSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\avatar\runtime\avatarRuntime.ts') -Raw
+    $playbackRouteSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\avatar\runtime\avatarRuntimePlaybackRoute.ts') -Raw
+    $officialIdleSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\avatar\runtime\officialPunchClipPlayback.ts') -Raw
+    $humanoidPlaybackSource = Get-Content -LiteralPath (Join-Path $RepoRoot 'frontend\src\avatar\runtime\humanoidChannelPlayback.ts') -Raw
+    $promotedIdleAsset = Get-Content -LiteralPath (Join-Path $RepoRoot 'assets\animations\dsl\shared\idle.default.json') -Raw | ConvertFrom-Json
+    $idleRuntimeDocument = Get-Content -LiteralPath (Join-Path $RepoRoot 'assets\animations\generated\shared\idle.default\idle.default.runtime.json') -Raw | ConvertFrom-Json
+    $speakRuntimeDocument = Get-Content -LiteralPath (Join-Path $RepoRoot 'assets\animations\generated\shared\speak.loop\speak.loop.runtime.json') -Raw | ConvertFrom-Json
+    $idleRepresentativeChannels = @(
+        $idleRuntimeDocument.channels |
+            Where-Object { $_.normalized_name -in $representativeChannelNames } |
+            Sort-Object normalized_name |
+            ForEach-Object {
+                [ordered]@{
+                    normalized_name = $_.normalized_name
+                    sample_count = @($_.samples).Count
+                    min_value = $_.min_value
+                    max_value = $_.max_value
+                }
+            }
+    )
+    $speakRepresentativeChannels = @(
+        $speakRuntimeDocument.channels |
+            Where-Object { $_.normalized_name -in $representativeChannelNames } |
+            Sort-Object normalized_name |
+            ForEach-Object {
+                [ordered]@{
+                    normalized_name = $_.normalized_name
+                    sample_count = @($_.samples).Count
+                    min_value = $_.min_value
+                    max_value = $_.max_value
+                }
+            }
+    )
+    $officialIdleTargetsFollowThroughBones =
+        $officialIdleSource.Contains('VRMHumanBoneName.LeftLowerArm') -and
+        $officialIdleSource.Contains('VRMHumanBoneName.RightLowerArm') -and
+        $officialIdleSource.Contains('VRMHumanBoneName.LeftHand') -and
+        $officialIdleSource.Contains('VRMHumanBoneName.RightHand')
+    $runtimeDefaultPlaybackPath = if ($avatarRuntimeSource -match 'let\s+animationPlaybackPath:\s+AvatarAnimationPlaybackPath\s*=\s*"([^"]+)";') {
+        $Matches[1]
+    }
+    else {
+        $null
+    }
 
     $snapshotInput = [ordered]@{
-        backend_session_animation_surface = [ordered]@{
-            active_character_id = $backendSnapshot.active_character_id
-            snapshot_document = $backendSnapshot.snapshot_document
-            updated_snapshot_document = $backendSnapshot.updated_snapshot_document
-        }
+        backend_session_animation_surface = $backendSnapshotSurface
         promoted_idle_asset = [ordered]@{
-            registry_version = $registry.registry_version
-            shared_set = $registry.shared_set
-            semantic_id = 'idle.default'
-            registry_path = $registryEntry.path
-            registry_stage = $registryEntry.stage
-            registry_approved_for_shared_library = [bool]$registryEntry.approved_for_shared_library
-            registry_path_stays_in_staged_dsl_root = $registryEntry.path.StartsWith('assets/animations/dsl/shared/')
-            sidecar_stage = $sidecar.stage
-            sidecar_promotion_status = $sidecar.promotion_status
-            sidecar_approved_for_shared_library = [bool]$sidecar.approved_for_shared_library
-            source_kind = $sidecar.source.kind
-            source_path = $sidecar.source.path
-            source_provenance = $sidecar.source.provenance
-            unity_clip_name = $sidecar.unity_clip.name
-            unity_clip_sample_rate = $sidecar.unity_clip.sample_rate
-            unity_clip_start_time = $sidecar.unity_clip.start_time
-            unity_clip_stop_time = $sidecar.unity_clip.stop_time
-            unity_clip_loop_time = $sidecar.unity_clip.loop_time
-            derived_duration_ms = [math]::Round(([double]$sidecar.unity_clip.stop_time - [double]$sidecar.unity_clip.start_time) * 1000)
-            schema_doc_mentions_idle_default_runtime_clip = $schemaDoc -match 'idle\.default\.vrma'
-            schema_doc_declares_semantic_fallback = $schemaDoc -match 'fallback\.semantic_id'
+            semantic_id = $promotedIdleAsset.semantic_id
+            derived_duration_ms = $idleRuntimeDocument.playback.duration_ms
         }
         frontend_source_surface = [ordered]@{
-            app_mentions_idle_default_sidecar_path = $appSource -match 'assets/animations/dsl/shared/idle\.default\.json'
-            app_mentions_animation_asset_root = $appSource -match 'assets/animations/'
-            runtime_mentions_idle_default_sidecar_path = $runtimeSource -match 'assets/animations/dsl/shared/idle\.default\.json'
-            runtime_mentions_animation_asset_root = $runtimeSource -match 'assets/animations/'
-            runtime_load_path_seeds_default_idle = $runtimeSource -match 'baseAnimation:\s*cloneDefaultBaseAnimationCommand\(\)'
-            avatar_runtime_wires_humanoid_channel_playback = $runtimeSource -match 'humanoidPlayback:\s*createHumanoidChannelPlayback\(currentAvatar\.vrm,\s*resolvedPayload\)'
-            loader_fetches_session_animation_snapshot = $loaderSource -match 'buildBackendApiUrl\("/session/animation"\)'
-            loader_live_url_reuses_animation_route = $loaderSource -match 'buildBackendApiUrl\("/session/animation"\)'
-            humanoid_playback_factory_present = $humanoidPlaybackSource -match 'export function createHumanoidChannelPlayback'
-            humanoid_playback_requires_unity_humanoid_channel_space = $humanoidPlaybackSource -match 'payload\.channelSpace !== "unity_humanoid_muscle"'
+            app_mentions_idle_default_sidecar_path = $appSource.Contains('idle.default.runtime.json')
+            app_mentions_animation_asset_root = $appSource.Contains('assets/animations')
+            runtime_mentions_idle_default_sidecar_path = $avatarRuntimeSource.Contains('idle.default.runtime.json')
+            runtime_mentions_animation_asset_root = $avatarRuntimeSource.Contains('assets/animations')
+            runtime_load_path_seeds_default_idle =
+                $appSource.Contains('idle.default.runtime.json') -or
+                $appSource.Contains('assets/animations') -or
+                $avatarRuntimeSource.Contains('idle.default.runtime.json') -or
+                $avatarRuntimeSource.Contains('assets/animations')
+            avatar_runtime_default_playback_path = $runtimeDefaultPlaybackPath
+            avatar_runtime_wires_humanoid_channel_playback = $avatarRuntimeSource.Contains('createHumanoidChannelPlayback')
+            avatar_runtime_distinguishes_official_idle_from_fallback =
+                $playbackRouteSource.Contains('playbackPath: "official_idle_stability"') -and
+                $playbackRouteSource.Contains('playbackPath: "idle_fallback_humanoid"')
+            loader_fetches_session_animation_snapshot = $loaderSource.Contains('fetchSessionAnimationSnapshot(')
+            loader_live_url_reuses_animation_route = $loaderSource.Contains('buildSessionAnimationLiveUrl()')
+            official_idle_playback_factory_present = $officialIdleSource.Contains('export function createOfficialBoneLocalClipPlayback(')
+            official_idle_playback_requires_unity_humanoid_channel_space =
+                $officialIdleSource.Contains('boneTransformComparison') -and
+                $officialIdleSource.Contains('usesRuntimeSamplingTimes')
+            official_idle_playback_targets_follow_through_bones = $officialIdleTargetsFollowThroughBones
+            humanoid_playback_factory_present = $humanoidPlaybackSource.Contains('export function createHumanoidChannelPlayback(')
+            humanoid_playback_requires_unity_humanoid_channel_space = $humanoidPlaybackSource.Contains('payload.channelSpace !== "unity_humanoid_muscle"')
+            humanoid_idle_fallback_uses_punch_only_comparison_bindings = $humanoidPlaybackSource.Contains('comparison_rotation')
             humanoid_playback_binds_representative_channels =
-                ($humanoidPlaybackSource -match '"chest\.front_back"') -and
-                ($humanoidPlaybackSource -match '"head\.nod\.down_up"') -and
-                ($humanoidPlaybackSource -match '"head\.turn\.left_right"')
+                $humanoidPlaybackSource.Contains('boundChannels.push({') -and
+                $humanoidPlaybackSource.Contains('boundQuaternionChannels.push({')
         }
         generated_runtime_payload_surface = [ordered]@{
-            idle_default = $idleRuntimePayloadSurface
-            speak_loop = $speakRuntimePayloadSurface
+            idle_default = [ordered]@{
+                runtime_document = $idleRuntimeDocument
+                exported_channel_summary = [ordered]@{
+                    channel_space = $idleRuntimeDocument.channel_space
+                    channel_count = $idleRuntimeDocument.summary.channel_count
+                    playback_sample_count = $idleRuntimeDocument.playback.sample_count
+                    representative_channels = $idleRepresentativeChannels
+                }
+            }
+            speak_loop = [ordered]@{
+                runtime_document = $speakRuntimeDocument
+                exported_channel_summary = [ordered]@{
+                    channel_space = $speakRuntimeDocument.channel_space
+                    channel_count = $speakRuntimeDocument.summary.channel_count
+                    playback_sample_count = $speakRuntimeDocument.playback.sample_count
+                    representative_channels = $speakRepresentativeChannels
+                }
+            }
         }
     }
 
     Set-Content -LiteralPath $snapshotPath -Value (ConvertTo-StableJson -InputObject $snapshotInput) -Encoding Ascii
 
     $compileOutput = @(
-        & $nodeLauncher.executable $tscPath --target ES2020 --lib ES2020,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $scenarioTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
+        & $nodeLauncher.executable $tscPath --target ES2020 --lib ES2020,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $runtimeTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
             ForEach-Object { [string]$_ }
     )
     $compileExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
@@ -1956,7 +2754,6 @@ sys.stdout.write("\n")
     }
 
     $runtimeProof = ($runtimeOutput -join [Environment]::NewLine) | ConvertFrom-Json
-    $snapshotObject = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
 
     return [ordered]@{
         scenario_id = $Scenario.id
@@ -1964,11 +2761,235 @@ sys.stdout.write("\n")
         runner = $nodeLauncher.runner
         backend_source_runner = $pythonLauncher.runner
         tracked_inputs = @($Scenario.tracked_inputs)
-        backend_session_animation_surface = $snapshotObject.backend_session_animation_surface
-        promoted_idle_asset = $snapshotObject.promoted_idle_asset
-        frontend_source_surface = $snapshotObject.frontend_source_surface
-        generated_runtime_payload_surface = $snapshotObject.generated_runtime_payload_surface
+        backend_session_animation_surface = $backendSnapshotSurface
+        promoted_idle_asset = $snapshotInput.promoted_idle_asset
+        frontend_source_surface = $snapshotInput.frontend_source_surface
+        generated_runtime_payload_surface = $snapshotInput.generated_runtime_payload_surface
         runtime_proof = $runtimeProof
+        alignment = [ordered]@{
+            runtime_default_path_is_official_idle_stability =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.runtime_default_path_is_official_idle_stability
+            official_idle_route_returns_official_playback =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.avatar_runtime_idle_route_returns_official_playback
+            official_idle_playback_targets_follow_through_bones =
+                [bool]$snapshotInput.frontend_source_surface.official_idle_playback_targets_follow_through_bones
+            targeted_bones_match_official_idle_slice =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.targeted_bones_match_official_idle_slice
+            cumulative_proof_bones_match_rendered_silhouette_slice =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.cumulative_proof_bones_match_rendered_silhouette_slice
+            proof_boundary_explicitly_separates_accepted_and_new_follow_through_slices =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.proof_boundary_explicitly_separates_accepted_and_new_follow_through_slices
+            proof_boundary_is_subset_of_targeted_bones =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.proof_boundary_is_subset_of_targeted_bones
+            all_proof_bones_expose_finite_rendered_and_authored_pitch_roll =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.all_proof_bones_expose_finite_rendered_and_authored_pitch_roll
+            pitch_roll_proof_bone_rendered_pitch_roll_above_noise =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.pitch_roll_proof_bone_rendered_pitch_roll_above_noise
+            pitch_roll_proof_bone_rendered_pitch_roll_sign_matches_authored_axes =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.pitch_roll_proof_bone_rendered_pitch_roll_sign_matches_authored_axes
+            lower_arm_hand_slice_has_explicit_hand_axis_sign_proof =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.lower_arm_hand_slice_has_explicit_hand_axis_sign_proof
+            proof_bone_authored_excursion_above_threshold =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.proof_bone_authored_excursion_above_threshold
+            proof_bone_sampled_rendered_excursion_above_threshold =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.proof_bone_sampled_rendered_excursion_above_threshold
+            proof_bone_rendered_pose_differs_from_neutral_seed =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.proof_bone_rendered_pose_differs_from_neutral_seed
+            all_proof_bones_expose_finite_browser_export_and_final_frame_quaternions =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.all_proof_bones_expose_finite_browser_export_and_final_frame_quaternions
+            lower_arm_hand_slice_returns_near_loop_start =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.lower_arm_hand_slice_returns_near_loop_start
+            fallback_route_returns_idle_fallback_humanoid =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.fallback_route_returns_idle_fallback_humanoid
+            fallback_has_no_official_idle_binding_prefixes =
+                [bool]$runtimeProof.official_idle_rendered_pose_surface.validation.fallback_has_no_official_idle_binding_prefixes
+        }
+    }
+}
+
+function Invoke-FrontendPunchDebugRuntimeSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    $nodeLauncher = Get-NodeLauncher
+    $tscPath = Join-Path $RepoRoot 'frontend\node_modules\typescript\bin\tsc'
+    if (-not (Test-Path -LiteralPath $tscPath)) {
+        throw 'Local TypeScript compiler not found at frontend/node_modules/typescript/bin/tsc. Run npm install in frontend before running frontend runtime stability scenarios.'
+    }
+
+    $scenarioTempRoot = Join-Path $RunRoot 'frontend-punch-debug-runtime'
+    $runtimeTempRoot = Join-Path $RepoRoot (Join-Path 'frontend\node_modules\.cache\nikof-stability\frontend-punch-debug-runtime' (Split-Path -Leaf $RunRoot))
+    $typeRootsPath = Join-Path $RepoRoot 'frontend\node_modules\@types'
+    $snapshotPath = Join-Path $scenarioTempRoot 'frontend-punch-debug-runtime.json'
+    $runtimeScriptSourcePath = Join-Path $RepoRoot 'scripts\testing\frontendPunchDebug.runtime.ts'
+    $runtimeScriptPath = Join-Path $runtimeTempRoot 'scripts\testing\frontendPunchDebug.runtime.js'
+    $compileTargets = @(
+        $runtimeScriptSourcePath
+        (Join-Path $RepoRoot 'frontend\src\avatar\runtime\humanoidChannelPlayback.ts')
+        (Join-Path $RepoRoot 'frontend\src\shared\types\animation.ts')
+        (Join-Path $RepoRoot 'frontend\src\vite-env.d.ts')
+    )
+    $expectedInvestigationChannelNames = @(
+        'left.arm.front_back'
+        'right.arm.front_back'
+        'left.hand.down_up'
+        'right.hand.down_up'
+        'left.lower_arm.rotation.x'
+        'left.lower_arm.rotation.y'
+        'left.lower_arm.rotation.z'
+        'left.lower_arm.rotation.w'
+        'right.lower_arm.rotation.x'
+        'right.lower_arm.rotation.y'
+        'right.lower_arm.rotation.z'
+        'right.lower_arm.rotation.w'
+    )
+
+    New-DirectoryIfMissing -Path $scenarioTempRoot
+    New-DirectoryIfMissing -Path $runtimeTempRoot
+
+    $punchRuntimePath = Join-Path $RepoRoot 'assets\animations\generated\shared\gesture.punch.once\gesture.punch.once.runtime.json'
+    $avatarRuntimePath = Join-Path $RepoRoot 'frontend\src\avatar\runtime\avatarRuntime.ts'
+    $humanoidPlaybackPath = Join-Path $RepoRoot 'frontend\src\avatar\runtime\humanoidChannelPlayback.ts'
+    $runtimeDocument = Get-Content -LiteralPath $punchRuntimePath -Raw | ConvertFrom-Json
+    $avatarRuntimeSource = Get-Content -LiteralPath $avatarRuntimePath -Raw
+    $humanoidPlaybackSource = Get-Content -LiteralPath $humanoidPlaybackPath -Raw
+    $investigationChannels = @(
+        $runtimeDocument.channels |
+            Where-Object { $_.normalized_name -in $expectedInvestigationChannelNames } |
+            Sort-Object normalized_name |
+            ForEach-Object {
+                [ordered]@{
+                    normalized_name = $_.normalized_name
+                    sample_count = @($_.samples).Count
+                    min_value = $_.min_value
+                    max_value = $_.max_value
+                }
+            }
+    )
+    $observedInvestigationChannelNames = @($investigationChannels | ForEach-Object { $_.normalized_name })
+
+    $snapshotInput = [ordered]@{
+        frontend_debug_surface = [ordered]@{
+            avatar_runtime_exposes_debug_api = $avatarRuntimeSource.Contains('__NIKOF_AVATAR_DEBUG__')
+            avatar_runtime_exposes_get_humanoid_playback = $avatarRuntimeSource.Contains('getHumanoidPlayback')
+            avatar_runtime_exposes_get_punch_comparison_snapshot = $avatarRuntimeSource.Contains('function getPunchComparisonSnapshot(): AvatarPunchComparisonSnapshot | null {')
+            avatar_runtime_debug_api_wires_punch_comparison = $avatarRuntimeSource.Contains('getPunchComparisonSnapshot: () => getPunchComparisonSnapshot()')
+            avatar_runtime_maps_bound_channels = $avatarRuntimeSource.Contains('boundChannels:')
+            avatar_runtime_maps_quaternion_bound_channels = $avatarRuntimeSource.Contains('quaternionBoundChannels:')
+            avatar_runtime_maps_comparison_sampled_channels = $avatarRuntimeSource.Contains('sampledChannels: resolvePunchComparisonSampledChannels(comparisonBone, finalFramePose)')
+            avatar_runtime_maps_comparison_browser_quaternion = $avatarRuntimeSource.Contains('browserQuaternion: browserPose ? roundQuaternion(browserPose.rotation) : null')
+            humanoid_playback_exposes_debug_snapshot = $humanoidPlaybackSource.Contains('getDebugSnapshot(): HumanoidChannelPlaybackDebugSnapshot')
+            humanoid_playback_tracks_quaternion_bindings = $humanoidPlaybackSource.Contains('boundQuaternionChannels')
+        }
+        punch_runtime_surface = [ordered]@{
+            runtime_document = $runtimeDocument
+        }
+    }
+
+    Set-Content -LiteralPath $snapshotPath -Value (ConvertTo-StableJson -InputObject $snapshotInput) -Encoding Ascii
+
+    $compileOutput = @(
+        & $nodeLauncher.executable $tscPath --target ES2020 --lib ES2020,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --resolveJsonModule --esModuleInterop --strict --skipLibCheck --types node --typeRoots $typeRootsPath --outDir $runtimeTempRoot --rootDir $RepoRoot @compileTargets 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $compileExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($compileExitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $nodeLauncher.runner
+            phase = 'compile'
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $compileExitCode
+            error_lines = @(
+                $compileOutput | ForEach-Object {
+                    Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                }
+            )
+        }
+    }
+
+    $runtimeOutput = @(
+        & $nodeLauncher.executable --experimental-specifier-resolution=node $runtimeScriptPath $snapshotPath 2>&1 |
+            ForEach-Object { [string]$_ }
+    )
+    $runtimeExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+
+    if ($runtimeExitCode -ne 0) {
+        return [ordered]@{
+            scenario_id = $Scenario.id
+            scenario_name = $Scenario.name
+            runner = $nodeLauncher.runner
+            phase = 'runtime'
+            tracked_inputs = @($Scenario.tracked_inputs)
+            exit_code = $runtimeExitCode
+            error_lines = @(
+                $runtimeOutput | ForEach-Object {
+                    Normalize-Text -Text $_ -RepoRoot $RepoRoot -ScenarioTempRoot $scenarioTempRoot -RunRoot $RunRoot
+                }
+            )
+        }
+    }
+
+    $snapshotObject = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+    $runtimeProof = ($runtimeOutput -join [Environment]::NewLine) | ConvertFrom-Json
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        runner = $nodeLauncher.runner
+        tracked_inputs = @($Scenario.tracked_inputs)
+        frontend_debug_surface = $snapshotObject.frontend_debug_surface
+        punch_runtime_surface = [ordered]@{
+            semantic_id = $runtimeDocument.semantic_id
+            channel_space = $runtimeDocument.channel_space
+            playback = [ordered]@{
+                mode = $runtimeDocument.playback.mode
+                loop = [bool]$runtimeDocument.playback.loop
+                duration_ms = $runtimeDocument.playback.duration_ms
+                sample_count = $runtimeDocument.playback.sample_count
+            }
+            summary = [ordered]@{
+                channel_count = $runtimeDocument.summary.channel_count
+                investigation_channels = $investigationChannels
+            }
+        }
+        runtime_proof = $runtimeProof
+        alignment = [ordered]@{
+            avatar_runtime_exposes_debug_api = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_exposes_debug_api
+            avatar_runtime_exposes_get_humanoid_playback = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_exposes_get_humanoid_playback
+            avatar_runtime_exposes_get_punch_comparison_snapshot = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_exposes_get_punch_comparison_snapshot
+            avatar_runtime_debug_api_wires_punch_comparison = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_debug_api_wires_punch_comparison
+            avatar_runtime_maps_bound_channels = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_maps_bound_channels
+            avatar_runtime_maps_quaternion_bound_channels = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_maps_quaternion_bound_channels
+            avatar_runtime_maps_comparison_sampled_channels = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_maps_comparison_sampled_channels
+            avatar_runtime_maps_comparison_browser_quaternion = [bool]$snapshotObject.frontend_debug_surface.avatar_runtime_maps_comparison_browser_quaternion
+            humanoid_playback_exposes_debug_snapshot = [bool]$snapshotObject.frontend_debug_surface.humanoid_playback_exposes_debug_snapshot
+            humanoid_playback_tracks_quaternion_bindings = [bool]$snapshotObject.frontend_debug_surface.humanoid_playback_tracks_quaternion_bindings
+            punch_runtime_payload_preserves_investigation_channels = Test-StringArrayEquality -Left $observedInvestigationChannelNames -Right (@($expectedInvestigationChannelNames | Sort-Object))
+            playback_route_uses_official_mixer_spike = [bool]$runtimeProof.alignment.playback_route_uses_official_mixer_spike
+            payload_uses_expected_semantic_id = [bool]$runtimeProof.alignment.payload_uses_expected_semantic_id
+            payload_uses_unity_humanoid_channel_space = [bool]$runtimeProof.alignment.payload_uses_unity_humanoid_channel_space
+            payload_exposes_representative_channel_names = [bool]$runtimeProof.alignment.payload_exposes_representative_channel_names
+            payload_exposes_representative_channel_samples = [bool]$runtimeProof.alignment.payload_exposes_representative_channel_samples
+            comparison_payload_uses_expected_semantic_id = [bool]$runtimeProof.alignment.comparison_payload_uses_expected_semantic_id
+            comparison_payload_uses_expected_browser_rotation_space = [bool]$runtimeProof.alignment.comparison_payload_uses_expected_browser_rotation_space
+            comparison_payload_exposes_runtime_sample_metadata = [bool]$runtimeProof.alignment.comparison_payload_exposes_runtime_sample_metadata
+            comparison_payload_exposes_key_bone_rotations = [bool]$runtimeProof.alignment.comparison_payload_exposes_key_bone_rotations
+            comparison_payload_exposes_key_bone_sampled_channels = [bool]$runtimeProof.alignment.comparison_payload_exposes_key_bone_sampled_channels
+            official_quaternion_bindings_cover_key_bones = [bool]$runtimeProof.alignment.official_quaternion_bindings_cover_key_bones
+            official_quaternion_bindings_match_expected_bones = [bool]$runtimeProof.alignment.official_quaternion_bindings_match_expected_bones
+            official_quaternion_bindings_sampled_at_final_frame = [bool]$runtimeProof.alignment.official_quaternion_bindings_sampled_at_final_frame
+            official_quaternion_bindings_drive_applied_pose = [bool]$runtimeProof.alignment.official_quaternion_bindings_drive_applied_pose
+            targeted_bones_cover_punch_investigation_set = [bool]$runtimeProof.alignment.targeted_bones_cover_punch_investigation_set
+        }
     }
 }
 
@@ -2228,6 +3249,9 @@ function Invoke-ScenarioSnapshot {
         'frontend-stage1-bridge-surface' {
             return Invoke-FrontendStage1BridgeSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
+        'frontend-shell-split-surface' {
+            return Invoke-FrontendShellSplitSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
         'frontend-stage1-character-flow-runtime' {
             return Invoke-FrontendStage1CharacterFlowRuntimeSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
@@ -2236,6 +3260,9 @@ function Invoke-ScenarioSnapshot {
         }
         'frontend-avatar-idle-default-runtime' {
             return Invoke-FrontendAvatarIdleDefaultRuntimeSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
+        'frontend-punch-debug-runtime' {
+            return Invoke-FrontendPunchDebugRuntimeSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }
         'frontend-semantic-loop-assets-runtime' {
             return Invoke-FrontendSemanticLoopAssetsRuntimeSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot

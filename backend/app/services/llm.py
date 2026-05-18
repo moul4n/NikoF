@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-import os
 from pathlib import Path
 from typing import Any, Protocol
 from urllib import error as urllib_error
@@ -13,6 +12,9 @@ from app.schemas.session import AssistantMessageContract, LLM_BASELINE_PROFILE_I
 
 
 OLLAMA_GENERATE_PATH = "/api/generate"
+DEFAULT_OLLAMA_MODEL_DIRECTORY = "ollama-llama3.1-8b"
+DEFAULT_OLLAMA_MODEL_NAME = "llama3.1:8b"
+RUNTIME_CONFIG_FILE_NAME = "runtime.json"
 
 
 @dataclass(slots=True, frozen=True)
@@ -42,6 +44,47 @@ class TextGenerationRuntimeBinding:
 
 class TextGenerationInvocationError(RuntimeError):
     """Raised when the local text-generation runtime cannot complete a request."""
+
+
+def _read_runtime_config(*roots: Path) -> dict[str, Any]:
+    for root in roots:
+        config_path = root / RUNTIME_CONFIG_FILE_NAME
+        if not config_path.is_file():
+            continue
+
+        try:
+            decoded = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        if isinstance(decoded, dict):
+            return decoded
+
+    return {}
+
+
+def _normalize_model_name(raw_value: Any) -> str:
+    if isinstance(raw_value, str) and raw_value.strip():
+        return raw_value.strip()
+
+    return DEFAULT_OLLAMA_MODEL_NAME
+
+
+def _normalize_contract_status(raw_status: Any, *, has_reply_text: bool) -> str:
+    normalized = str(raw_status or "").strip().lower()
+    if normalized in {"unavailable", "missing", "not_configured"}:
+        return "unavailable"
+
+    if normalized in {"degraded"}:
+        return "degraded"
+
+    if normalized in {"error", "failed"}:
+        return "error"
+
+    if normalized in {"ready", "ok", "success", "completed"}:
+        return "ready" if has_reply_text else "error"
+
+    return "ready" if has_reply_text else "error"
 
 
 def _resolve_profile_family(profile_id: str) -> str:
@@ -111,12 +154,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
     app_paths: AppPaths = field(default_factory=get_app_paths)
     model_directories: dict[str, str] = field(
         default_factory=lambda: {
-            LLM_BASELINE_PROFILE_IDS[0]: "ollama-llama3.1-8b",
-        }
-    )
-    model_names: dict[str, str] = field(
-        default_factory=lambda: {
-            LLM_BASELINE_PROFILE_IDS[0]: os.environ.get("NIKOF_OLLAMA_MODEL", "llama3.1:8b"),
+            LLM_BASELINE_PROFILE_IDS[0]: DEFAULT_OLLAMA_MODEL_DIRECTORY,
         }
     )
 
@@ -124,24 +162,12 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
         provider_root = self.app_paths.providers_root / "llm" / "ollama"
         model_root = self.app_paths.llm_models_root / self.model_directories.get(
             request.profile_id,
-            "ollama-llama3.1-8b",
+            DEFAULT_OLLAMA_MODEL_DIRECTORY,
         )
-        endpoint = _normalize_endpoint(
-            os.environ.get("NIKOF_OLLAMA_ENDPOINT") or os.environ.get("OLLAMA_HOST")
-        )
-        model_name = self.model_names.get(
-            request.profile_id,
-            os.environ.get("NIKOF_OLLAMA_MODEL", "llama3.1:8b"),
-        )
-        configured = any(
-            (
-                provider_root.exists(),
-                model_root.exists(),
-                bool(os.environ.get("NIKOF_OLLAMA_MODEL")),
-                bool(os.environ.get("NIKOF_OLLAMA_ENDPOINT")),
-                bool(os.environ.get("OLLAMA_HOST")),
-            )
-        )
+        runtime_config = _read_runtime_config(model_root, provider_root)
+        endpoint = _normalize_endpoint(runtime_config.get("endpoint"))
+        model_name = _normalize_model_name(runtime_config.get("model"))
+        configured = provider_root.exists() and model_root.exists()
 
         return TextGenerationRuntimeBinding(
             profile_id=request.profile_id,
@@ -185,14 +211,15 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
                     "stream": False,
                 },
             )
-        except TextGenerationInvocationError:
+        except TextGenerationInvocationError as error:
+            status = "unavailable" if str(error) == "connection-failed" else "error"
             return self._build_contract(
                 request,
-                status="error",
-                text="Local text generation failed.",
+                status=status,
+                text=self.unavailable_text if status == "unavailable" else "Local text generation failed.",
             )
 
-        reply_text = str(response.get("response") or "").strip()
+        reply_text = str(response.get("response") or response.get("text") or "").strip()
         if not reply_text:
             return self._build_contract(
                 request,
@@ -202,7 +229,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
 
         return self._build_contract(
             request,
-            status=str(response.get("status") or "ready"),
+            status=_normalize_contract_status(response.get("status"), has_reply_text=True),
             text=reply_text,
         )
 

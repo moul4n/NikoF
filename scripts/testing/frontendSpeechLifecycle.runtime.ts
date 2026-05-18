@@ -1,8 +1,6 @@
 import { readFile } from "fs/promises";
-import {
-  appendSpeechLifecycleEnvelope,
-  consumeSpeechLifecycleSnapshot
-} from "../../frontend/src/avatar/loaders/speechLifecycle.js";
+import { consumeSpeechLifecycleSnapshot } from "../../frontend/src/avatar/loaders/speechLifecycle.js";
+import { resolveSpeechSynthesisAudioSource } from "../../frontend/src/app/speechPlaybackAudioSource.js";
 import type {
   BackendSpeechLifecycleEventEnvelopeDocument,
   BackendSessionEventDocument,
@@ -22,6 +20,8 @@ async function main(): Promise<void> {
   const loaderSourcePath = process.argv[3];
   const avatarRuntimeSourcePath = process.argv[4];
   const appSourcePath = process.argv[5];
+  const speechLifecycleHookSourcePath = process.argv[6];
+  const speechPlaybackBridgeHookSourcePath = process.argv[7];
 
   if (!snapshotPath) {
     throw new Error("Expected a backend speech snapshot path argument.");
@@ -39,11 +39,28 @@ async function main(): Promise<void> {
     throw new Error("Expected an App source path argument.");
   }
 
-  const [snapshotText, loaderSourceText, avatarRuntimeSourceText, appSourceText] = await Promise.all([
+  if (!speechLifecycleHookSourcePath) {
+    throw new Error("Expected a speech lifecycle hook source path argument.");
+  }
+
+  if (!speechPlaybackBridgeHookSourcePath) {
+    throw new Error("Expected a speech playback bridge hook source path argument.");
+  }
+
+  const [
+    snapshotText,
+    loaderSourceText,
+    avatarRuntimeSourceText,
+    appSourceText,
+    speechLifecycleHookSourceText,
+    speechPlaybackBridgeHookSourceText
+  ] = await Promise.all([
     readFile(snapshotPath, "utf8"),
     readFile(loaderSourcePath, "utf8"),
     readFile(avatarRuntimeSourcePath, "utf8"),
-    readFile(appSourcePath, "utf8")
+    readFile(appSourcePath, "utf8"),
+    readFile(speechLifecycleHookSourcePath, "utf8"),
+    readFile(speechPlaybackBridgeHookSourcePath, "utf8")
   ]);
 
   const snapshot = JSON.parse(snapshotText) as BackendSpeechContractsSnapshot;
@@ -53,12 +70,20 @@ async function main(): Promise<void> {
   const liveConsumed = consumeSpeechLifecycleSnapshot(appendSpeechLifecycleEnvelope(transportSnapshot, liveEnvelope));
   const liveTransportMarkers = collectLiveTransportMarkers(loaderSourceText);
   const liveSeamPresent = liveTransportMarkers.length > 0;
+  const speechLifecycleHookMarkers = collectSpeechLifecycleHookMarkers(speechLifecycleHookSourceText);
+  const expectedSpeechLifecycleHookMarkers = getExpectedSpeechLifecycleHookMarkers();
   const speechReactionRuntimeMarkers = collectSpeechReactionRuntimeMarkers(avatarRuntimeSourceText);
   const expectedSpeechReactionRuntimeMarkers = getExpectedSpeechReactionRuntimeMarkers();
+  const speechPlaybackBridgeMarkers = collectSpeechPlaybackBridgeMarkers(speechPlaybackBridgeHookSourceText);
+  const expectedSpeechPlaybackBridgeMarkers = getExpectedSpeechPlaybackBridgeMarkers();
+  const backendArtifactAudioReference = buildCanonicalArtifactAudioReference(transportSnapshot);
+  const backendArtifactAudioResolution = resolveSpeechSynthesisAudioSource(backendArtifactAudioReference);
 
   assertFirstVisemeSliceSurvived(snapshot, consumed);
+  assertSpeechLifecycleHookSeam(speechLifecycleHookSourceText);
   assertSpeechReactionRuntimeSeam(avatarRuntimeSourceText);
-  assertCanonicalSynthesisRuntimeHandoff(appSourceText);
+  assertCanonicalSynthesisRuntimeHandoff(appSourceText, speechPlaybackBridgeHookSourceText);
+  assertBackendArtifactAudioReferencePlayable(backendArtifactAudioReference, backendArtifactAudioResolution);
 
   const result = {
     speech_lifecycle_runtime: {
@@ -92,6 +117,31 @@ async function main(): Promise<void> {
         liveConsumed.canonicalSpeechSynthesisEvent?.synthesis?.text === liveEnvelope.event.synthesis?.text,
       final_cursor_matches_appended_event: liveConsumed.cursors.at(-1) === liveEnvelope.cursor
     },
+    speech_lifecycle_hook_state: {
+      speech_lifecycle_hook_markers: speechLifecycleHookMarkers,
+      speech_lifecycle_hook_ready: speechLifecycleHookMarkers.length === expectedSpeechLifecycleHookMarkers.length,
+      hook_export_present: /export function useSpeechLifecycleState\s*\(/.test(speechLifecycleHookSourceText),
+      hook_live_message_present: /Live SSE is connected on the backend-owned speech\.lifecycle envelope\./.test(
+        speechLifecycleHookSourceText
+      ),
+      hook_character_resolution_present: /export function resolveSpeechLifecycleCharacterId\s*\(/.test(
+        speechLifecycleHookSourceText
+      )
+    },
+    speech_playback_bridge_state: {
+      speech_playback_bridge_markers: speechPlaybackBridgeMarkers,
+      speech_playback_bridge_ready: speechPlaybackBridgeMarkers.length === expectedSpeechPlaybackBridgeMarkers.length,
+      hook_export_present: /export function useSpeechPlaybackBridge\s*\(/.test(speechPlaybackBridgeHookSourceText),
+      playback_status_export_present: /export type SpeechPlaybackStatus\s*=\s*"idle"\s*\|\s*"audio"\s*\|\s*"timing"/.test(
+        speechPlaybackBridgeHookSourceText
+      ),
+      backend_artifact_audio_reference: backendArtifactAudioReference,
+      backend_artifact_audio_source: backendArtifactAudioResolution.audioSource,
+      backend_artifact_audio_reason: backendArtifactAudioResolution.reason,
+      backend_artifact_audio_browser_playable:
+        backendArtifactAudioResolution.reason === "browser_safe" &&
+        backendArtifactAudioResolution.audioSource === backendArtifactAudioReference
+    },
     avatar_runtime_speech_reaction: {
       speech_reaction_runtime_markers: speechReactionRuntimeMarkers,
       speech_reaction_runtime_ready: speechReactionRuntimeMarkers.length === expectedSpeechReactionRuntimeMarkers.length,
@@ -107,7 +157,7 @@ async function main(): Promise<void> {
       canonical_stream_reference_present: /speech\.lifecycle/.test(loaderSourceText),
       backend_event_envelope_type_present: /\bBackendSpeechLifecycleEventEnvelopeDocument\b/.test(loaderSourceText),
       cursor_reference_present: /\bcursor\b/.test(loaderSourceText),
-      app_live_message_present: /Live SSE is connected on the backend-owned speech\.lifecycle envelope\./.test(appSourceText),
+      hook_transport_state_present: /export function useSpeechLifecycleState\s*\(/.test(speechLifecycleHookSourceText),
       dependency: liveSeamPresent
         ? null
         : "Switch's frontend SSE seam is still absent from speechLifecycle.ts, so transport-backed runtime coverage remains blocked until the loader consumes text/event-stream frames on the existing speech.lifecycle cursor and event envelope."
@@ -148,6 +198,29 @@ function buildLiveSpeechLifecycleEnvelope(
   };
 }
 
+function appendSpeechLifecycleEnvelope(
+  snapshot: BackendSpeechLifecycleTransportSnapshotDocument,
+  envelope: BackendSpeechLifecycleEventEnvelopeDocument
+): BackendSpeechLifecycleTransportSnapshotDocument {
+  return {
+    ...snapshot,
+    next_cursor: `speech.lifecycle:${snapshot.session_id}:${envelope.sequence + 1}`,
+    events: [...snapshot.events, envelope]
+  };
+}
+
+function buildCanonicalArtifactAudioReference(snapshot: BackendSpeechLifecycleTransportSnapshotDocument): string {
+  const synthesisEnvelope = snapshot.events.find(
+    (envelope) => envelope.event.event_type === "speech.synthesis" && envelope.event.synthesis
+  );
+
+  if (!synthesisEnvelope) {
+    throw new Error("Expected a canonical speech synthesis envelope to build the backend artifact audio reference.");
+  }
+
+  return `/api/session/speech-artifacts/${synthesisEnvelope.event_id}/audio`;
+}
+
 function collectLiveTransportMarkers(sourceText: string): string[] {
   const markers = [
     {
@@ -173,6 +246,44 @@ function collectLiveTransportMarkers(sourceText: string): string[] {
   ];
 
   return markers.filter((marker) => marker.pattern.test(sourceText)).map((marker) => marker.name);
+}
+
+function collectSpeechLifecycleHookMarkers(sourceText: string): string[] {
+  const markers = getExpectedSpeechLifecycleHookMarkers().map((marker) => ({
+    ...marker,
+    pattern: marker.pattern
+  }));
+
+  return markers.filter((marker) => marker.pattern.test(sourceText)).map((marker) => marker.name);
+}
+
+function getExpectedSpeechLifecycleHookMarkers(): Array<{ name: string; pattern: RegExp }> {
+  return [
+    {
+      name: "hook export",
+      pattern: /export function useSpeechLifecycleState\s*\(/
+    },
+    {
+      name: "loader live consumption bridge",
+      pattern: /\bstartSpeechLifecycleLiveConsumption\b/
+    },
+    {
+      name: "external refresh dependency",
+      pattern: /\bexternalRefreshKey\b/
+    },
+    {
+      name: "offline fallback state",
+      pattern: /status:\s*"offline"/
+    },
+    {
+      name: "offline retry timer",
+      pattern: /window\.setTimeout/
+    },
+    {
+      name: "live delivery message helper",
+      pattern: /Live SSE is connected on the backend-owned speech\.lifecycle envelope\./
+    }
+  ];
 }
 
 function collectSpeechReactionRuntimeMarkers(sourceText: string): string[] {
@@ -253,11 +364,31 @@ function assertFirstVisemeSliceSurvived(
   }
 }
 
-function assertCanonicalSynthesisRuntimeHandoff(appSourceText: string): void {
-  const appHandoffMarkers = [
+function assertBackendArtifactAudioReferencePlayable(
+  audioReference: string,
+  resolution: ReturnType<typeof resolveSpeechSynthesisAudioSource>
+): void {
+  if (resolution.reason !== "browser_safe" || resolution.audioSource !== audioReference) {
+    throw new Error(
+      `Frontend speech playback no longer treats the backend artifact URL as browser-playable canonical audio: ${audioReference}.`
+    );
+  }
+}
+
+function collectSpeechPlaybackBridgeMarkers(sourceText: string): string[] {
+  const markers = getExpectedSpeechPlaybackBridgeMarkers().map((marker) => ({
+    ...marker,
+    pattern: marker.pattern
+  }));
+
+  return markers.filter((marker) => marker.pattern.test(sourceText)).map((marker) => marker.name);
+}
+
+function getExpectedSpeechPlaybackBridgeMarkers(): Array<{ name: string; pattern: RegExp }> {
+  return [
     {
-      name: "canonical synthesis selection",
-      pattern: /const\s+canonicalSynthesisEvent\s*=\s*speechLifecycleState\.snapshot\?\.canonicalSpeechSynthesisEvent\s*\?\?\s*null\s*;/
+      name: "hook export",
+      pattern: /export function useSpeechPlaybackBridge\s*\(/
     },
     {
       name: "canonical synthesis playback key",
@@ -280,14 +411,51 @@ function assertCanonicalSynthesisRuntimeHandoff(appSourceText: string): void {
       pattern: /beginTimingSpeechWindow\(durationMs,\s*playbackKey,\s*speechReactionInput\)/
     }
   ];
+}
+
+function assertCanonicalSynthesisRuntimeHandoff(appSourceText: string, speechPlaybackBridgeHookSourceText: string): void {
+  const appHandoffMarkers = [
+    {
+      name: "canonical synthesis selection",
+      pattern: /const\s+canonicalSynthesisEvent\s*=\s*speechLifecycleState\.snapshot\?\.canonicalSpeechSynthesisEvent\s*\?\?\s*null\s*;/
+    },
+    {
+      name: "speech playback bridge hook usage",
+      pattern: /const\s+speechPlaybackStatus\s*=\s*useSpeechPlaybackBridge\s*\(\s*\{/
+    }
+  ];
 
   const missingMarkers = appHandoffMarkers.filter((marker) => !marker.pattern.test(appSourceText)).map((marker) => marker.name);
 
-  if (missingMarkers.length > 0) {
+  const speechPlaybackBridgeMarkers = collectSpeechPlaybackBridgeMarkers(speechPlaybackBridgeHookSourceText);
+  const expectedSpeechPlaybackBridgeMarkerNames = getExpectedSpeechPlaybackBridgeMarkers().map((marker) => marker.name);
+  const missingSpeechPlaybackBridgeMarkers = expectedSpeechPlaybackBridgeMarkerNames.filter(
+    (marker) => !speechPlaybackBridgeMarkers.includes(marker)
+  );
+
+  if (missingMarkers.length > 0 || missingSpeechPlaybackBridgeMarkers.length > 0) {
     throw new Error(
-      `App-to-runtime speech playback handoff no longer preserves the canonical synthesis speech-reaction seam: ${missingMarkers.join(", ")}.`
+      `App-to-runtime speech playback handoff no longer preserves the canonical synthesis speech-reaction seam: ${[
+        ...missingMarkers,
+        ...missingSpeechPlaybackBridgeMarkers
+      ].join(", ")}.`
     );
   }
+}
+
+function assertSpeechLifecycleHookSeam(speechLifecycleHookSourceText: string): void {
+  const hookMarkers = collectSpeechLifecycleHookMarkers(speechLifecycleHookSourceText);
+  const expectedMarkers = getExpectedSpeechLifecycleHookMarkers().map((marker) => marker.name);
+
+  if (hookMarkers.length === expectedMarkers.length) {
+    return;
+  }
+
+  const missingMarkers = expectedMarkers.filter((marker) => !hookMarkers.includes(marker));
+
+  throw new Error(
+    `Speech lifecycle transport state no longer preserves the extracted App seam in useSpeechLifecycleState.ts: ${missingMarkers.join(", ")}.`
+  );
 }
 
 function assertSpeechReactionRuntimeSeam(avatarRuntimeSourceText: string): void {

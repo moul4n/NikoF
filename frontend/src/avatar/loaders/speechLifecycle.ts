@@ -28,6 +28,8 @@ export interface ConsumedSpeechLifecycleSnapshot {
   cursors: string[];
   orderedEnvelopePreserved: boolean;
   nextCursorAdvancesPastLastEvent: boolean;
+  latestEvent: BackendSessionEventDocument | null;
+  canonicalAssistantMessageEvent: BackendSessionEventDocument | null;
   canonicalTranscriptionEvent: BackendSessionEventDocument | null;
   canonicalSpeechSynthesisEvent: BackendSessionEventDocument | null;
 }
@@ -39,6 +41,7 @@ export function consumeSpeechLifecycleSnapshot(
     ...envelope,
     event: cloneSessionEvent(envelope.event)
   }));
+  const latestEvents = [...events].reverse();
   const lastEvent = events.at(-1) ?? null;
   const expectedNextCursor = lastEvent
     ? `speech.lifecycle:${snapshot.session_id}:${lastEvent.sequence + 1}`
@@ -59,10 +62,13 @@ export function consumeSpeechLifecycleSnapshot(
         envelope.event.session_id === snapshot.session_id
     ),
     nextCursorAdvancesPastLastEvent: snapshot.next_cursor === expectedNextCursor,
+    latestEvent: lastEvent?.event ?? null,
+    canonicalAssistantMessageEvent:
+      latestEvents.find((envelope) => envelope.event.event_type === "assistant.message")?.event ?? null,
     canonicalTranscriptionEvent:
-      events.find((envelope) => envelope.event.event_type === "transcription.status")?.event ?? null,
+      latestEvents.find((envelope) => envelope.event.event_type === "transcription.status")?.event ?? null,
     canonicalSpeechSynthesisEvent:
-      events.find((envelope) => envelope.event.event_type === "speech.synthesis")?.event ?? null
+      latestEvents.find((envelope) => envelope.event.event_type === "speech.synthesis")?.event ?? null
   };
 }
 
@@ -188,7 +194,7 @@ function mergeSpeechLifecycleSnapshot(
 }
 
 function resolveBackendApiBaseUrl(): string {
-  const configuredBaseUrl = import.meta.env.VITE_BACKEND_API_BASE_URL?.trim();
+  const configuredBaseUrl = import.meta.env?.VITE_BACKEND_API_BASE_URL?.trim();
 
   if (!configuredBaseUrl) {
     return "/api";

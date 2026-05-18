@@ -180,6 +180,25 @@ class DefaultAnimationServiceTests(unittest.TestCase):
         self.assertEqual(command.playback.expected_duration_ms, 8333)
         self.assertEqual(command.parameters["session_state"], "speak")
 
+    def test_resolves_debug_punch_lifecycle_state_to_backend_owned_punch_oneshot(self) -> None:
+        service = DefaultAnimationService()
+
+        command = service.resolve_session_command(
+            SessionSnapshot(
+                session_id="session-scaffold-01",
+                active_character_id="test-vrm-01",
+                lifecycle_state="debug.punch",
+            )
+        )
+
+        self.assertEqual(command.semantic_id, "gesture.punch.once")
+        self.assertEqual(command.resolution.selected_source, "shared_library")
+        self.assertEqual(command.resolution.selected_asset_id, "gesture.punch.once")
+        self.assertEqual(command.resolved_state, "selected")
+        self.assertEqual(command.playback.mode, "oneshot")
+        self.assertEqual(command.playback.expected_duration_ms, 1000)
+        self.assertEqual(command.parameters["session_state"], "debug.punch")
+
 
 class SessionAnimationContractSnapshotTests(unittest.TestCase):
     def test_contract_snapshot_exposes_session_animation_route_and_idle_default_payload(self) -> None:
@@ -219,6 +238,25 @@ class SessionAnimationContractSnapshotTests(unittest.TestCase):
         self.assertEqual("speak", response["lifecycle_state"])
         self.assertEqual("speak.loop", response["command"]["semantic_id"])
         self.assertEqual("shared_library", response["command"]["resolution"]["selected_source"])
+
+    def test_contract_snapshot_projects_speech_examples_to_unavailable_turn_pipeline_contract(self) -> None:
+        snapshot = build_api_contract_snapshot()
+
+        contracts = snapshot["contracts"]
+        transcription_event = contracts["canonical_transcription_event"]
+        synthesis_event = contracts["canonical_speech_synthesis_event"]
+        speech_snapshot = snapshot["responses"]["get_speech_lifecycle"]
+
+        self.assertEqual("unavailable", transcription_event["status"])
+        self.assertEqual("turn.pipeline", transcription_event["reason"])
+        self.assertEqual("unavailable", transcription_event["transcription"]["status"])
+        self.assertEqual("unavailable", synthesis_event["status"])
+        self.assertEqual("turn.pipeline", synthesis_event["reason"])
+        self.assertEqual("unavailable", synthesis_event["synthesis"]["status"])
+        self.assertEqual("unavailable", speech_snapshot["events"][0]["event"]["status"])
+        self.assertEqual("turn.pipeline", speech_snapshot["events"][0]["event"]["reason"])
+        self.assertEqual("unavailable", speech_snapshot["events"][1]["event"]["status"])
+        self.assertEqual("turn.pipeline", speech_snapshot["events"][1]["event"]["reason"])
 
 
 class SessionAnimationLiveDeliveryServiceTests(unittest.TestCase):

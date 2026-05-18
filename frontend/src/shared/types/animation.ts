@@ -41,6 +41,52 @@ export interface SemanticAnimationRuntimeChannel {
   samples: number[];
 }
 
+export interface SemanticAnimationRuntimeQuaternion {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}
+
+export interface SemanticAnimationRuntimeQuaternionSampleSeries {
+  x: number[];
+  y: number[];
+  z: number[];
+  w: number[];
+}
+
+export interface SemanticAnimationRuntimePositionSampleSeries {
+  x: number[];
+  y: number[];
+  z: number[];
+}
+
+export interface SemanticAnimationRuntimeBoneTransformComparisonBone {
+  name: string;
+  humanBodyBone?: string;
+  group?: string;
+  muscleChannels?: string[];
+  finalLocalRotation?: SemanticAnimationRuntimeQuaternion;
+  localRotationSamples?: SemanticAnimationRuntimeQuaternionSampleSeries;
+  localPositionSamples?: SemanticAnimationRuntimePositionSampleSeries;
+}
+
+export interface SemanticAnimationRuntimeBoneTransformComparison {
+  clipGateSemanticId?: string;
+  comparisonKind?: string;
+  samplingMode?: string;
+  avatarSource?: string;
+  usesRuntimeSamplingTimes?: boolean;
+  boneCount?: number;
+  bones: SemanticAnimationRuntimeBoneTransformComparisonBone[];
+}
+
+export interface SemanticAnimationRuntimeExportAudit {
+  limbRotationSpace?: string;
+  lowerArmRotationHintSource?: string;
+  boneTransformComparison?: SemanticAnimationRuntimeBoneTransformComparison;
+}
+
 export interface SemanticAnimationRuntimePayload {
   semanticId: SemanticAnimationId;
   playback: SemanticAnimationPlaybackMode;
@@ -49,6 +95,7 @@ export interface SemanticAnimationRuntimePayload {
   channelSpace?: string;
   sampling?: SemanticAnimationRuntimeSampling;
   channels?: SemanticAnimationRuntimeChannel[];
+  exportAudit?: SemanticAnimationRuntimeExportAudit;
 }
 
 export interface BackendAnimationTimingHintDocument {

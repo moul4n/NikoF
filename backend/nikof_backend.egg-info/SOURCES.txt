@@ -1,9 +1,16 @@
 README.md
 pyproject.toml
 app/__init__.py
+app/dev_server.py
 app/main.py
 app/api/__init__.py
+app/api/active_character_routes.py
+app/api/operator_routes.py
+app/api/read_routes.py
+app/api/response_builders.py
 app/api/router.py
+app/api/router_composition.py
+app/api/session_routes.py
 app/core/__init__.py
 app/core/settings.py
 app/schemas/__init__.py
@@ -24,5 +31,9 @@ nikof_backend.egg-info/dependency_links.txt
 nikof_backend.egg-info/requires.txt
 nikof_backend.egg-info/top_level.txt
 tests/test_animation_service.py
+tests/test_dev_server.py
 tests/test_event_store.py
+tests/test_health_surface.py
 tests/test_operator_command_surface.py
+tests/test_provider_adapter_wiring.py
+tests/test_runtime_bindings.py

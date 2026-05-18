@@ -2,13 +2,16 @@
   "scenario_id": "frontend-speech-lifecycle-runtime",
   "scenario_name": "Frontend speech lifecycle runtime snapshot",
   "runner": "node",
-  "backend_source_runner": "python",
+  "backend_source_runner": "py -3",
   "tracked_inputs": [
     "scripts/testing/frontendSpeechLifecycle.runtime.ts",
     "scripts/testing/Invoke-StabilitySuite.ps1",
     "frontend/src/app/App.tsx",
-    "frontend/src/avatar/runtime/avatarRuntime.ts",
+    "frontend/src/app/speechPlaybackAudioSource.ts",
+    "frontend/src/app/useSpeechPlaybackBridge.ts",
+    "frontend/src/app/useSpeechLifecycleState.ts",
     "frontend/src/avatar/loaders/speechLifecycle.ts",
+    "frontend/src/avatar/runtime/avatarRuntime.ts",
     "frontend/src/shared/types/character.ts",
     "backend/app/api/router.py",
     "backend/app/schemas/session.py",
@@ -49,6 +52,37 @@
       "canonical_speech_synthesis_event_updates": true,
       "final_cursor_matches_appended_event": true
     },
+    "speech_lifecycle_hook_state": {
+      "speech_lifecycle_hook_markers": [
+        "hook export",
+        "loader live consumption bridge",
+        "external refresh dependency",
+        "offline fallback state",
+        "offline retry timer",
+        "live delivery message helper"
+      ],
+      "speech_lifecycle_hook_ready": true,
+      "hook_export_present": true,
+      "hook_live_message_present": true,
+      "hook_character_resolution_present": true
+    },
+    "speech_playback_bridge_state": {
+      "speech_playback_bridge_markers": [
+        "hook export",
+        "canonical synthesis playback key",
+        "speech reaction input resolution",
+        "speech reaction duration handoff",
+        "audio reaction bridge",
+        "timing reaction bridge"
+      ],
+      "speech_playback_bridge_ready": true,
+      "hook_export_present": true,
+      "playback_status_export_present": true,
+      "backend_artifact_audio_reference": "/api/session/speech-artifacts/speech-lifecycle-0002/audio",
+      "backend_artifact_audio_source": "/api/session/speech-artifacts/speech-lifecycle-0002/audio",
+      "backend_artifact_audio_reason": "browser_safe",
+      "backend_artifact_audio_browser_playable": true
+    },
     "avatar_runtime_speech_reaction": {
       "speech_reaction_runtime_markers": [
         "speech overlay channel snapshot",
@@ -74,12 +108,13 @@
       "live_consumption_present": true,
       "live_transport_markers": [
         "EventSource",
+        "speech.lifecycle SSE listener",
         "live consumption seam"
       ],
       "canonical_stream_reference_present": true,
       "backend_event_envelope_type_present": true,
       "cursor_reference_present": true,
-      "app_live_message_present": true,
+      "hook_transport_state_present": true,
       "dependency": null
     }
   }

@@ -65,9 +65,8 @@ This stage is already supported by the repo.
 
 - Run `scripts/animation_tools/Invoke-UnityRawAnimExport.ps1` with a semantic id and raw `.anim` source path.
 - The wrapper detects or accepts a Unity editor path, creates a temporary Unity project, copies in the raw clip, and runs `NikoF.AnimationTools.RawAnimBatchExporter` in batchmode.
-- The Unity-side exporter refreshes the staged sidecar and writes two additional generated outputs:
-   - `assets/animations/generated/shared/{semantic_id}/{semantic_id}.runtime.json`
-   - `assets/animations/dsl/generated/shared/{semantic_id}.json`
+- The Unity-side exporter refreshes the staged sidecar and writes `assets/animations/generated/shared/{semantic_id}/{semantic_id}.runtime.json` plus `assets/animations/dsl/generated/shared/{semantic_id}.json`.
+- `gesture.punch.once` currently gets one additive discriminator inside `export_audit.bone_transform_comparison`: sampled humanoid bone-local rotation series for upper arms, lower arms, hands, upper legs, lower legs, and feet, keyed back to the current muscle and derived-hint channels.
 
 Expected outcome:
 
@@ -79,6 +78,19 @@ Important constraint:
 
 - These generated outputs are candidate assets, not approved shared-library inventory.
 - They remain under `generated/` and `dsl/generated/` until viewer validation and promotion review move them into `assets/animations/library/shared/`.
+
+### Tonight: Manual Compare For `gesture.punch.once`
+
+1. Run the frontend in dev mode, open `/control`, and select the character you want to inspect.
+2. Open `/display` in a second tab or window. In `Display surface -> Dev-only animation override -> Local display switcher`, click `Force gesture.punch.once`; click it again any time you need to replay the one-shot.
+3. In the display tab, open DevTools and run `window.__NIKOF_AVATAR_DEBUG__.getPunchComparisonSnapshot()` in the Console. Check the upper-arm, lower-arm, and hand bones that look wrong on screen.
+4. Optional exporter refresh from the repo root:
+   `powershell -ExecutionPolicy Bypass -File .\scripts\animation_tools\Invoke-UnityRawAnimExport.ps1 -SemanticId gesture.punch.once -SourceClip "assets/animations/raw/Action Idle To Fight Idle.anim"`
+
+Evidence rule:
+
+- Mark it `browser wrong` when the display pose is wrong and the snapshot shows `browserQuaternion` or `browserEulerXYZ` diverging from the paired `unityQuaternion` or `unityEulerXYZ` values already embedded in the loaded runtime payload.
+- Mark it `export wrong` when the display pose and the DevTools snapshot agree with each other, but the exported Unity-side values in `assets/animations/generated/shared/gesture.punch.once/gesture.punch.once.runtime.json` are already the wrong pose.
 
 ### 3. Semantic Review
 

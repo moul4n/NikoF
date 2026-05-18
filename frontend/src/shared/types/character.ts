@@ -84,6 +84,80 @@ export interface BackendCharacterCatalogResponseDocument {
   characters: BackendCharacterSummaryDocument[];
 }
 
+export type BackendRuntimePrerequisiteState = "missing" | "scaffolded" | "ready" | (string & {});
+
+export interface BackendDiagnosticProbeDocument {
+  name: string;
+  configured_by: string;
+  required_for_stage: string;
+  available: boolean;
+}
+
+export interface BackendRuntimePrerequisiteAcceptanceTargetDocument {
+  id: string;
+  label: string;
+  satisfied: boolean;
+  expected_path: string;
+  accepted_paths: string[];
+  acceptance_proof: string;
+}
+
+export interface BackendRuntimePrerequisiteBlockerDetailDocument {
+  id: string;
+  status: string;
+  summary: string;
+  expected_path: string;
+  accepted_paths: string[];
+  remediation: string;
+  evidence: string[];
+}
+
+export interface BackendRuntimePrerequisiteDocument {
+  id: string;
+  display_name: string;
+  root_key: string;
+  expected_path: string;
+  expected_paths?: string[];
+  present: boolean;
+  required: boolean;
+  upstream: string;
+  manual_install: string;
+  hook_id?: string | null;
+  hook_command?: string | null;
+  runtime_config_path?: string | null;
+  install_plan_path?: string | null;
+  hint_path?: string | null;
+  state: BackendRuntimePrerequisiteState;
+  acceptance_targets?: BackendRuntimePrerequisiteAcceptanceTargetDocument[];
+  blocker_details?: BackendRuntimePrerequisiteBlockerDetailDocument[];
+}
+
+export interface BackendRuntimePrerequisiteLaneBlockerDocument {
+  id: string;
+  status: string;
+  summary: string;
+}
+
+export interface BackendRuntimePrerequisiteLaneDocument {
+  id: string;
+  display_name: string;
+  state: BackendRuntimePrerequisiteState;
+  blockers?: BackendRuntimePrerequisiteLaneBlockerDocument[];
+}
+
+export interface BackendHealthDiagnosticsDocument {
+  character_packages_available: number;
+  storage_probes: BackendDiagnosticProbeDocument[];
+  notes?: string[];
+  prerequisite_lanes?: BackendRuntimePrerequisiteLaneDocument[];
+}
+
+export interface BackendHealthPayloadDocument {
+  status: string;
+  mode: string;
+  diagnostics: BackendHealthDiagnosticsDocument;
+}
+
 export interface BackendAudioFormatMetadataDocument {
   container: string;
   encoding: string;
@@ -142,9 +216,17 @@ export interface BackendAssistantMessageDocument {
   locale: string;
 }
 
+export type BackendSessionEventType =
+  | "assistant.message"
+  | "session.operator.text-question"
+  | "session.operator.tts-preview"
+  | "speech.synthesis"
+  | "transcription.status"
+  | (string & {});
+
 export interface BackendSessionEventDocument {
   schema_version: number;
-  event_type: string;
+  event_type: BackendSessionEventType;
   session_id: string;
   character_id: CharacterId;
   status: string;

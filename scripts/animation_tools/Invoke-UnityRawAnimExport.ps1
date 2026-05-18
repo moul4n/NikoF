@@ -33,7 +33,7 @@ function Resolve-UnityEditorExecutable {
         Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
 
     if ($discoveredEditors) {
-        return $discoveredEditors[0]
+        return @($discoveredEditors)[0]
     }
 
     throw 'Unable to locate a Unity editor installation. Pass -UnityEditorPath explicitly.'
@@ -52,6 +52,31 @@ function Resolve-RepoPath {
     return (Resolve-Path -LiteralPath (Join-Path $Root $Path)).Path
 }
 
+function Resolve-RelativeRepoPath {
+    param(
+        [string]$Path,
+        [string]$Root
+    )
+
+    $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    $normalizedRoot = [System.IO.Path]::GetFullPath($resolvedRoot).TrimEnd('\') + '\'
+    $normalizedPath = [System.IO.Path]::GetFullPath($resolvedPath)
+    $rootUri = [System.Uri]::new($normalizedRoot)
+    $pathUri = [System.Uri]::new($normalizedPath)
+
+    return [System.Uri]::UnescapeDataString($rootUri.MakeRelativeUri($pathUri).ToString()).Replace('\', '/')
+}
+
+function ConvertFrom-JsonCompat {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Json
+    )
+
+    return $Json | ConvertFrom-Json
+}
+
 function New-Directory {
     param(
         [string]$Path
@@ -59,6 +84,29 @@ function New-Directory {
 
     if (-not (Test-Path -LiteralPath $Path)) {
         New-Item -ItemType Directory -Path $Path | Out-Null
+    }
+}
+
+function Remove-DirectoryBestEffort {
+    param(
+        [string]$Path,
+        [int]$MaxAttempts = 5,
+        [int]$RetryDelayMilliseconds = 500
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt += 1) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($attempt -eq $MaxAttempts) {
+                Write-Warning "Unable to delete temp Unity project at $Path after $MaxAttempts attempts: $($_.Exception.Message)"
+                return
+            }
+
+            [System.Threading.Thread]::Sleep($RetryDelayMilliseconds)
+        }
     }
 }
 
@@ -71,14 +119,34 @@ function Invoke-UnityProcess {
         [int[]]$AllowedExitCodes = @(0)
     )
 
-    $process = Start-Process -FilePath $UnityExecutable -ArgumentList $Arguments -Wait -PassThru -NoNewWindow
-    if ($AllowedExitCodes -notcontains $process.ExitCode) {
+    $formattedArguments = $Arguments | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"{0}"' -f ($_.Replace('"', '\"'))
+        }
+        else {
+            $_
+        }
+    }
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $UnityExecutable
+    $startInfo.Arguments = [string]::Join(' ', $formattedArguments)
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $process.WaitForExit()
+    $exitCode = $process.ExitCode
+
+    if ($AllowedExitCodes -notcontains $exitCode) {
         $logTail = ''
         if (Test-Path -LiteralPath $LogPath) {
             $logTail = [string]::Join([Environment]::NewLine, (Get-Content -LiteralPath $LogPath -Tail 80))
         }
 
-        throw "$FailureContext failed with exit code $($process.ExitCode).`nUnity log: $LogPath`n$logTail"
+        throw "$FailureContext failed with exit code $exitCode.`nUnity log: $LogPath`n$logTail"
     }
 }
 
@@ -87,7 +155,7 @@ $resolvedSourceClip = Resolve-RepoPath -Path $SourceClip -Root $resolvedRepoRoot
 $resolvedUnityExecutable = Resolve-UnityEditorExecutable -RequestedPath $UnityEditorPath
 $unityBatchScript = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'unity\RawAnimBatchExporter.cs')
 
-$sourceRelativePath = [System.IO.Path]::GetRelativePath($resolvedRepoRoot, $resolvedSourceClip).Replace('\', '/')
+$sourceRelativePath = Resolve-RelativeRepoPath -Path $resolvedSourceClip -Root $resolvedRepoRoot
 $stagedSidecarOutputPath = Join-Path $resolvedRepoRoot "assets\animations\dsl\shared\$SemanticId.json"
 $semanticAssetOutputPath = Join-Path $resolvedRepoRoot "assets\animations\dsl\generated\shared\$SemanticId.json"
 $runtimePayloadOutputPath = Join-Path $resolvedRepoRoot "assets\animations\generated\shared\$SemanticId\$SemanticId.runtime.json"
@@ -171,7 +239,7 @@ try {
     Invoke-UnityProcess @exportPassInvocation
 
     if (Test-Path -LiteralPath $registryPath) {
-        $registry = Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json -Depth 16
+        $registry = ConvertFrom-JsonCompat -Json (Get-Content -LiteralPath $registryPath -Raw)
         if (-not $registry.sidecars.PSObject.Properties.Name.Contains($SemanticId)) {
             $entry = [pscustomobject]@{
                 path = (Join-Path 'assets/animations/dsl/shared' "$SemanticId.json").Replace('\', '/')
@@ -190,7 +258,7 @@ try {
 }
 finally {
     if (-not $KeepTempProject -and (Test-Path -LiteralPath $tempProjectRoot)) {
-        Remove-Item -LiteralPath $tempProjectRoot -Recurse -Force
+        Remove-DirectoryBestEffort -Path $tempProjectRoot
     }
     elseif ($KeepTempProject) {
         Write-Host "Kept temp Unity project at $tempProjectRoot"

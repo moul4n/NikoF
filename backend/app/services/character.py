@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -23,6 +23,18 @@ class CharacterManifestSource(Protocol):
 
     def list_character_ids(self) -> list[str]:
         raise NotImplementedError
+
+    def load_voice_profile(self, character_id: str) -> dict[str, object]:
+        raise NotImplementedError
+
+
+@dataclass(slots=True)
+class CharacterVoiceProfile:
+    profile_id: str
+    provider: str | None = None
+    style: str | None = None
+    notes: str | None = None
+    settings: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -63,6 +75,26 @@ class FileSystemCharacterManifestSource:
             voice_profile_path=voice_profile.get("path", ""),
         )
 
+    def load_voice_profile(self, character_id: str) -> dict[str, object]:
+        manifest = self.load_manifest(character_id)
+        if not manifest.voice_profile_path:
+            return {}
+
+        voice_profile_path = self._character_root(character_id) / manifest.voice_profile_path
+        try:
+            payload = json.loads(voice_profile_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return {}
+
+        if not isinstance(payload, dict):
+            return {}
+
+        return payload
+
+    def _character_root(self, character_id: str) -> Path:
+        manifest_path = self._manifest_path(character_id)
+        return manifest_path.parent
+
     def _manifest_path(self, character_id: str) -> Path:
         manifest_path = self.characters_root / character_id / "manifest.json"
 
@@ -85,6 +117,26 @@ class CharacterService:
     def get_character_summary(self, character_id: str) -> CharacterSummary:
         manifest = self.manifest_source.load_manifest(character_id)
         return self._to_summary(manifest)
+
+    def get_character_voice_profile(self, character_id: str) -> CharacterVoiceProfile:
+        manifest = self.manifest_source.load_manifest(character_id)
+        payload = self.manifest_source.load_voice_profile(character_id)
+        settings = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"profile_id", "provider", "style", "notes"}
+        }
+        return CharacterVoiceProfile(
+            profile_id=str(payload.get("profile_id") or manifest.voice_profile_id or ""),
+            provider=(
+                str(payload.get("provider"))
+                if payload.get("provider") is not None
+                else None
+            ),
+            style=(str(payload.get("style")) if payload.get("style") is not None else None),
+            notes=(str(payload.get("notes")) if payload.get("notes") is not None else None),
+            settings=settings,
+        )
 
     @staticmethod
     def _to_summary(manifest: CharacterManifest) -> CharacterSummary:

@@ -55,6 +55,10 @@
             baseline = 'baselines/backend-stage1-contracts.json'
             tracked_inputs = @(
                 'backend/app/api/router.py'
+                'backend/app/api/router_composition.py'
+                'backend/app/api/read_routes.py'
+                'backend/app/api/active_character_routes.py'
+                'backend/app/api/response_builders.py'
                 'backend/app/core/settings.py'
                 'backend/app/schemas/session.py'
                 'backend/app/schemas/character.py'
@@ -74,6 +78,7 @@
             baseline = 'baselines/backend-speech-contracts.json'
             tracked_inputs = @(
                 'backend/app/api/router.py'
+                'backend/app/api/router_composition.py'
                 'backend/app/schemas/session.py'
                 'backend/app/schemas/character.py'
                 'backend/app/services/character.py'
@@ -90,6 +95,8 @@
             tracked_inputs = @(
                 'scripts/testing/Invoke-StabilitySuite.ps1'
                 'backend/app/api/router.py'
+                'backend/app/api/router_composition.py'
+                'backend/app/api/session_routes.py'
                 'backend/app/schemas/animation.py'
                 'backend/app/schemas/session.py'
                 'backend/app/services/animation.py'
@@ -104,6 +111,8 @@
             tracked_inputs = @(
                 'scripts/testing/Invoke-StabilitySuite.ps1'
                 'backend/app/api/router.py'
+                'backend/app/api/router_composition.py'
+                'backend/app/api/operator_routes.py'
                 'backend/app/schemas/session.py'
                 'backend/app/services/speech.py'
             )
@@ -115,6 +124,10 @@
             baseline = 'baselines/backend-stage1-payload-surface.json'
             tracked_inputs = @(
                 'backend/app/api/router.py'
+                'backend/app/api/router_composition.py'
+                'backend/app/api/read_routes.py'
+                'backend/app/api/active_character_routes.py'
+                'backend/app/api/response_builders.py'
                 'backend/app/core/settings.py'
                 'backend/app/schemas/session.py'
                 'backend/app/schemas/character.py'
@@ -133,11 +146,40 @@
             harness = 'frontend-stage1-bridge-surface'
             baseline = 'baselines/frontend-stage1-bridge-surface.json'
             tracked_inputs = @(
-                'frontend/src/app/App.tsx'
+                'frontend/src/app/useCharacterShellState.ts'
+                'frontend/src/app/surfaceShellPresentation.tsx'
+                'frontend/src/avatar/loaders/backendCharacterFlow.ts'
                 'frontend/src/avatar/loaders/characterCatalog.ts'
                 'frontend/src/shared/types/character.ts'
                 'tests/stability/baselines/backend-stage1-contracts.json'
                 'tests/stability/baselines/backend-stage1-payload-surface.json'
+            )
+        }
+        @{
+            id = 'frontend-shell-split-surface'
+            name = 'Frontend shell split surface snapshot'
+            harness = 'frontend-shell-split-surface'
+            baseline = 'baselines/frontend-shell-split-surface.json'
+            tracked_inputs = @(
+                'frontend/src/main.tsx'
+                'frontend/src/app/App.tsx'
+                'frontend/src/app/useAvatarRuntimeShell.ts'
+                'frontend/src/app/useRuntimePlaybackSelection.ts'
+                'frontend/src/app/surfaceShellPresentation.tsx'
+                'frontend/src/app/useSurfaceShellOrchestration.ts'
+                'frontend/src/app/useCharacterShellState.ts'
+                'frontend/src/app/useSpeechPlaybackBridge.ts'
+                'frontend/src/app/useSpeechLifecycleState.ts'
+                'frontend/src/app/useSessionAnimationState.ts'
+                'frontend/src/app/devDisplayTools.tsx'
+                'frontend/src/styles.css'
+                'frontend/src/avatar/components/AvatarStage.tsx'
+                'frontend/src/app/ControlSurfaceOperatorCommandPanel.tsx'
+                'frontend/src/avatar/loaders/backendCharacterFlow.ts'
+                'frontend/src/avatar/loaders/characterCatalog.ts'
+                'frontend/src/avatar/loaders/operatorCommand.ts'
+                'frontend/src/avatar/loaders/speechLifecycle.ts'
+                'frontend/src/shared/types/character.ts'
             )
         }
         @{
@@ -148,7 +190,13 @@
             tracked_inputs = @(
                 'scripts/testing/frontendStage1CharacterFlow.runtime.ts'
                 'scripts/testing/Invoke-StabilitySuite.ps1'
-                'frontend/src/app/App.tsx'
+                'frontend/package.json'
+                'frontend/package-lock.json'
+                'frontend/src/app/ControlSurfaceShell.tsx'
+                'frontend/src/app/ControlSurfaceSummaryPanel.tsx'
+                'frontend/src/app/controlSurfaceSummary.ts'
+                'frontend/src/app/useCharacterShellState.ts'
+                'frontend/src/app/surfaceShellPresentation.tsx'
                 'frontend/src/avatar/loaders/backendCharacterFlow.ts'
                 'frontend/src/avatar/loaders/characterCatalog.ts'
                 'frontend/src/shared/types/character.ts'
@@ -173,7 +221,12 @@
             tracked_inputs = @(
                 'scripts/testing/frontendSpeechLifecycle.runtime.ts'
                 'scripts/testing/Invoke-StabilitySuite.ps1'
+                'frontend/src/app/App.tsx'
+                'frontend/src/app/speechPlaybackAudioSource.ts'
+                'frontend/src/app/useSpeechPlaybackBridge.ts'
+                'frontend/src/app/useSpeechLifecycleState.ts'
                 'frontend/src/avatar/loaders/speechLifecycle.ts'
+                'frontend/src/avatar/runtime/avatarRuntime.ts'
                 'frontend/src/shared/types/character.ts'
                 'backend/app/api/router.py'
                 'backend/app/schemas/session.py'
@@ -191,20 +244,39 @@
                 'scripts/testing/Invoke-StabilitySuite.ps1'
                 'backend/app/api/router.py'
                 'backend/app/schemas/animation.py'
+                'backend/app/schemas/session.py'
                 'backend/app/services/animation.py'
                 'frontend/src/avatar/loaders/sessionAnimation.ts'
                 'frontend/src/avatar/runtime/baseAnimationMotionProfile.ts'
                 'frontend/src/avatar/runtime/defaultBaseAnimation.ts'
                 'frontend/src/avatar/runtime/avatarRuntime.ts'
+                'frontend/src/avatar/runtime/avatarRuntimePlaybackRoute.ts'
+                'frontend/src/avatar/runtime/officialPunchClipPlayback.ts'
                 'frontend/src/avatar/runtime/humanoidChannelPlayback.ts'
                 'frontend/src/app/App.tsx'
+                'frontend/src/app/useAvatarRuntimeShell.ts'
                 'frontend/src/shared/types/animation.ts'
                 'frontend/src/shared/types/character.ts'
-                'assets/animations/dsl/shared/animations.json'
                 'assets/animations/dsl/shared/idle.default.json'
                 'assets/animations/generated/shared/idle.default/idle.default.runtime.json'
                 'assets/animations/generated/shared/speak.loop/speak.loop.runtime.json'
-                'docs/ANIMATION_DSL_SCHEMA.md'
+            )
+        }
+        @{
+            id = 'frontend-punch-debug-runtime'
+            name = 'Frontend punch debug runtime snapshot'
+            harness = 'frontend-punch-debug-runtime'
+            baseline = 'baselines/frontend-punch-debug-runtime.json'
+            tracked_inputs = @(
+                'scripts/testing/frontendPunchDebug.runtime.ts'
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'frontend/src/avatar/runtime/avatarRuntime.ts'
+                'frontend/src/avatar/runtime/avatarRuntimePlaybackRoute.ts'
+                'frontend/src/avatar/runtime/officialPunchClipPlayback.ts'
+                'frontend/src/avatar/runtime/humanoidChannelPlayback.ts'
+                'frontend/src/shared/types/animation.ts'
+                'frontend/src/vite-env.d.ts'
+                'assets/animations/generated/shared/gesture.punch.once/gesture.punch.once.runtime.json'
             )
         }
         @{

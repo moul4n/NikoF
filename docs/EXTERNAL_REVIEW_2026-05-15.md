@@ -32,6 +32,8 @@ NikoF is a well-architected local-only anime companion for Windows 10/11. The co
 
 ## Project Status
 
+Follow-up note from 2026-05-18: the backend now has a narrow real-provider slice on the existing operator seam. `text_question` can use an Ollama-backed LLaMA 3.1 lane and `tts_preview` can use a GPT-SoVITS-backed synthesis lane when `NIKOF_LLM_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, and `NIKOF_PROVIDERS_ROOT` point at configured local runtimes. The rest of this review still applies for STT, memory, GPU lifecycle, and wider orchestration risk.
+
 ### What's Built
 
 | Component | Status | Notes |
@@ -53,8 +55,8 @@ NikoF is a well-architected local-only anime companion for Windows 10/11. The co
 | Component | Status | Blocking? |
 |-----------|--------|-----------|
 | Faster-Whisper integration | 🔲 Stub only | Stage 3 |
-| GPT-SoVITS integration | 🔲 Stub only | Stage 3 |
-| LLaMA 3.1 via Ollama | 🔲 Stub (returns canned) | Stage 4 |
+| GPT-SoVITS integration | 🟡 Partial real operator seam | Stage 3 |
+| LLaMA 3.1 via Ollama | 🟡 Partial real operator seam | Stage 4 |
 | Memory/vector store (SQLite + ChromaDB) | 🔲 Not started | Stage 4 |
 | Vision pipeline (MediaPipe + CLIP) | 🔲 Not started | Stage 6 |
 | Animation blend/crossfade | 🔲 Not implemented | Stage 5 |
@@ -81,7 +83,7 @@ NikoF is a well-architected local-only anime companion for Windows 10/11. The co
 
 ### Weaknesses
 
-1. **No real provider integration yet** — The entire backend returns canned/stub data. The jump from stubs to real GPU inference is the project's biggest risk.
+1. **Only a narrow real provider slice exists** — The operator seam now has partial Ollama and GPT-SoVITS execution, but the broader backend still lacks real STT, memory, and GPU lifecycle management. The jump from a narrow proof to full GPU inference orchestration remains the project's biggest risk.
 
 2. **Monolithic code in key files** — `router.py` (~600+ lines) and `App.tsx` (~1600+ lines) will become unmaintainable under real complexity.
 

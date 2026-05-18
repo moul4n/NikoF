@@ -1,0 +1,17 @@
+﻿{
+    "provider":  "faster-whisper",
+    "variant":  "medium",
+    "acquisition":  {
+                        "mode":  "manual",
+                        "upstream":  "https://huggingface.co/Systran/faster-whisper-medium"
+                    },
+    "expected_root":  "NIKOF_STT_MODELS_ROOT\\faster-whisper-medium",
+    "local_only":  true,
+    "steps":  [
+                  "Download the approved Faster-Whisper Medium files to a machine-local staging directory.",
+                  "Extract only the model payload under NIKOF_STT_MODELS_ROOT\\faster-whisper-medium; do not commit downloaded model files.",
+                  "Place one accepted provider entrypoint under NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper.",
+                  "Update runtime.json with any machine-specific model metadata you need.",
+                  "Rerun bootstrap so the report and startup checks can confirm the local STT contract."
+              ]
+}

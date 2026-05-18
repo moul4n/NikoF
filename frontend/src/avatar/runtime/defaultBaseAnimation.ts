@@ -1,19 +1,59 @@
 import type {
   SemanticAnimationCommand,
+  SemanticAnimationRuntimeBoneTransformComparison,
+  SemanticAnimationRuntimeBoneTransformComparisonBone,
   SemanticAnimationMotionProfile,
   SemanticAnimationPlaybackMode,
   SemanticAnimationRuntimeChannel,
+  SemanticAnimationRuntimeExportAudit,
   SemanticAnimationRuntimePayload,
+  SemanticAnimationRuntimeQuaternion,
+  SemanticAnimationRuntimeQuaternionSampleSeries,
   SemanticAnimationRuntimeSampling
 } from "../../shared/types/animation";
 import idleDefaultRuntime from "../../../../assets/animations/generated/shared/idle.default/idle.default.runtime.json";
-import gesturePunchOnceRuntime from "../../../../assets/animations/generated/shared/gesture.punch.once/gesture.punch.once.runtime.json";
+
 import listenLoopRuntime from "../../../../assets/animations/generated/shared/listen.loop/listen.loop.runtime.json";
 import speakLoopRuntime from "../../../../assets/animations/generated/shared/speak.loop/speak.loop.runtime.json";
 
 export interface SharedAnimationRuntimeSidecarDocument {
   semantic_id?: string;
   channel_space?: string;
+  export_audit?: {
+    limb_rotation_space?: string;
+    lower_arm_rotation_hint_source?: string;
+    bone_transform_comparison?: {
+      clip_gate_semantic_id?: string;
+      comparison_kind?: string;
+      sampling_mode?: string;
+      avatar_source?: string;
+      uses_runtime_sampling_times?: boolean;
+      bone_count?: number;
+      bones?: Array<{
+        name?: string;
+        human_body_bone?: string;
+        group?: string;
+        muscle_channels?: string[];
+        local_rotation_samples?: {
+          x?: number[];
+          y?: number[];
+          z?: number[];
+          w?: number[];
+        };
+        local_position_samples?: {
+          x?: number[];
+          y?: number[];
+          z?: number[];
+        };
+        final_local_rotation?: {
+          x?: number;
+          y?: number;
+          z?: number;
+          w?: number;
+        };
+      }>;
+    };
+  };
   playback?: {
     mode?: string;
     loop?: boolean;
@@ -49,9 +89,7 @@ const sharedAnimationRuntimeSidecarModules: Record<string, SharedAnimationRuntim
   "idle.default": {
     default: idleDefaultRuntime as SharedAnimationRuntimeSidecarDocument
   },
-  "gesture.punch.once": {
-    default: gesturePunchOnceRuntime as SharedAnimationRuntimeSidecarDocument
-  },
+
   "listen.loop": {
     default: listenLoopRuntime as SharedAnimationRuntimeSidecarDocument
   },
@@ -114,7 +152,7 @@ function resolveRuntimeMotionProfile(
     !motionProfile ||
     typeof motionProfile.speed_multiplier !== "number" ||
     !Number.isFinite(motionProfile.speed_multiplier) ||
-    motionProfile.speed_multiplier <= 0 ||
+    motionProfile.speed_multiplier < 0 ||
     typeof motionProfile.bob_amplitude !== "number" ||
     !Number.isFinite(motionProfile.bob_amplitude) ||
     typeof motionProfile.secondary_bob_amplitude !== "number" ||
@@ -193,6 +231,182 @@ function resolveRuntimeChannels(
   return channels && channels.length > 0 ? channels : undefined;
 }
 
+function resolveRuntimeQuaternion(
+  quaternionDocument: {
+    x?: number;
+    y?: number;
+    z?: number;
+    w?: number;
+  } | null | undefined
+): SemanticAnimationRuntimeQuaternion | undefined {
+  if (!quaternionDocument) {
+    return undefined;
+  }
+
+  const { x, y, z, w } = quaternionDocument;
+
+  if (![x, y, z, w].every((value) => typeof value === "number" && Number.isFinite(value))) {
+    return undefined;
+  }
+
+  return {
+    x: x as number,
+    y: y as number,
+    z: z as number,
+    w: w as number
+  };
+}
+
+function resolveRuntimeQuaternionSampleComponent(
+  samples: number[] | null | undefined,
+  expectedSampleCount: number | null
+): number[] | null {
+  const resolvedSamples = samples?.filter((value) => typeof value === "number" && Number.isFinite(value));
+
+  if (!resolvedSamples || resolvedSamples.length === 0) {
+    return null;
+  }
+
+  if (expectedSampleCount !== null && resolvedSamples.length !== expectedSampleCount) {
+    return null;
+  }
+
+  return resolvedSamples;
+}
+
+function resolveRuntimeQuaternionSampleSeries(
+  sampleSeriesDocument:
+    | {
+        x?: number[];
+        y?: number[];
+        z?: number[];
+        w?: number[];
+      }
+    | null
+    | undefined,
+  expectedSampleCount: number | null
+): SemanticAnimationRuntimeQuaternionSampleSeries | undefined {
+  if (!sampleSeriesDocument) {
+    return undefined;
+  }
+
+  const x = resolveRuntimeQuaternionSampleComponent(sampleSeriesDocument.x, expectedSampleCount);
+  const y = resolveRuntimeQuaternionSampleComponent(sampleSeriesDocument.y, expectedSampleCount);
+  const z = resolveRuntimeQuaternionSampleComponent(sampleSeriesDocument.z, expectedSampleCount);
+  const w = resolveRuntimeQuaternionSampleComponent(sampleSeriesDocument.w, expectedSampleCount);
+
+  if (!x || !y || !z || !w) {
+    return undefined;
+  }
+
+  const sampleCount = x.length;
+
+  if (y.length !== sampleCount || z.length !== sampleCount || w.length !== sampleCount) {
+    return undefined;
+  }
+
+  return {
+    x,
+    y,
+    z,
+    w
+  };
+}
+
+function resolveRuntimePositionSampleSeries(
+  sampleSeriesDocument: { x?: number[]; y?: number[]; z?: number[] } | null | undefined,
+  expectedSampleCount: number | null
+): { x: number[]; y: number[]; z: number[] } | undefined {
+  if (!sampleSeriesDocument) {
+    return undefined;
+  }
+
+  const x = resolveRuntimeQuaternionSampleComponent(sampleSeriesDocument.x, expectedSampleCount);
+  const y = resolveRuntimeQuaternionSampleComponent(sampleSeriesDocument.y, expectedSampleCount);
+  const z = resolveRuntimeQuaternionSampleComponent(sampleSeriesDocument.z, expectedSampleCount);
+
+  if (!x || !y || !z) {
+    return undefined;
+  }
+
+  const sampleCount = x.length;
+  if (y.length !== sampleCount || z.length !== sampleCount) {
+    return undefined;
+  }
+
+  return { x, y, z };
+}
+
+function resolveRuntimeBoneTransformComparisonBones(
+  runtimeDocument: SharedAnimationRuntimeSidecarDocument,
+  sampling: SemanticAnimationRuntimeSampling | null
+): SemanticAnimationRuntimeBoneTransformComparisonBone[] | undefined {
+  const usesRuntimeSamplingTimes = runtimeDocument.export_audit?.bone_transform_comparison?.uses_runtime_sampling_times === true;
+  const expectedSampleCount = usesRuntimeSamplingTimes ? sampling?.timesS.length ?? null : null;
+  const resolvedBones = runtimeDocument.export_audit?.bone_transform_comparison?.bones
+    ?.map((bone): SemanticAnimationRuntimeBoneTransformComparisonBone | null => {
+      const name = bone.name?.trim();
+
+      if (!name) {
+        return null;
+      }
+
+      const localPositionSamples = bone.local_position_samples
+        ? resolveRuntimePositionSampleSeries(bone.local_position_samples, expectedSampleCount)
+        : undefined;
+
+      return {
+        name,
+        humanBodyBone: bone.human_body_bone?.trim() || undefined,
+        group: bone.group?.trim() || undefined,
+        muscleChannels: bone.muscle_channels?.filter((channel): channel is string => typeof channel === "string" && channel.trim().length > 0),
+        finalLocalRotation: resolveRuntimeQuaternion(bone.final_local_rotation),
+        localRotationSamples: resolveRuntimeQuaternionSampleSeries(bone.local_rotation_samples, expectedSampleCount),
+        localPositionSamples
+      };
+    })
+    .filter((bone): bone is SemanticAnimationRuntimeBoneTransformComparisonBone => bone !== null);
+
+  return resolvedBones && resolvedBones.length > 0 ? resolvedBones : undefined;
+}
+
+function resolveRuntimeExportAudit(
+  runtimeDocument: SharedAnimationRuntimeSidecarDocument,
+  sampling: SemanticAnimationRuntimeSampling | null
+): SemanticAnimationRuntimeExportAudit | undefined {
+  const resolvedBones = resolveRuntimeBoneTransformComparisonBones(runtimeDocument, sampling);
+  const boneTransformComparisonDocument = runtimeDocument.export_audit?.bone_transform_comparison;
+  const boneTransformComparison: SemanticAnimationRuntimeBoneTransformComparison | undefined =
+    resolvedBones && boneTransformComparisonDocument
+      ? {
+          clipGateSemanticId: boneTransformComparisonDocument.clip_gate_semantic_id?.trim() || undefined,
+          comparisonKind: boneTransformComparisonDocument.comparison_kind?.trim() || undefined,
+          samplingMode: boneTransformComparisonDocument.sampling_mode?.trim() || undefined,
+          avatarSource: boneTransformComparisonDocument.avatar_source?.trim() || undefined,
+          usesRuntimeSamplingTimes:
+            typeof boneTransformComparisonDocument.uses_runtime_sampling_times === "boolean"
+              ? boneTransformComparisonDocument.uses_runtime_sampling_times
+              : undefined,
+          boneCount:
+            typeof boneTransformComparisonDocument.bone_count === "number" &&
+            Number.isFinite(boneTransformComparisonDocument.bone_count)
+              ? boneTransformComparisonDocument.bone_count
+              : undefined,
+          bones: resolvedBones
+        }
+      : undefined;
+
+  if (!boneTransformComparison && !runtimeDocument.export_audit?.limb_rotation_space) {
+    return undefined;
+  }
+
+  return {
+    limbRotationSpace: runtimeDocument.export_audit?.limb_rotation_space?.trim() || undefined,
+    lowerArmRotationHintSource: runtimeDocument.export_audit?.lower_arm_rotation_hint_source?.trim() || undefined,
+    boneTransformComparison
+  };
+}
+
 export function buildSharedSemanticAnimationPayloadCatalogFromRuntimeDocuments(
   runtimeDocuments: SharedAnimationRuntimeSidecarDocument[]
 ): Map<string, SemanticAnimationRuntimePayload> {
@@ -205,6 +419,7 @@ export function buildSharedSemanticAnimationPayloadCatalogFromRuntimeDocuments(
     const motionProfile = resolveRuntimeMotionProfile(runtimeDocument);
     const sampling = resolveRuntimeSampling(runtimeDocument);
     const channels = resolveRuntimeChannels(runtimeDocument, sampling);
+    const exportAudit = resolveRuntimeExportAudit(runtimeDocument, sampling);
     const existingPayload = semanticId ? catalog.get(semanticId) : null;
 
     if (!semanticId || !playback || typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) {
@@ -218,7 +433,8 @@ export function buildSharedSemanticAnimationPayloadCatalogFromRuntimeDocuments(
       motionProfile: motionProfile ?? existingPayload?.motionProfile,
       channelSpace: runtimeDocument.channel_space ?? existingPayload?.channelSpace,
       sampling: sampling ?? existingPayload?.sampling,
-      channels: channels ?? existingPayload?.channels
+      channels: channels ?? existingPayload?.channels,
+      exportAudit: exportAudit ?? existingPayload?.exportAudit
     });
   });
 
@@ -252,7 +468,8 @@ function resolveSharedSemanticAnimationPayloadFromCatalog(
     motionProfile: resolvedPayload.motionProfile,
     channelSpace: resolvedPayload.channelSpace,
     sampling: resolvedPayload.sampling,
-    channels: resolvedPayload.channels
+    channels: resolvedPayload.channels,
+    exportAudit: resolvedPayload.exportAudit
   };
 }
 

@@ -2,6 +2,463 @@
 
 ## Active Decisions
 
+### 2026-05-18T12:08:58.9671770Z: Approve browser-adjacent idle finger hardening on the existing runtime seam
+
+**By:** Trinity
+**What:** Approve the current hardening implementation. Keep `frontend-avatar-idle-default-runtime` as the primary approval seam, and accept the added dev-only display proof because it stays browser-adjacent rather than becoming a new browser system: `frontend/src/avatar/runtime/avatarRuntime.ts` only exports an idle finger debug snapshot, while `frontend/src/app/devDisplayTools.tsx`, `frontend/src/app/App.tsx`, and `frontend/src/app/surfaceShellPresentation.tsx` only read and present that snapshot on the existing dev display rail.
+**Why:** The remaining uncertainty after the approved root-finger slice was real-VRM morphology on the loaded display avatar, not route ownership, backend transport, or App control flow. The implementation answers that exact gap by sampling loaded-VRM root fingers at loop start, quarter, mid, three-quarter, and loop return on the official idle path, while the focused `frontend-avatar-idle-default-runtime` seam still passes and the touched frontend files typecheck clean. The adjacent `frontend-shell-split-surface` diff is not a blocker for this review because the observed drift is outside the stated hardening goal and does not introduce a new backend-sync, `speech.lifecycle`, or session-animation owner.
+
+### 2026-05-18T12:24:55Z: Prerequisite summary proof stays on the existing full control-shell DOM mount
+
+**By:** Switch
+**What:** Keep the prerequisite summary card guarded on the existing `frontend-stage1-character-flow-runtime` seam and expose that seam directly through `frontend/package.json` as `npm run stability:control-summary`. Do not add Playwright or a second browser runner for this slice.
+**Why:** The current Stage 1 harness already mounts the real `ControlSurfaceShell` into `jsdom`, proves the summary panel is present, and asserts the rendered LLM, STT, and TTS rows plus visible prerequisite summary strings. Exposing that exact seam as a focused command lands the smallest executable guard above the extracted control-side panel without widening dependencies, subprocess churn, or browser infrastructure.
+
+### 2026-05-18T11:27:39.8179670Z: Official idle root-finger proof should fall back to muscle channels when comparison samples are absent
+
+**By:** Trinity
+**What:** Keep `frontend-avatar-idle-default-runtime` as the approval seam for `idle.default` root-finger work, but treat the official idle playback owner in `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` as responsible for a local root-finger fallback when the checked-in sidecar omits root-finger comparison quaternions. Bind only the approved root-finger slice from the existing `*.stretched` and `*_spread` humanoid muscle channels on `official_idle_stability`, and keep the runtime proof explicit by sampling rendered finger articulation on the same fake-rig seam.
+**Why:** The strengthened seam showed that the prior runtime never targeted or rendered the root fingers even though authored finger muscle channels were already present. The checked-in `idle.default` sidecar still exports no root-finger comparison bones, so reopening exporter or backend transport work would widen the batch without solving the nearest controller. A local root-finger channel fallback plus an explicit rendered-articulation proof is the smallest fix that keeps the official idle route honest and reviewable.
+
+### 2026-05-18T11:27:39.8179670Z: Approve the official idle root-finger proof extension
+
+**By:** Mouse
+**What:** Approve the revised `idle.default` finger slice on the existing `frontend-avatar-idle-default-runtime` seam. Keep approval scoped to `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` admitting only the approved root fingers on `official_idle_stability`, with runtime-channel fallback for those fingers when comparison quaternions are absent, and to the matching runtime proof extension in `scripts/testing/frontendAvatarIdleDefault.runtime.ts`.
+**Why:** The fresh stability run passed on the existing seam, the refreshed baseline shows all ten approved root fingers as targeted, each finger now sources authored proof from `runtime_channels`, and each finger records explicit hand-space rendered articulation vectors, articulation excursion above threshold, dominant-axis sign agreement, and return near loop start. The remaining risk is not a contract gap on this seam but fake-rig sampled-pose coverage: some digits still move only slightly above the articulation epsilon, so morphology-specific or between-sample visual weakness on real VRMs could still exist even though the missing rendered-finger regression gap is now closed here.
+
+### 2026-05-18T11:22:29.3528092Z: Ollama baseline setup stays on the existing bootstrap seam
+
+**By:** Tank
+**What:** Keep the Ollama baseline on the existing bootstrap seam. A normal bootstrap run now scaffolds `NIKOF_PROVIDERS_ROOT\llm\ollama\runtime.json`, and the safe `ollama-pull-llama3.1-8b` hook may execute the standard Windows install path under `%LOCALAPPDATA%\Programs\Ollama\ollama.exe` when `ollama` is not on PATH.
+**Why:** The backend adapter only treats the LLM lane as configured when both `NIKOF_PROVIDERS_ROOT\llm\ollama` and `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b` exist. On this machine, Ollama was installed locally but unavailable on PATH inside the VS Code shell, so the existing safe hook needed to honor the standard Windows install location instead of forcing a separate install flow.
+
+### 2026-05-18T11:22:18.2082733Z: Idle finger slice stays local to root-finger routing on the official idle seam
+
+**By:** Switch
+**What:** Keep the current `idle.default` finger pass inside `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` by admitting only the root finger bones on `official_idle_stability`: thumb metacarpal plus index, middle, ring, and little proximal bones for both hands. Preserve the existing App loop fix, grounding, elbow, and wrist behavior. Extend `frontend-avatar-idle-default-runtime` on the same seam so approval requires the root-finger slice to be targeted, show rendered excursion with authored dominant-axis sign agreement, and return near loop start.
+**Why:** The nearby evidence showed exported finger signal was already present while the official idle route still mapped and allowed only up to `LeftHand` and `RightHand`, so the local failure mode was dropped root-finger routing rather than backend transport, exporter absence, or App playback control. Root-finger admission is the smallest plausible articulation pass and the focused runtime seam can now falsify it without opening a broader browser-proof system.
+
+### 2026-05-18T11:22:18.2082733Z: Idle finger approval needs explicit rendered proof on the existing runtime seam
+
+**By:** Mouse
+**What:** Keep `frontend-avatar-idle-default-runtime` as the base approval seam for the next `idle.default` finger slice, but do not approve on the current seam alone. Reuse that same scenario and harness for the narrow proof extension instead of adding a new browser-facing system. Approval requires explicit rendered finger-motion proof on `official_idle_stability`; current hand-axis, settle, and grounding checks remain necessary but are not sufficient for fingers.
+**Why:** The current scenario passes and already snapshots exported finger `*.stretched` and `*.spread` channels in the generated runtime payload, but its rendered proof boundary and validation surface only cover torso, shoulders, arms, and hands. `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` currently limits official idle targeted playback to bones through `LeftHand` and `RightHand`, so the existing green seam cannot falsify missing, weak, or misdirected finger articulation.
+
+### 2026-05-18T11:22:18.2082733Z: Browser-adjacent idle finger hardening should reuse the existing runtime seam
+
+**By:** Switch
+**What:** Treat `frontend-avatar-idle-default-runtime` as the default hardening surface for the next idle finger check when a browser-adjacent proof is acceptable. Do not add a new display-surface hook for this pass. Escalate to a new live-browser hook only if review explicitly requires real-VRM morphology coverage in `/display/`.
+**Why:** The focused check passed on the existing seam, and that harness already samples loop start, a proof timestamp, and final frame on `official_idle_stability` while recording targeted root-finger bones, rendered finger articulation direction in hand space, dominant-axis sign agreement, and return near loop start. The current live debug API in `avatarRuntime.ts` still exposes pose comparison only for `gesture.punch.once`, so adding a new browser hook now would widen the batch without closing a proved gap.
+
+### 2026-05-18T11:22:18.2082733Z: Real-VRM idle finger hardening stays on the current dev display surface
+
+**By:** Mouse
+**What:** Keep `frontend-avatar-idle-default-runtime` as the executable approval seam for `idle.default` fingers, and harden the remaining real-VRM gap on the current frontend surfaces by exposing a dev-only `getIdleFingerSnapshot()` on `window.__NIKOF_AVATAR_DEBUG__` from `frontend/src/avatar/runtime/avatarRuntime.ts` and rendering it in the existing display-side dev rail. Sample the loaded VRM root fingers at loop start, quarter, mid, three-quarter, and loop return on `official_idle_stability`; do not add Playwright or a second browser runner for this pass.
+**Why:** The focused discriminating check showed the current idle runtime seam already passes and the frontend already owns a working browser-adjacent debug API for punch comparison. Adding the idle finger snapshot as a sibling hook closes the real-VRM visibility gap with the minimum change set, while a frontend TypeScript no-emit compile and a passing `frontend-avatar-idle-default-runtime` rerun keep the established seam intact.
+
+### 2026-05-18T11:13:37Z: Idle wrist approval stays on the existing official idle runtime seam
+
+**By:** Mouse
+**What:** Keep `frontend-avatar-idle-default-runtime` as the approval seam for the next `idle.default` wrist slice when the implementation stays local to `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` and only retunes `LeftHand` or `RightHand` on the existing `official_idle_stability` route. Do not require a new proof extension for approval if the wrist change remains a pitch-first hand-weighting pass and the current route, targeted-bone boundary, lower-arm-or-hand follow-through booleans, and grounding booleans stay green. Require a focused proof extension before approval if the slice widens into finger motion, changes route selection or targeted bones, or depends on wrist yaw or roll fidelity that the current hand proof does not explicitly constrain.
+**Why:** The existing runtime scenario already includes `leftHand` and `rightHand` in the lower-arm-or-hand follow-through slice, and the current baseline records explicit dominant-axis sign agreement, rendered excursion above threshold, return-to-loop-start settle, and unchanged grounding on the same seam. The remaining blind spot is axis specificity rather than route or payload ownership, so the current seam is still sufficient for a local pitch-first wrist retune.
+
+### 2026-05-18T11:10:45Z: Official idle wrist slice stays local to hand weighting on the existing runtime seam
+
+**By:** Switch
+**What:** Keep the next `idle.default` wrist pass inside `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` by retuning only `LeftHand` and `RightHand` on the existing `official_idle_stability` path with a modest pitch-first local-rotation scale. Preserve the existing App loop fix, targeted-bone set, grounding behavior, and earlier elbow retune, and use `frontend-avatar-idle-default-runtime` as the approval seam for this slice.
+**Why:** The official idle route already targets `LeftHand` and `RightHand`, and the current runtime seam already proves dominant-axis hand sign agreement, rendered excursion, return-to-loop-start settle, and unchanged grounding on that path. The local defect was flatter wrist read after the approved elbow retune rather than a route, exporter, backend, or App-owned playback failure.
+
+### 2026-05-18T10:48:09.9571509Z: Approve the official idle elbow weighting slice on the existing runtime seam
+
+**By:** Mouse
+**What:** Approve the current `idle.default` elbow slice as staying inside the existing `frontend-avatar-idle-default-runtime` approval seam. Treat the production change as local to `frontend/src/avatar/runtime/officialPunchClipPlayback.ts`, where `LeftLowerArm` and `RightLowerArm` now carry a modest pitch-first local rotation retune on the `official_idle_stability` path. Keep approval anchored to the unchanged focused checks: `frontend-avatar-idle-default-runtime` passes with the official idle route, targeted-bone boundary, lower-arm or hand follow-through proof, and grounded-contact proof intact, and the frontend TypeScript no-emit compile stays clean.
+**Why:** The current runtime still resolves `idle.default` through `official_idle_stability`, the targeted bone set remains the same official idle slice plus the grounded contact chain, and the lower-arm follow-through slice remains explicitly separated from the previously accepted torso or shoulder slice. The refreshed baseline still shows `proof_bone_sampled_rendered_excursion_above_threshold`, `lower_arm_hand_slice_returns_near_loop_start`, and `official_idle_grounding_keeps_contact_points_on_floor` as green, which keeps the elbow retune inside the already-proven route instead of widening into exporter, backend, or App-owned playback behavior. The main residual risk is still morphology-specific or between-sample elbow silhouette drift, because this seam uses a fake rig and sampled runtime poses rather than a browser-facing visual proof across multiple VRMs.
+
+### 2026-05-18T10:39:11.4419754Z: Idle elbow approval stays on the existing official idle runtime seam
+
+**By:** Mouse
+**What:** Treat `frontend-avatar-idle-default-runtime` as the approval seam for the next `idle.default` elbow slice when the implementation stays inside `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` and preserves the existing `official_idle_stability` route plus targeted-bone boundary. Do not require a new proof extension for approval if that slice only retunes lower-arm local playback on the already-proven seam. Approve only if the scenario still shows the lower-arm follow-through proof booleans green, grounding remains green, and any baseline refresh is confined to the intended lower-arm or hand rendered-pose evidence rather than route, target-set, or App-owned orchestration drift.
+**Why:** The current stability seam already proves more than arm presence: it explicitly snapshots `leftLowerArm` and `rightLowerArm`, requires rendered excursion above threshold, authored-versus-rendered pitch or roll sign agreement, and return-to-loop-start settle for the lower-arm or hand follow-through slice. Residual risk without extra proof is limited to morphology-specific or between-sample silhouette regressions because the harness uses one fake rig and one sampled pose, not a browser-facing visual check.
+
+### 2026-05-18T10:39:11.4419754Z: Official idle elbow slice stays local to lower-arm weighting on the existing runtime seam
+
+**By:** Switch
+**What:** Keep the next `idle.default` elbow pass inside `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` by adding only a modest lower-arm local-rotation scale for `LeftLowerArm` and `RightLowerArm` on the `official_idle_stability` route. Preserve the existing `App.tsx` loop fix, grounded-feet behavior, targeted-bone set, and route-selection boundary. Use `frontend-avatar-idle-default-runtime` as the approval seam for this slice and accept a baseline refresh only when the lower-arm rendered-pose evidence changes while settle and grounding proof stay unchanged.
+**Why:** The generated idle payload already exports `left/right.elbow.flex` plus lower-arm comparison quaternions, so the nearest honest defect is weak official-idle playback weighting rather than missing source signal, backend transport, or App-owned playback control. The existing runtime seam already proves lower-arm follow-through, return-to-loop-start settle, and grounding on the same route, so it is sufficient coverage for a weighting-only elbow retune.
+
+### 2026-05-18T10:26:38.8609715Z: Idle floor grounding prioritizes feet before toes on the hardened runtime seam
+
+**By:** Trinity
+**What:** Keep `frontend-avatar-idle-default-runtime` as the authoritative grounded-feet regression seam, keep the grounding contact set explicit as `LeftFoot`, `RightFoot`, `LeftToes`, and `RightToes`, and make the idle floor-grounding pass resolve floor height from feet first when feet are present before falling back to the broader contact set. Keep the runtime edit local to `frontend/src/avatar/runtime/avatarRuntime.ts`.
+**Why:** The widened lower-body official idle route still allowed toe-tip anchoring to keep the minimum contact at floor height while both feet drifted upward. Prioritizing feet on the existing runtime seam is the smallest change that matches the new executable proof without reopening App orchestration, exporter behavior, or backend transport.
+
+### 2026-05-18T10:26:38.8609715Z: Feet-preferred idle grounding closes the current floating-feet regression seam
+
+**By:** Mouse
+**What:** Approve the revised feet-to-ground slice on the existing `frontend-avatar-idle-default-runtime` seam. The production runtime now resolves idle floor height from `LeftFoot` and `RightFoot` when those bones exist, only falling back to toes when feet are absent, and the focused stability scenario proves post-grounding world-space contact for `LeftFoot`, `RightFoot`, `LeftToes`, and `RightToes` using grounded minimum-contact and per-bone upward-drift checks.
+**Why:** The earlier proof could still pass while toe-tip contact masked floating feet. The current slice fixes that exact blind spot locally in the runtime and mirrors the same discriminator in the executable harness, leaving residual risk limited to unproven transient or morphology-specific grounding drift outside the sampled fake-rig seam.
+
+### 2026-05-18T10:15:34.1052229Z: Idle grounding approval stays blocked until grounded contact proof is explicit
+
+**By:** Mouse
+**What:** Do not treat the current idle-grounding slice as approved on `frontend-avatar-idle-default-runtime` until that existing scenario records an `official_idle_grounding_surface` with loop-start and sampled world-space Y for `LeftFoot`, `RightFoot`, `LeftToes`, and `RightToes`, and fails when the minimum grounded contact rises above a small epsilon or either foot drifts upward from grounded loop start beyond that epsilon.
+**Why:** The passing scenario already proves official idle route selection and torso or arm follow-through, but it would not catch a floating-feet regression returning because it never asserts the post-grounding world-space foot or toe result.
+
+### 2026-05-18T10:15:34.1052229Z: Official idle retains the lower-body contact chain while root motion stays disabled
+
+**By:** Switch
+**What:** Keep the official `idle.default` route bone-local with authored and procedural root motion disabled, and treat the lower-body comparison chain as part of the official idle contract: `leftUpperLeg`, `leftLowerLeg`, `leftFoot`, `leftToes`, `rightUpperLeg`, `rightLowerLeg`, `rightFoot`, and `rightToes` must stay targeted when `idle.default` resolves on `official_idle_stability`. Keep regression coverage on the existing `frontend-avatar-idle-default-runtime` seam.
+**Why:** The exported idle comparison data already carries the leg and foot chain, and retaining that chain is the smallest frontend-side fix that restores planted feet without reopening backend transport, exporter design, or App-owned idle loop behavior.
+
+### 2026-05-18T10:14:35Z: Reuse the Stage 1 runtime harness for rendered prerequisite-card proof
+
+**By:** Switch
+**What:** Keep the prerequisite-card proof on the existing `frontend-stage1-character-flow-runtime` seam instead of adding Playwright or a second browser stack. Extract the production `ControlSurfaceSummaryPanel` into a tiny renderable module, have the Stage 1 harness render that real card markup under Node, and separately assert that `ControlSurfaceShell` still mounts the same panel.
+**Why:** The current blind spot is rendered control-surface text, not backend payload shape or shared summary-string derivation. The wider control-shell tree is still blocked in the Node harness by extensionless browser-side TSX imports, so this is the smallest adjacent rendered proof that keeps shell and subprocess churn low while still failing if the visible prerequisite card drifts or is no longer mounted.
+
+### 2026-05-18T10:14:35Z: Health prerequisite read model projects startup truth as thin frontend-safe lanes
+
+**By:** Tank
+**What:** Extend the existing backend-owned `/health` surface to project local prerequisite truth for the `llm`, `stt`, and `tts` lanes directly from `get_startup_runtime_prerequisites()`. Keep the public shape thin and frontend-safe by exposing only lane `state` plus blocker `id`, `status`, and `summary`; do not surface startup-only paths, evidence, remediation text, or provider internals on the health read model.
+**Why:** The frontend needs one stable backend read seam for local prerequisite status and blockers, but creating a second health-specific state model would drift from the startup contract. Reusing the existing prerequisite seam keeps health, bootstrap, and startup aligned while preserving the provider-agnostic public boundary.
+
+### 2026-05-18: Stage 1 health prerequisite baselines stay on the real health and bridge owners
+
+**By:** Tank
+**What:** Keep the landed `/health` prerequisite read model protected through the existing Stage 1 backend and frontend stability seams instead of adding a new scenario. For backend Stage 1, preserve `diagnostics.prerequisite_lanes` inside `ConvertTo-BackendStage1ScopedSnapshot`, add `backend/app/api/response_builders.py` to the `backend-stage1-contracts` and `backend-stage1-payload-surface` tracked inputs, and pin the lane plus blocker key surface in the payload baseline. For frontend Stage 1, have `frontend-stage1-bridge-surface` follow the current extracted owners: catalog-envelope reads in `frontend/src/avatar/loaders/backendCharacterFlow.ts`, rejected-selection reconciliation in `frontend/src/app/useCharacterShellState.ts`, and health-lane consumption in `frontend/src/app/surfaceShellPresentation.tsx`.
+**Why:** The stability harness could look green while still projecting `/health` back to the older diagnostics shape, and the frontend bridge guard was still anchored to pre-extraction owners. Keeping the protection on the current Stage 1 seams closes that regression gap without widening the test matrix or redesigning the feature.
+
+### 2026-05-18T11:03:00Z: Faster-Whisper Medium bootstrap truth uses the same scaffolded-state seam as GPT-SoVITS
+
+**By:** Tank
+**What:** Keep the required Faster-Whisper Medium fresh-machine lane on the existing bootstrap and startup prerequisite seam, but make that seam project-managed and explicit instead of prose-only. Bootstrap now scaffolds machine-local `runtime.json` and `install-plan.json` under `NIKOF_STT_MODELS_ROOT\faster-whisper-medium` plus `runtime.json` under `NIKOF_PROVIDERS_ROOT\stt\faster-whisper`, and both bootstrap plus backend startup report the lane as `missing`, `scaffolded`, or `ready` using two concrete acceptance targets: non-manifest payload proof under the STT model root and one accepted provider entrypoint under the managed provider root.
+**Why:** The previous STT contract only exposed a generic missing blocker and manual-install prose, which made a fresh-machine Faster-Whisper setup look unmanaged and hard to resume after interruption. Reusing the GPT-SoVITS scaffold-and-blocker pattern keeps vendor payloads and provider runtimes outside git, avoids a downloader, and gives bootstrap, startup guidance, and stability coverage one honest state model for the required STT lane.
+
+### 2026-05-18T09:15:59.7678089Z: Default bootstrap auto-scaffolds the safe GPT-SoVITS local install files
+
+**By:** Tank
+**What:** Plain `scripts/bootstrap/bootstrap.ps1` now creates the approved local GPT-SoVITS scaffold files on a fresh machine without downloading or unpacking vendor payloads: `NIKOF_TTS_MODELS_ROOT\gpt-sovits\runtime.json`, `NIKOF_TTS_MODELS_ROOT\gpt-sovits\install-plan.json`, and `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\runtime.json`. The bootstrap report and startup guidance continue to treat GPT-SoVITS as `scaffolded` until a real payload exists under the model root and a provider entrypoint exists under the provider root.
+**Why:** The install-state seam was already honest about `missing`, `scaffolded`, and `ready`, but a default bootstrap run still left fresh-machine users one step short of the explicit local manifest contract unless they discovered the manual hooks. Auto-scaffolding only the reviewed local manifests keeps vendor payloads outside git, avoids silent third-party acquisition, and makes the remaining manual blockers concrete.
+
+### 2026-05-18T08:49:31.2684780Z: GPT-SoVITS install truth uses an explicit `missing`, `scaffolded`, and `ready` seam
+
+**By:** Trinity
+**What:** Keep GPT-SoVITS on the existing bootstrap, startup, and provider prerequisite boundary, but make that boundary report explicit `missing`, `scaffolded`, and `ready` states instead of treating scaffolded folders or manifests as installed. `missing` means the managed local GPT-SoVITS model or provider roots have not been prepared. `scaffolded` means project-created `runtime.json` or `install-plan.json` manifests exist under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` or `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits`, but the vendor payload and-or provider entrypoint are still absent. `ready` means both the payload proof and provider entrypoint proof exist under those managed local roots outside git. Keep the seam thin: bootstrap owns scaffolding and any safe automation, startup owns user-facing prerequisite truth, and the provider adapter continues to read only from the managed local roots.
+**Why:** The previous bootstrap and startup contract still let scaffold-only GPT-SoVITS state read as installed, which made a fresh-machine setup look complete before any vendor payload or provider entrypoint had been placed. Landing the state distinction first fixes the truth gap without widening into vendor auto-install automation or a new backend API surface.
+
+### 2026-05-18T08:49:31.2684780Z: GPT-SoVITS prerequisite state stays `scaffolded` until both local proofs exist
+
+**By:** Tank
+**What:** Keep GPT-SoVITS install management on the existing bootstrap and startup prerequisite seam, but make the reported local state explicit as `missing`, `scaffolded`, or `ready`. `missing` means the managed local GPT-SoVITS manifests have not been scaffolded yet. `scaffolded` means one or more local manifests exist under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` or `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits`, but the machine-local payload and-or provider entrypoint proof is still absent. `ready` means both proofs exist under the managed local roots: the TTS model root contains non-manifest payload content and the provider root contains an accepted entrypoint file.
+**Why:** The previous seam reduced GPT-SoVITS readiness to path existence, so the manual scaffold hook could make a fresh-machine install look complete before any payload or provider entrypoint had actually been placed. Keeping the state logic thin and local fixes the truth gap without widening into a vendor auto-installer or a new backend API surface.
+
+### 2026-05-18T08:49:31.2684780Z: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Avoid opening many subprocesses, terminals, or shells; reuse the same terminal flow where possible and wait for jobs to finish unless they are long-running apps that should remain running.
+**Why:** User request - captured for team memory.
+
+### 2026-05-18T07:31:16.8111521Z: Faster-Whisper execution is the next speech slice before broader manifest expansion
+
+**By:** Trinity
+**What:** Take the next STT/TTS implementation slice through `backend/app/services/speech.py` by making `FasterWhisperTranscriptionAdapter` own a real local execution path on the existing provider-managed roots instead of inheriting the stub transcription behavior. Keep the seam thin: reuse the existing `SpeechTranscriptionRequest` and `SpeechTranscriptionContract`, reuse the current `providers/stt/faster-whisper` plus `stt_models_root` roots, and normalize degraded `unavailable` or `error` states the same way GPT-SoVITS already does. Defer wider `runtime.json` or `install-plan.json` rollout to the remaining speech providers until this adapter defines the exact STT-side manifest keys that are actually needed.
+
+**Why:** The current repo already has the browser-safe TTS artifact seam and a real GPT-SoVITS adapter path, but `FasterWhisperTranscriptionAdapter` still only declares a binding shell and inherits `StubSpeechTranscriptionService.transcribe()`. That makes Faster-Whisper the nearest missing real execution seam, and finishing it first avoids widening bootstrap or startup manifest churn around a contract the backend still has not exercised.
+
+### 2026-05-18T07:31:16.8111521Z: Faster-Whisper needs a configured execution test before any wider bootstrap confidence claim
+
+**By:** Mouse
+**What:** The next cheapest falsifier is a focused backend unit test in `backend/tests/test_provider_adapter_wiring.py` that provisions `NIKOF_STT_MODELS_ROOT\faster-whisper-medium` plus `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\transcribe.py`, then asserts a configured Faster-Whisper path is actually exercised through the backend seam instead of returning the inherited stub transcript. The same pass should also add a composition assertion that `build_default_api_runtime_services()` no longer hardcodes `StubSpeechTranscriptionService` when the local STT roots are configured.
+
+**Why:** Current verification proves bootstrap prerequisite text and degraded adapter envelopes, and it proves configured LLM and TTS execution, but it never forces a configured Faster-Whisper lane to execute. That leaves the repo green even though `FasterWhisperTranscriptionAdapter` only exposes `binding_for(...)` and the default runtime composition still wires stub transcription.
+
+### 2026-05-18T07:31:16.8111521Z: Faster-Whisper now executes on the shared local provider contract
+
+**By:** Link
+**What:** Keep Faster-Whisper on the existing speech adapter seam, but make the default backend runtime resolve STT through `build_speech_service_registry()` instead of forcing `StubSpeechTranscriptionService`. `FasterWhisperTranscriptionAdapter` now reads machine-local `runtime.json` overrides from the existing model or provider roots, accepts `transcribe.py` or `main.py` entrypoints under `NIKOF_PROVIDERS_ROOT\stt\faster-whisper`, executes the configured entrypoint, and normalizes `ready`, `unavailable`, and `error` results into the existing `SpeechTranscriptionContract`. Focused tests now prove the default runtime turn publisher emits the provider transcript instead of the scaffold transcript when local Faster-Whisper roots are configured.
+
+**Why:** The adapter shell already matched the local-only root contract used by Ollama and GPT-SoVITS, but backend composition still pinned STT to the scaffold service so configured Faster-Whisper never ran. Reusing the same registry and runtime-manifest pattern removes that dead path without widening the backend API or inventing another config surface.
+
+### 2026-05-18: Canonical speech audio artifacts stay session-scoped behind backend-owned event resolution
+
+**By:** Tank
+**What:** Keep machine-local synthesis audio paths inside canonical `speech.lifecycle` event-store entries only, project frontend-facing `audio_reference` values to `/api/session/speech-artifacts/{event_id}/audio`, and serve that route by resolving the current session's matching speech event back to an allowed local artifact path under the managed TTS or cache roots. Keep frontend playback consuming only that backend-owned artifact URL seam, never raw absolute paths.
+**Why:** This completes the missing browser-safe playback contract without widening `POST /session/operator-command` or exposing arbitrary filesystem reads, and it lets frontend and stability coverage converge on one canonical audio artifact path.
+
+### 2026-05-18: TTS batch guardrails stay on the existing operator and speech lifecycle seams
+
+**By:** Trinity
+**What:** Keep `POST /session/operator-command` unchanged for this batch: `tts_preview` remains a synthesis-only command and `text_question` remains the only public operator path that may invoke the LLM before canonical assistant and synthesis publication. Keep `speech.lifecycle` as the sole canonical speech delivery seam, keep model payloads, provider payloads, and machine-local `runtime.json` files outside git under the bootstrap-managed roots, and treat backend startup prerequisite guidance as the install contract. Do not accept raw machine-local filesystem paths as the durable frontend `audio_reference` contract; this pass is only end-to-end complete once frontend playback consumes a backend-safe or session-scoped audio artifact without widening provider payloads.
+**Why:** The backend already preserves the thin operator seam and local-only provider roots, but the frontend playback bridge still reduces real synthesis to coarse status labels and may receive machine-local paths that are not a stable browser-facing contract. Locking the seam now prevents LLM or provider controls from leaking into the public route while giving Tank, Link, and Switch one explicit blocker to solve next.
+
+### 2026-05-18: Frontend speech playback treats machine-local audio references as non-browser-safe
+
+**By:** Switch
+**What:** Keep `POST /session/operator-command` and `GET /session/speech-lifecycle` as the only frontend speech command and read seams, but treat machine-local or `file:` `audio_reference` values as non-browser-safe in the shared shell. The frontend playback bridge should play only browser-safe URLs, clear speech reactions on successful audio completion as well as timing completion, and fall back to canonical timing metadata with explicit UI feedback when the backend publishes a local filesystem path.
+**Why:** Turning backend filesystem paths into `file:///` URLs is a local shortcut that breaks the frontend-safe boundary and makes preview behavior unreliable. The shell needs honest operator feedback and deterministic cleanup while the backend retains ownership of any future browser-safe audio transport.
+
+### 2026-05-18: Bootstrap LLM and TTS hooks scaffold local-only manifests
+
+**By:** Tank
+**What:** Keep the fresh-machine LLM and GPT-SoVITS setup behind the existing bootstrap hook surface, but make that surface concrete by scaffolding local-only `runtime.json` and `install-plan.json` files under `NIKOF_LLM_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, and `NIKOF_PROVIDERS_ROOT` instead of copying vendor payloads into the repo. `backend/app/core/settings.py` and `backend/app/dev_server.py` should surface those same paths in degraded startup guidance, and the GPT-SoVITS adapter may read only machine-local invocation overrides such as `entrypoint`, `python_executable`, and `timeout_seconds` from `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\runtime.json`.
+**Why:** The previous bootstrap contract named the right roots but still left fresh-machine users guessing which concrete local files to create next, especially after a crash or machine move. One shared hook-backed manifest contract keeps vendor payloads and secrets out of git while giving bootstrap, startup guidance, and the real provider adapter the same explicit remediation path.
+
+### 2026-05-18: Character voice defaults merge with machine-local GPT-SoVITS runtime shaping behind the existing operator seam
+
+**By:** Link
+**What:** Keep `POST /session/operator-command` unchanged, but have the backend merge the active character's checked-in `voice/profile.json` defaults with machine-local GPT-SoVITS `runtime.json` overrides under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` or `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits` before invoking the provider entrypoint. Also keep `text_question` on a speech-safe prompt shape and skip TTS invocation when the LLM reply is not actually ready.
+**Why:** This makes the TTS lane useful without widening the transport contract, keeps speaker payloads and reference audio outside git, and prevents degraded LLM states from masquerading as a healthy voice turn.
+
+### 2026-05-18T06:03:55.4728589Z: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Keep LLM and TTS model data outside git, and wire the installer or downloader into the prerequisite startup checks.
+**Why:** User request - captured for team memory.
+
+### 2026-05-18T00:26:00+01:00: Bootstrap and backend startup share one hook-backed local runtime prerequisite contract
+
+**By:** Tank
+**What:** Align the bootstrap prerequisite manifest with the backend's actual runtime binding paths for local LLM and TTS setup. Treat `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b`, `NIKOF_TTS_MODELS_ROOT\gpt-sovits`, `NIKOF_PROVIDERS_ROOT\llm\ollama`, and `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits` as the canonical repo-facing local roots. Add bootstrap remediation hooks and hint files for those prerequisites, allow only the Ollama model pull to run as safe automation, keep GPT-SoVITS payload acquisition manual-only, and make `backend/app/dev_server.py` print the same hook commands and expected paths before starting in degraded mode.
+
+**Why:** The previous bootstrap contract checked only coarse model folders and a mismatched Ollama provider path, so it did not describe the paths the backend adapters actually use and left the user guessing where Ollama and GPT-SoVITS artifacts belong. One shared hook-backed contract keeps heavyweight payloads out of git while still making fresh-machine setup explicit and testable.
+
+### 2026-05-18T00:15:43+01:00: Control-surface operator preview reads canonical lifecycle while keeping the single write seam
+
+**By:** Switch
+**What:** Keep `POST /session/operator-command` as the only control-surface write path for `text_question` and `tts_preview`. On the frontend, treat the operator panel as a thin command publisher plus a read model over the existing `speech.lifecycle` snapshot/live-delivery state: surface assistant status, synthesis status, timing or audio-reference metadata, latest lifecycle event, and cursor catch-up from the canonical lifecycle document, and only fall back to the accepted POST response until the lifecycle cursor catches up. Keep the display surface read-only.
+**Why:** The coming real LLM and TTS providers already publish meaningful readiness and result state through canonical backend events. Rebuilding that status in panel-local state would create a frontend-owned shadow model, make control and display drift easier, and weaken the backend-owned command seam that Stage 2 locked down.
+
+### 2026-05-18T00:15:43+01:00: Real operator preview lane resolves only from local managed roots
+
+**By:** Link
+**What:** Start the real backend-owned preview lane by resolving the Ollama LLaMA 3.1 path only from `NIKOF_LLM_MODELS_ROOT` plus `NIKOF_PROVIDERS_ROOT/llm/ollama`, and the GPT-SoVITS path only from `NIKOF_TTS_MODELS_ROOT` plus `NIKOF_PROVIDERS_ROOT/tts/gpt-sovits`. Allow a machine-local `runtime.json` under those roots to override runtime details such as the Ollama endpoint or model tag, but do not add new repo-tracked path settings or widen the `POST /session/operator-command` contract.
+**Why:** The narrow useful slice is real provider-backed execution on the existing operator seam, not a new configuration surface. Keeping runtime discovery rooted in the managed local paths preserves fresh-machine determinism, keeps heavyweight payloads out of git-tracked locations, and lets the backend degrade honestly to normalized `unavailable` or `error` contracts when the local runtime is absent or misconfigured.
+
+### 2026-05-18T00:15:43+01:00: Current LLM and TTS ship lane stays contract-first
+
+**By:** Trinity
+**What:** Keep Ollama plus the LLaMA 3.1 8B baseline as the first real local LLM lane on the existing `POST /session/operator-command` `text_question` seam. Keep GPT-SoVITS as the primary TTS target behind the normalized speech contract, but do not widen this batch into microphone capture, VAD, sentence streaming, fallback-TTS expansion, or new frontend controls. The immediate implementation lane is to align backend provider discovery and prerequisite checks with the already documented local-storage contract so missing local runtimes degrade cleanly through canonical `assistant.message` and `speech.synthesis` publication instead of failing behind mismatched install assumptions.
+
+For this batch: Link should harden only the local-provider discovery and invocation contract for Ollama and GPT-SoVITS under the bootstrap-managed roots, including accepted entrypoint names and degraded `unavailable` or `error` mapping. Tank should keep `POST /session/operator-command` authoritative, preserve the canonical `speech.lifecycle` envelope, and wire prerequisite or startup diagnostics through the existing bootstrap or settings path instead of adding routes. Switch should remain read-only over canonical backend state, with no new operator affordances beyond the current control-surface status and reply readout.
+
+**Why:** The repo already has the right backend-owned reply seam, but the current bootstrap, degraded-mode baseline, and adapter bindings do not fully agree on what counts as a present Ollama or GPT-SoVITS runtime. Shipping broader Stage 3 audio-loop work before those discovery seams align would make Link, Tank, and Switch code against contradictory local-provider assumptions.
+
+### 2026-05-17T23:46:00+01:00: Backend router keeps patchable wrapper seam after final constructor extraction
+
+**By:** Tank
+**What:** Move the last direct constructor glue out of `backend/app/api/router.py` by adding `build_default_animation_service()` and `build_default_session_animation_live_delivery_service()` to `backend/app/api/router_composition.py`, while preserving `_build_animation_service()` and `_build_session_animation_live_delivery_service()` as compatibility wrappers in `router.py`. Treat `build_api_router()` and `build_api_contract_snapshot()` plus those router-local wrappers as the minimum safe backend router surface for now.
+**Why:** `backend/tests/test_event_store.py` still patches `_build_session_animation_live_delivery_service()` directly, and the remaining router-local functions are compatibility seams rather than composition weight. Keeping the wrappers avoids widening the test seam or creating churn with no runtime payoff, while the constructor move still removes the last orphaned composition-only logic from `router.py`.
+
+### 2026-05-17T23:26:53.4019424+01:00: Backend router entrypoint glue moves behind router composition
+
+**By:** Tank
+**What:** Keep `build_api_router()` and `build_api_contract_snapshot()` as the public seams in `backend/app/api/router.py`, but move their remaining runtime-assembly and FastAPI fallback glue into `compose_api_router()` and `compose_api_contract_snapshot()` in `backend/app/api/router_composition.py`. Preserve the router-local compatibility wrappers, especially `_build_services()`, `_build_animation_service()`, `_build_session_animation_live_delivery_service()`, and `_route_definitions()`, so focused backend tests can keep patching the existing symbols without a contract change.
+**Why:** After route registration, default service construction, contract snapshot assembly, and the route-definition shell moved out, the remaining low-risk `router.py` weight was pure entrypoint composition glue. Delegating that glue trims the router without changing runtime behavior or widening any stability tracked surface because the relevant backend seams already track `backend/app/api/router.py` together with `backend/app/api/router_composition.py`.
+
+### 2026-05-17: App runtime playback input preparation moves behind a dedicated frontend hook
+
+**By:** Switch
+**What:** Extract the App-owned runtime playback input preparation from `frontend/src/app/App.tsx` into `frontend/src/app/useRuntimePlaybackSelection.ts`. Keep the new hook responsible for dev display override option resolution, display-readiness gating, backend session-animation snapshot handoff, and offline idle fallback eligibility, while leaving `App.tsx` as the owner of the explicit `runtime.play(null)`, forced semantic command, backend snapshot command, and local idle fallback branches plus the top-level display-versus-control selection.
+**Why:** After the runtime shell effects moved into `useAvatarRuntimeShell.ts`, the remaining low-risk runtime-adjacent App weight was playback-input preparation rather than the final playback command. Moving that preparation trims the shell without widening into `avatarRuntime` behavior, and the narrow stability follow-up is to add the new hook to `frontend-shell-split-surface` while keeping `frontend-avatar-idle-default-runtime` scoped to the existing App-plus-runtime-shell ownership split.
+
+### 2026-05-17T22:22:00+01:00: App runtime shell effects move behind a dedicated frontend hook
+
+**By:** Switch
+**What:** Extract the App-owned runtime-adjacent shell effect cluster from `frontend/src/app/App.tsx` into `frontend/src/app/useAvatarRuntimeShell.ts`. Keep the new hook responsible for runtime snapshot subscription, unmount cleanup, display debug-profile and playback-path synchronization, and selected-character load priming, while leaving `App.tsx` as the owner of runtime creation, canonical synthesis selection, session-animation selection, and the final `runtime.play(...)` decision.
+**Why:** After the earlier state and presentation extractions, the remaining high-value low-risk App weight was the effect-heavy runtime shell glue rather than another transport owner. Moving that cluster trims `App.tsx` without widening into `avatarRuntime` behavior, and the narrow stability follow-up is to track the new hook in `frontend-shell-split-surface` plus `frontend-avatar-idle-default-runtime`.
+
+### 2026-05-17T22:19:27+01:00: Backend route-definition shell moves behind router composition
+
+**By:** Tank
+**What:** Move `RouteDefinition`, `RouterShell`, and the canonical route-definition list out of `backend/app/api/router.py` into `backend/app/api/router_composition.py`, while keeping `build_api_router()` and `build_api_contract_snapshot()` as the public seams in `router.py` and preserving router-level compatibility exports plus the `_route_definitions()` wrapper.
+**Why:** After route registration, default service construction, and contract-snapshot assembly moved behind composition, the remaining low-risk router-only glue was the static route-definition shell. Moving that ownership trims `router.py` further without changing runtime behavior, and `backend-speech-contracts` should track `backend/app/api/router_composition.py` because the speech contract snapshot still depends on that canonical route list.
+
+### 2026-05-17: App derived shell orchestration moves behind a dedicated frontend hook
+
+**By:** Switch
+**What:** Extract the App-owned derived shell orchestration from `frontend/src/app/App.tsx` into `frontend/src/app/useSurfaceShellOrchestration.ts`. Keep the new hook responsible for dev display override state, display-side speech lifecycle character reconciliation, latest-published command catch-up, and conversation lifecycle derivation, while leaving `App.tsx` as the owner of avatar runtime creation, snapshot subscription, character load, final runtime playback decisions, and the control-versus-display surface selector.
+**Why:** After branch composition moved behind `surfaceShellPresentation.tsx`, the remaining high-value low-risk App weight was mostly shell-only derivation and handler glue. Moving that cluster trims the frontend shell monolith without widening into `avatarRuntime` behavior or creating a second transport owner.
+
+### 2026-05-17: Backend contract snapshot assembly moves behind router composition
+
+**By:** Tank
+**What:** Keep `build_api_contract_snapshot()` as the public backend contract seam in `backend/app/api/router.py`, but move the shared snapshot assembly into `backend/app/api/router_composition.py`. Preserve the existing router-local compatibility helpers and route module ownership, and do not widen the current stability tracked inputs because `backend/app/api/router_composition.py` is already part of the tracked backend composition seam.
+**Why:** After route-registration composition and default runtime service construction moved out of `router.py`, the remaining low-risk monolith weight was the shared contract-snapshot glue. Moving that assembly trims the router without changing the public contract entrypoint or the focused backend tests that still lean on router-local wrappers.
+
+### 2026-05-17: App surface-shell branch composition moves behind the presentation module
+
+**By:** Switch
+**What:** Extract the full control-surface and display-surface render trees plus their UI-only prop assembly from `frontend/src/app/App.tsx` into `frontend/src/app/surfaceShellPresentation.tsx`, while keeping `App.tsx` as the owner of avatar runtime wiring, backend transport hooks, command publication handling, and the final `surfaceMode` branch selection between display and control. Narrowly update `frontend-shell-split-surface` so it treats `App.tsx` as the selector seam and `surfaceShellPresentation.tsx` as the branch-render owner.
+**Why:** After the first presentation helper extraction, the remaining high-value low-risk App weight was still the top-level shell JSX and the presentation-only view-model assembly feeding it. Moving that composition behind the existing presentation module reduces App surface area without widening into `avatarRuntime` behavior or adding a second transport owner.
+
+### 2026-05-17: Default backend router service construction moves behind router composition
+
+**By:** Tank
+**What:** Keep `build_api_router()` as the public seam and preserve the router-local `_build_services()` compatibility wrapper, but move the default stub service assembly into `backend/app/api/router_composition.py` behind a dedicated runtime-services helper. Leave route registration, contract snapshot behavior, and the current backend stability tracked inputs unchanged.
+**Why:** After route-registration composition moved out of `router.py`, default service construction was the next coherent low-risk slice. Moving that block trims the router without breaking focused tests that patch `_build_services()`, and it avoids speculative stability churn because `backend/app/api/router_composition.py` is already the tracked composition seam.
+
+### 2026-05-17: App surface presentation moves behind a dedicated frontend module
+
+**By:** Switch
+**What:** Extract the inline surface panels and UI-only helpers from `frontend/src/app/App.tsx` into `frontend/src/app/surfaceShellPresentation.tsx`, including the surface-mode switcher, speech lifecycle read panel, control summary panel, display status panel, surface href builder, display reply formatting, and speech playback status labeling. Keep `App.tsx` as the owner of avatar runtime wiring, speech lifecycle and session animation transport, command publication handling, and the final display-versus-control branch selection. Add the new presentation module to the tracked inputs for `frontend-shell-split-surface` so the stability harness follows the updated ownership seam.
+**Why:** After the transport and playback bridge extractions, the remaining high-value low-risk App surface was presentation composition rather than another state owner move. This module cut removes a large block of JSX and UI-only derivation from the shell while preserving the existing top-level runtime and transport ownership model.
+
+### 2026-05-17: Backend router composition wiring moves behind a dedicated helper
+
+**By:** Tank
+**What:** Extract the remaining route-registration composition wiring from `backend/app/api/router.py` into `backend/app/api/router_composition.py`, while keeping `build_api_router()` as the sole composition entrypoint and preserving the current route modules, helper wrappers, route signatures, and response envelopes. Add the new helper to the tracked inputs for `backend-stage1-contracts`, `backend-stage1-payload-surface`, `backend-session-animation-live-delivery`, and `backend-operator-command-surface` so the stability harness follows the new ownership seam.
+**Why:** After the individual route clusters moved out of `router.py`, the repeated registration wiring was the next coherent low-risk monolith seam. Moving that composition block reduces router weight without changing runtime behavior, and the narrow tracked-input update keeps the backend stability scenarios aligned with the real ownership boundary instead of reporting a false regression.
+
+### 2026-05-17: Official idle torso slice adds spine retain coverage and tracks the canonical seam
+
+**By:** Switch
+**What:** Keep `idle.default` on the existing `official_idle_stability` path and add idle-only local-rotation retain coverage for `Spine` in `frontend/src/avatar/runtime/officialPunchClipPlayback.ts`, leaving the existing `Hips`, `Chest`, and `UpperChest` official-route retain table intact. Update the `frontend-avatar-idle-default-runtime` stability seam to track `frontend/src/avatar/runtime/officialPunchClipPlayback.ts` and source-inspect the canonical official idle path instead of the older inline custom-humanoid matcher.
+**Why:** The generated `idle.default` runtime sidecar already carries export-audit local rotation samples for `hips`, `spine`, `chest`, and `upperChest`, so the next honest torso-only slice stays in frontend playback weighting. The narrow local defect was that the torso retain table softened neighboring torso bones while leaving `Spine` unbounded on the official route, which made the torso stack less coherent than the intended pelvis-through-upper-chest read.
+
+### 2026-05-17: App canonical-synthesis playback bridge moves behind a dedicated frontend hook
+
+**By:** Switch
+**What:** Extract the App-owned canonical synthesis playback bridge from `frontend/src/app/App.tsx` into `frontend/src/app/useSpeechPlaybackBridge.ts`. Keep the new hook responsible for playback-key deduplication, audio playback, timing-window fallback, speech-reaction viseme handoff, and cleanup of transient playback state, while leaving `App.tsx` as the top-level owner of speech lifecycle selection, runtime wiring, conversation lifecycle intent, and the final display-versus-control shell branching. Narrowly update the affected frontend stability seams so `frontend-shell-split-surface` tracks the new hook file and `frontend-speech-lifecycle-runtime` proves the speech-playback handoff across `App.tsx` plus `useSpeechPlaybackBridge.ts`.
+**Why:** After character shell, speech lifecycle transport, and session animation transport moved out of App, the canonical synthesis playback bridge was the next coherent App-owned orchestration slice. The bridge already sat on one local boundary around canonical synthesis playback-key resolution and runtime speech-reaction handoff, so it could move without changing backend transport ownership or widening into `avatarRuntime` behavior.
+
+### 2026-05-17: App session-animation transport state moves behind a dedicated frontend hook
+
+**By:** Switch
+**What:** Extract the App-owned session-animation transport cluster from `frontend/src/app/App.tsx` into `frontend/src/app/useSessionAnimationState.ts`. Keep the new hook responsible for snapshot and live delivery state, backend lifecycle-update reconciliation, backend-selected character catch-up, offline fallback messaging, and retry scheduling, while leaving `App.tsx` as the top-level owner of conversation animation lifecycle intent and the final runtime play decision between backend animation commands, dev overrides, and the local idle fallback. Narrowly update `frontend-shell-split-surface` so the extracted hook is the sole session-animation transport owner inside `frontend/src/app`.
+**Why:** After the speech lifecycle extraction, the session-animation transport and reconciliation cluster was the next coherent App-owned orchestration slice. That block already sat on one boundary around `/session/animation` consumption plus `PUT /session/lifecycle-state`, so it could move without touching `avatarRuntime` behavior while still shrinking the shell monolith.
+
+### 2026-05-17: Stage 1 read routes extract into a dedicated backend module
+
+**By:** Tank
+**What:** Extract `GET /health` and `GET /characters` registration from `backend/app/api/router.py` into `backend/app/api/read_routes.py` while keeping `build_api_router()` as the composition entrypoint, preserving the current response shapes, and adding the new module to the `backend-stage1-contracts` and `backend-stage1-payload-surface` tracked inputs.
+**Why:** After session transport, response builders, operator-command publication, and active-character selection moved out of the router, the remaining simple Stage 1 read-route pair was the next coherent seam. Moving it reduces router weight without changing the Stage 1 contract, and the narrow tracked-input update keeps the stability harness aligned with the new ownership boundary instead of reporting a false regression.
+
+### 2026-05-17: Active-character session selection routes extract into a dedicated backend module
+
+**By:** Tank
+**What:** Extract `GET` and `PUT /session/active-character` registration from `backend/app/api/router.py` into `backend/app/api/active_character_routes.py` while keeping `build_api_router()` as the composition entrypoint, preserving the current route signatures and response envelopes, and adding the new module to the `backend-stage1-contracts` and `backend-stage1-payload-surface` tracked inputs.
+**Why:** After operator-command publication, the active-character selection pair was the next safe Stage 1 router-owned seam. Moving it reduces router weight without widening the current contract, and the matching stability-input update prevents a false Stage 1 regression when the router decorators no longer own that cluster directly.
+
+### 2026-05-17: App speech lifecycle transport state moves behind a dedicated frontend hook
+
+**By:** Switch
+**What:** Extract the App-owned speech lifecycle transport cluster from `frontend/src/app/App.tsx` into `frontend/src/app/useSpeechLifecycleState.ts`. Keep the new hook responsible for snapshot and live delivery state, offline fallback messaging, and retry scheduling, while leaving `App.tsx` as the top-level owner of canonical synthesis playback handoff into the avatar runtime, latest-published-command catch-up, display-side character reconciliation, and conversation animation lifecycle updates.
+**Why:** After the character-shell extraction, the speech lifecycle transport block was the next coherent App-owned orchestration slice. Moving the transport-state path behind one dedicated hook shrinks the shell monolith without widening into `avatarRuntime` behavior or changing the runtime ownership model.
+
+### 2026-05-17: Operator-command publication routes extract into a dedicated backend module
+
+**By:** Tank
+**What:** Extract `/session/operator-command` registration and its turn-publication branching from `backend/app/api/router.py` into `backend/app/api/operator_routes.py` while keeping `router.py` as the composition entrypoint and preserving the existing route signature and response envelope.
+**Why:** After session transport and response-builder extraction, operator-command publication was the next safe router-owned seam with focused backend coverage. Moving that cluster reduces router weight without widening the public contract, and the matching stability scenario can stay accurate by tracking the new route module explicitly.
+
+### 2026-05-17: App character-shell state moves behind a dedicated frontend hook
+
+**By:** Switch
+**What:** Extract the App-owned character shell state from `frontend/src/app/App.tsx` into `frontend/src/app/useCharacterShellState.ts`. Keep the new hook responsible for catalog load, backend bridge refresh and retry, persisted selected-character storage, cross-tab storage reconciliation, and backend active-character submit handling, while leaving `App.tsx` as the top-level owner of avatar runtime wiring, speech lifecycle consumption, session animation consumption, and backend-driven runtime orchestration.
+**Why:** After the dev-display tooling extraction, the character-shell state cluster was the next coherent App seam with a high monolith-reduction payoff. Moving that cluster into a dedicated hook cuts App orchestration weight without widening into avatar runtime or changing the public frontend contracts.
+
+### 2026-05-17: Router response builders extract into a dedicated backend module
+
+**By:** Tank
+**What:** Extract the backend router's response-shaping helpers into `backend/app/api/response_builders.py` while keeping `backend/app/api/router.py` as the composition entrypoint and preserving compatibility wrappers for leaked helper names such as `_serialize_dataclass_payload` and `_build_speech_lifecycle_sse_frame`.
+**Why:** After session transport extraction, response shaping is the next safe backend monolith seam. Those helpers are pure payload and contract builders already shared across route handlers and snapshot generation, so they can move without changing route signatures or the current HTTP and SSE payload contracts.
+
+### 2026-05-17: Stage 1 backend stability baselines stay projected from the Stage 1 seam
+
+**By:** Tank
+**What:** Keep `backend-stage1-contracts` and `backend-stage1-payload-surface` projected only from the intended Stage 1 route and envelope set: `GET /health`, `GET /characters`, and `GET` plus `PUT /session/active-character`, including the invalid active-character rejection payload when present. Keep `build_api_contract_snapshot()` broad and unchanged so newer backend-owned session surfaces stay covered by their own dedicated scenarios, and scope the Stage 1 catalog examples to the tracked manifest ids so local imported characters or temporary assets do not silently widen the Stage 1 baselines.
+**Why:** The cleanup pass extracted newer backend session surfaces, and using the full shared snapshot helper output directly let unrelated examples leak into the Stage 1 guards. Projecting only the Stage 1 seam preserves one backend-owned source of truth while keeping the stability meaning aligned with the original provider-agnostic Stage 1 contract.
+
+### 2026-05-17: App dev-display tooling moves behind a dedicated frontend seam
+
+**By:** Switch
+**What:** Extract the dev-only display tooling from `frontend/src/app/App.tsx` into `frontend/src/app/devDisplayTools.tsx`. Keep the shared App shell responsible for catalog load, backend sync, selected-character state, and avatar runtime orchestration, but move the dev display override options, display debug panels, punch-comparison formatting, and punch snapshot polling behind one dedicated module and hook.
+**Why:** The external review correctly identified `App.tsx` as a frontend monolith risk. The dev-only display tooling was already a self-contained slice with no backend ownership changes, so extracting it now reduces App surface area, removes now-orphaned in-file helper branches, and gives future display-debug work a stable place to land without widening the runtime or backend seams.
+
+### 2026-05-17: Session transport routes extract first from backend router
+
+**By:** Tank
+**What:** Treat the session transport seam as the first safe router cleanup slice. Extract `/session/animation`, `/session/lifecycle-state`, and `/session/speech-lifecycle` route registration plus SSE frame construction into `backend/app/api/session_routes.py`, while leaving `backend/app/api/router.py` as the backend composition entrypoint and preserving existing router-local helper names through compatibility wrappers.
+**Why:** This is the most transport-heavy part of the backend monolith, it already has focused route coverage, and it reduces future provider and lifecycle changes in `router.py` without widening the public HTTP or SSE contracts.
+
+### 2026-05-17: SSE live routes flush an immediate keepalive frame
+
+**By:** Tank
+**What:** Update the backend-owned `/session/animation` and `/session/speech-lifecycle` SSE routes so they emit an immediate SSE comment frame before waiting for new events, and cover that handshake in the backend route test slice.
+**Why:** The backend already supported the live routes, but when no new event was pending the stream could sit idle long enough that the browser never completed the EventSource open handshake. A comment-frame keepalive preserves the existing payload and cursor contracts while making the live transport observable immediately.
+
+### 2026-05-17: Idle official-route polish stays in shoulder and upper-arm retain weights
+
+**By:** Switch
+**What:** For the current official idle polish pass, keep the existing `official_idle_stability` route and the grounded baseline behavior intact, and make only one local adjustment in `frontend/src/avatar/runtime/officialPunchClipPlayback.ts`: reduce the idle-only local-rotation retain weights for `LeftShoulder`, `RightShoulder`, `LeftUpperArm`, and `RightUpperArm` slightly while leaving chest, upper chest, lower-arm, and hand retain weights unchanged.
+**Why:** The current official-route idle already feels stable and grounded, so the smallest falsifiable next step is to soften shoulder and upper-arm carry a little more without flattening torso support or reopening playback routing, source clips, or broader runtime behavior.
+
+### 2026-05-17: Final live display verification found backend bridge still offline
+
+**By:** Mouse
+**What:** Live verification on `http://127.0.0.1:5173/display/` showed that the display surface now mounts the VRM and profile switcher correctly, but it is not consuming backend-backed session state. The shell reports `Backend snapshot: Unavailable`, `Backend session: Session unavailable`, `Event count: 0`, `Playback bridge: idle`, and `Backend bridge offline; shell is using the local manifest catalog only.` Direct probes to `http://127.0.0.1:8000/health` and `http://127.0.0.1:5173/api/characters` timed out during this pass, matching the browser-visible offline state. Front and side profile captures still read like a neutral or T-pose with arms extended rather than a materially improved relaxed idle.
+**Why:** The current blocker is no longer avatar mount safety or profile framing. The honest next fix target is the live backend or session bridge, because idle-pose quality cannot be meaningfully signed off while the display is falling back to local manifest-only state and still presenting a T-pose-like result.
+
+### 2026-05-15: Punch turn-away is not a global Z-axis reversal
+
+**By:** Switch
+**What:** Falsify the frontend-wide `Unity or UniVRM Z is reversed in three.js` hypothesis for the current `gesture.punch.once` path. The existing punch comparison runtime check shows browser-applied key-bone local quaternions matching Unity comparison metadata almost exactly, including `z`. The actual local defect was motion-profile handling in the frontend runtime: `gesture.punch.once` ships a zeroed motion profile intended to disable extra procedural root motion, but the loader previously rejected `speed_multiplier: 0` and fell back to the default idle profile. Fix the runtime by preserving zeroed motion profiles from generated sidecars and decoupling clip playback time from procedural root-motion time so one-shot clips still advance while `yaw`, `bob`, `lean`, and `nod` remain disabled when authored as zero.
+**Why:** The punch sidecar already contains correct sampled bone-local comparison rotations, so another Z-sign remap would have been guesswork. Preserving the zeroed authored motion profile removes the remaining nearby path that could rotate the whole avatar away during punch playback without disturbing the verified local bone rotations.
+
+### 2026-05-15: Punch turn-away diagnosis favors missing root or world transform handling over three-side Z inversion
+
+**By:** Mouse
+**What:** Treat the current `gesture.punch.once` turn-away symptom as most likely a root or world-orientation issue, not a global Z-axis inversion in frontend local-bone playback. The narrow executable check `frontend-punch-debug-runtime` reports browser key-bone rotations in `vrm_rendered_raw_bone_local_rotation` space and shows chest, shoulders, upper arms, lower arms, and hands matching Unity comparison metadata to float-noise tolerance at the final punch frame. The generated punch runtime asset also carries non-trivial root transform channels (`RootQ.*`, `RootT.*`), but authored frontend source did not reference those channel names.
+**Why:** A true frontend Z-sign inversion should have produced signed disagreement in the browser-versus-Unity local-bone comparison for the punch bones. Instead, the local bone rotations aligned while the remaining symptom was still the avatar turning away later in the punch, which is more consistent with missing or mismapped root or world orientation than with another per-bone axis sign problem.
+
+### 2026-05-15: Live display punch still turns the avatar away
+
+**By:** Mouse
+**What:** Verify the live `http://127.0.0.1:5174/display/` surface with the dev-only `Force gesture.punch.once` override after reloading the page into a healthy `vrm ready` state. The avatar still turns away from the camera during the one-shot and remains back-facing at the sampled end frame, while the dev punch comparison API reports a final-frame browser-versus-Unity match for the tracked chest, upper chest, shoulders, upper arms, lower arms, and hands.
+**Why:** The narrowest honest check was the real display surface plus the existing debug API. That combination shows the problem stayed visible in live presentation even when the exported end-frame local bone rotations matched, so the remaining defect was not explained by the earlier general Z-axis inversion theory and was not cleared by the motion-profile and one-shot timing changes alone.
+
+### 2026-05-14T14:37:00+01:00: Live overlay motion architecture boundary
+
+**By:** Trinity
+**What:** Treat live procedural motion as a first-class direction for the VRM runtime, but keep it as a bounded overlay system layered on top of semantic base animation playback rather than replacing the animation contract with raw tracking streams or ad hoc per-bone writes. Split motion into three lanes: base clips resolved by semantic animation ids, procedural or reactive overlay channels that apply normalized additive weights to approved expression or bone groups, and direct tracking input normalized into a high-level face-state or pose-state contract before it reaches avatar playback. Keep imported JSON motion assets and generated DSL sidecars in the base-clip lane, and keep camera or sensor input out of the backend's raw transport surface.
+**Why:** The repo already proves a narrow local procedural layer through runtime viseme reactions driven by backend timing metadata, while docs and workstreams prefer semantic ids, backend-owned lifecycle data, optional vision, and normalized face-state over raw device or clip-path coupling. A layered motion architecture preserves interchangeability across characters, keeps live tracking optional, and lets JSON-conversion work continue without forcing every future motion source into the same schema.
+
+### 2026-05-14T14:36:00+01:00: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Keep raw animation source files in git for now until the team is ready to discard them, while continuing to develop the JSON conversion path and exploring live animation overlays from runtime data input. This supersedes the earlier local-import-only raw-asset policy until the team revisits raw-asset storage.
+**Why:** User request - captured for team memory.
+
+### 2026-05-14T14:18:00+01:00: Unity animation staging scope and raw asset policy
+
+**By:** Trinity
+**What:** Correct the pipeline in the smallest useful slice: keep the Unity exporter focused on staged clip provenance and clip-level metadata, then normalize that JSON into DSL entries and semantic registration before widening the exporter surface. Do not add curve or bone movement payload export yet. Treat `assets/animations/raw/` as a machine-local import area for large Unity source assets and keep those raw `.anim` files out of git. Track the exporter script, JSON sidecars or DSL definitions needed for semantic registration, approved shared-library assets, approved character overrides, and retargeting metadata in git.
+**Why:** The current runtime and contract surfaces consume semantic ids, playback intent, and source classification rather than per-bone motion data. Exporting curve payloads now would create a new unconsumed schema surface before the semantic path is proven end to end. The immediate gap is not motion fidelity; it is the missing normalization step from staged Unity metadata into reviewed semantic inventory.
+
+### 2026-05-14T14:15:00+01:00: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Treat `assets/animations/raw/` as a local import location for large raw animation files that should not be stored in git; keep generated JSON and DSL animation artifacts tracked in the repo instead.
+**Why:** User request - captured for team memory.
+
+### 2026-05-14T14:00:00+01:00: Default idle clip ingestion boundary
+
+**By:** Trinity
+**What:** Treat `assets/animations/raw/idle.anim` as source provenance only until review promotion. If adopted as the baseline shared idle clip, promote an approved copy into `assets/animations/library/shared/` and bind it to the semantic id `idle.default`. Add one minimal DSL or JSON sidecar under `assets/animations/dsl/` to declare that semantic binding plus default playback intent and fallback metadata. Do not add a general conversion helper yet; one raw Unity clip is not enough inventory to justify a pipeline surface.
+**Why:** The animation contract requires shared clips to be addressed by semantic id rather than raw path, while the repo currently has no DSL inventory. A single explicit sidecar keeps the semantic binding inspectable without widening the system into an unnecessary conversion workflow.
+
+### 2026-05-14T13:55:00+01:00: User directive
+
+**By:** Jason Fletcher (via Copilot)
+**What:** Treat the newly dropped shared animation clip as the default idle animation for the character unless another instruction overrides it.
+**Why:** User request - captured for team memory.
+
+### 2026-05-15: Frontend root playback must convert Unity root space before applying authored punch transforms
+
+**By:** Switch
+**What:** For the current `gesture.punch.once` investigation, treat authored root transform channels in the generated runtime sidecar as authoritative at the frontend root-update seam in `frontend/src/avatar/runtime/avatarRuntime.ts`. Sample the clip's `rootq_*` and `roott_*` channels relative to the first frame, convert that translation and quaternion data from Unity root space into the frontend avatar space, and compose the result onto the avatar root during base animation playback instead of leaving world-facing to baseline root state plus procedural offsets.
+**Why:** Mouse and Switch both verified that the live turn-away symptom was not explained by a general Unity or UniVRM local-bone `z` reversal: the tracked punch chest, shoulders, upper arms, lower arms, and hands already matched Unity comparison data while the live one-shot still turned away later. The controlling remaining defect was ignored authored root/world transform data, so the durable fix belongs in root playback rather than in another per-bone axis remap.
+
 ### 2026-05-15: Machine-transition checkpoint uses an additive bone-space exporter experiment
 
 **By:** Scribe
@@ -92,7 +549,7 @@
 **What:** Record the verified end-to-end arm-hand result for the current web viewer path: generated shared runtime sidecars already contain lower-arm quaternion hints plus wrist and finger channels, the backend transports only semantic animation ids such as `idle.default`, `listen.loop`, and `speak.loop`, and the real delivery defect was the missing wrist binding in `frontend/src/avatar/runtime/humanoidChannelPlayback.ts`. Bind `left/right.hand.down_up` and `left/right.hand.in_out` onto `leftHand` and `rightHand` so exported wrist motion reaches the avatar while leaving finger-bone wiring and any further lower-arm fidelity polish as follow-up work.
 **Why:** The audit ruled out export loss and backend transport loss. The smallest honest fix was in the frontend runtime binding layer, where wrist channels already present in the local generated runtime payload were not mapped to VRM hand bones at all.
 
-### 2026-05-15: User directive
+### 2026-05-15: User directive favors quaternion-hint lower-arm fidelity
 
 **By:** Jason Fletcher (via Copilot)
 **What:** Choose the longer-term lower-arm transform fidelity path for the current web viewer slice: keep the browser runtime on exporter-composed `left/right.lower_arm.rotation.{x,y,z,w}` quaternion hints when available rather than adding more frontend-only lower-arm heuristics, and leave true avatar-backed bone-local export as a later fidelity step.
@@ -104,7 +561,7 @@
 **What:** Derive `left.lower_arm.rotation.{x,y,z,w}` and `right.lower_arm.rotation.{x,y,z,w}` quaternion hint channels in the Unity batch exporter from the existing elbow-flex plus forearm-twist source pair, refresh the shared `idle.default`, `listen.loop`, and `speak.loop` runtime payloads through `C:\Program Files\Unity\Hub\Editor\6000.4.7f1\Editor\Unity.exe`, and make the web humanoid runtime prefer those lower-arm rotation hints over per-axis lower-arm bindings when present.
 **Why:** The current raw Unity humanoid clip does not carry direct lower-arm bone transform curves, so fully faithful bone-local playback still requires an avatar-backed export path. In the current narrow slice, combining the available lower-arm muscle signals into explicit quaternion hints moves lower-arm composition into the exporter, preserves the visible elbow and twist improvements, and gives the web path a cleaner seam than continuing to accumulate browser-only lower-arm heuristics.
 
-### 2026-05-15: User directive
+### 2026-05-15: User directive prefers exporter-side elbow improvement
 
 **By:** Jason Fletcher (via Copilot)
 **What:** Prefer the exporter-side improvement path for better lower-arm and elbow shaping in the current web viewer instead of adding more frontend-only elbow heuristics.
@@ -116,7 +573,7 @@
 **What:** Derive explicit `left.elbow.flex` and `right.elbow.flex` channels in the Unity batch exporter from usable `left/right.forearm.stretch` source samples, refresh the generated `idle.default`, `listen.loop`, and `speak.loop` runtime payloads through `C:\Program Files\Unity\Hub\Editor\6000.4.7f1\Editor\Unity.exe`, and bind those elbow-flex channels onto `leftLowerArm` and `rightLowerArm` in the web humanoid playback path while keeping the prior shoulder and forearm twist polish.
 **Why:** The current source clip does carry lower-arm source data, but it previously reached the web runtime only as raw forearm stretch floats that did not drive visible elbow shaping. Deriving explicit exporter hints and replaying them through the existing runtime keeps the fix local to exporter plus playback, proves the lower-arm signal survives transport, and leaves the remaining risk on animation fidelity rather than delivery.
 
-### 2026-05-15: User directive
+### 2026-05-15: User directive keeps backend-owned animation control
 
 **By:** Jason Fletcher (via Copilot)
 **What:** Keep Unity secondary for now, continue prioritizing the current web viewer, and prefer backend-owned animation control so default idle and future transitions originate from the backend rather than from per-model frontend defaults.

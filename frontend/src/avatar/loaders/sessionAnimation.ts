@@ -7,6 +7,7 @@ import type {
 } from "../../shared/types/animation";
 
 const backendApiBaseUrl = resolveBackendApiBaseUrl();
+const defaultSnapshotRefreshIntervalMs = 1000;
 
 export type SessionAnimationDeliveryMode = "live" | "snapshot";
 
@@ -14,6 +15,7 @@ export interface SessionAnimationLiveConsumptionOptions {
   onSnapshot: (snapshot: ConsumedSessionAnimationSnapshot, deliveryMode: SessionAnimationDeliveryMode) => void;
   onDeliveryModeChange: (deliveryMode: SessionAnimationDeliveryMode, error?: Error) => void;
   fetcher?: typeof fetch;
+  snapshotRefreshIntervalMs?: number;
 }
 
 export interface SessionAnimationLiveConsumptionSubscription {
@@ -63,8 +65,12 @@ export async function startSessionAnimationLiveConsumption(
   options: SessionAnimationLiveConsumptionOptions
 ): Promise<SessionAnimationLiveConsumptionSubscription> {
   const fetcher = options.fetcher ?? fetch;
+  const snapshotRefreshIntervalMs = Math.max(0, options.snapshotRefreshIntervalMs ?? defaultSnapshotRefreshIntervalMs);
   let closed = false;
   let eventSource: EventSource | null = null;
+  let snapshotRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
+  let snapshotRefreshInFlight = false;
+  let deliveryMode: SessionAnimationDeliveryMode = "snapshot";
   let currentSnapshot = await fetchSessionAnimationSnapshot(fetcher);
 
   if (closed) {
@@ -76,6 +82,7 @@ export async function startSessionAnimationLiveConsumption(
   }
 
   options.onSnapshot(currentSnapshot, "snapshot");
+  scheduleSnapshotRefresh();
 
   if (typeof window !== "undefined" && typeof window.EventSource === "function") {
     eventSource = new window.EventSource(buildSessionAnimationLiveUrl());
@@ -85,6 +92,8 @@ export async function startSessionAnimationLiveConsumption(
         return;
       }
 
+      deliveryMode = "live";
+      clearSnapshotRefresh();
       options.onDeliveryModeChange("live");
     });
 
@@ -107,6 +116,8 @@ export async function startSessionAnimationLiveConsumption(
 
       eventSource?.close();
       eventSource = null;
+      deliveryMode = "snapshot";
+      scheduleSnapshotRefresh();
       options.onDeliveryModeChange("snapshot", new Error("Live session animation delivery disconnected."));
     };
   }
@@ -116,6 +127,7 @@ export async function startSessionAnimationLiveConsumption(
       closed = true;
       eventSource?.close();
       eventSource = null;
+      clearSnapshotRefresh();
     }
   };
 
@@ -129,7 +141,9 @@ export async function startSessionAnimationLiveConsumption(
         return;
       }
 
+      deliveryMode = "live";
       currentSnapshot = latestSnapshot;
+      clearSnapshotRefresh();
       options.onSnapshot(currentSnapshot, "live");
     } catch (error: unknown) {
       if (closed) {
@@ -138,12 +152,70 @@ export async function startSessionAnimationLiveConsumption(
 
       eventSource?.close();
       eventSource = null;
+      deliveryMode = "snapshot";
+      scheduleSnapshotRefresh();
       options.onDeliveryModeChange(
         "snapshot",
         error instanceof Error
           ? error
           : new Error("Live session animation event payload could not be parsed.")
       );
+    }
+  }
+
+  function scheduleSnapshotRefresh(): void {
+    if (closed || deliveryMode !== "snapshot" || snapshotRefreshTimeout !== null) {
+      return;
+    }
+
+    snapshotRefreshTimeout = setTimeout(() => {
+      snapshotRefreshTimeout = null;
+      void refreshSnapshotFromBackend();
+    }, snapshotRefreshIntervalMs);
+  }
+
+  function clearSnapshotRefresh(): void {
+    if (snapshotRefreshTimeout === null) {
+      return;
+    }
+
+    clearTimeout(snapshotRefreshTimeout);
+    snapshotRefreshTimeout = null;
+  }
+
+  async function refreshSnapshotFromBackend(): Promise<void> {
+    if (closed || deliveryMode !== "snapshot" || snapshotRefreshInFlight) {
+      return;
+    }
+
+    snapshotRefreshInFlight = true;
+
+    try {
+      const latestSnapshot = await fetchSessionAnimationSnapshot(fetcher);
+
+      if (closed || deliveryMode !== "snapshot") {
+        return;
+      }
+
+      const snapshotChanged = !areConsumedSnapshotsEquivalent(currentSnapshot, latestSnapshot);
+      currentSnapshot = latestSnapshot;
+
+      if (snapshotChanged) {
+        options.onSnapshot(currentSnapshot, "snapshot");
+      }
+    } catch (error: unknown) {
+      if (!closed && deliveryMode === "snapshot") {
+        options.onDeliveryModeChange(
+          "snapshot",
+          error instanceof Error ? error : new Error("Backend session animation snapshot refresh failed.")
+        );
+      }
+    } finally {
+      snapshotRefreshInFlight = false;
+
+      if (!closed && deliveryMode === "snapshot") {
+        scheduleSnapshotRefresh();
+      }
     }
   }
 }
@@ -202,4 +274,16 @@ function buildBackendApiUrl(pathname: string): string {
 
 function buildSessionAnimationLiveUrl(): string {
   return new URL(buildBackendApiUrl("/session/animation"), window.location.origin).toString();
+}
+
+function areConsumedSnapshotsEquivalent(
+  left: ConsumedSessionAnimationSnapshot,
+  right: ConsumedSessionAnimationSnapshot
+): boolean {
+  return (
+    left.sessionId === right.sessionId &&
+    left.lifecycleState === right.lifecycleState &&
+    left.characterId === right.characterId &&
+    left.commandId === right.commandId
+  );
 }

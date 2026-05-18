@@ -1,86 +1,354 @@
 {
-  "scenario_id": "bootstrap-prerequisites",
-  "scenario_name": "Bootstrap prerequisite snapshot",
-  "tracked_inputs": [
-    "scripts/bootstrap/Test-NikoFPrerequisites.ps1",
-    "scripts/bootstrap/bootstrap.targets.json"
-  ],
-  "local_root": "<scenario-temp>",
-  "tool_contracts": [
-    {
-      "id": "git",
-      "command": "git",
-      "args": [
-        "--version"
-      ]
-    },
-    {
-      "id": "python",
-      "command": "py",
-      "args": [
-        "-3",
-        "--version"
-      ]
-    },
-    {
-      "id": "node",
-      "command": "node",
-      "args": [
-        "--version"
-      ]
-    },
-    {
-      "id": "npm",
-      "command": "npm",
-      "args": [
-        "--version"
-      ]
-    }
-  ],
-  "provider_payloads": [
-    {
-      "id": "llm",
-      "present": false,
-      "expected_path": "<run-artifacts>/bootstrap-prereq-sandbox/models/llm/llama-3.1-8b-q4_k_m"
-    },
-    {
-      "id": "stt-medium",
-      "present": false,
-      "expected_path": "<run-artifacts>/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium"
-    },
-    {
-      "id": "stt-small",
-      "present": false,
-      "expected_path": "<run-artifacts>/bootstrap-prereq-sandbox/models/stt/faster-whisper-small"
-    },
-    {
-      "id": "tts",
-      "present": false,
-      "expected_path": "<run-artifacts>/bootstrap-prereq-sandbox/models/tts/gpt-sovits"
-    },
-    {
-      "id": "embeddings-primary",
-      "present": false,
-      "expected_path": "<run-artifacts>/bootstrap-prereq-sandbox/models/embeddings/bge-small-en"
-    },
-    {
-      "id": "embeddings-fallback",
-      "present": false,
-      "expected_path": "<run-artifacts>/bootstrap-prereq-sandbox/models/embeddings/MiniLM-L6-v2"
-    },
-    {
-      "id": "provider-ollama",
-      "present": false,
-      "expected_path": "<run-artifacts>/bootstrap-prereq-sandbox/providers/ollama"
-    }
-  ],
-  "missing_provider_payloads": [
-    "llm",
-    "stt-medium",
-    "stt-small",
-    "tts",
-    "embeddings-primary",
-    "embeddings-fallback",
-    "provider-ollama"
-  ]
+    "scenario_id":  "bootstrap-prerequisites",
+    "scenario_name":  "Bootstrap prerequisite snapshot",
+    "tracked_inputs":  [
+                           "scripts/bootstrap/Test-NikoFPrerequisites.ps1",
+                           "scripts/bootstrap/bootstrap.targets.json"
+                       ],
+    "local_root":  "\u003cscenario-temp\u003e",
+    "tool_contracts":  [
+                           {
+                               "id":  "git",
+                               "command":  "git",
+                               "args":  [
+                                            "--version"
+                                        ]
+                           },
+                           {
+                               "id":  "python",
+                               "command":  "py",
+                               "args":  [
+                                            "-3",
+                                            "--version"
+                                        ]
+                           },
+                           {
+                               "id":  "node",
+                               "command":  "node",
+                               "args":  [
+                                            "--version"
+                                        ]
+                           },
+                           {
+                               "id":  "npm",
+                               "command":  "npm",
+                               "args":  [
+                                            "--version"
+                                        ]
+                           }
+                       ],
+    "provider_payloads":  [
+                              {
+                                  "id":  "llm-model-ollama-llama3.1-8b",
+                                  "state":  "missing",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/llm/ollama-llama3.1-8b",
+                                  "runtime_config_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/llm/ollama-llama3.1-8b/runtime.json",
+                                  "install_plan_path":  null,
+                                  "manual_install":  "Run the Ollama pull hook or manually execute `ollama pull llama3.1:8b`, then keep the repo-facing readiness marker and optional local-only runtime manifest under `NIKOF_LLM_MODELS_ROOT\\ollama-llama3.1-8b` so bootstrap and startup checks can confirm the machine-local model contract."
+                              },
+                              {
+                                  "id":  "stt-medium",
+                                  "state":  "scaffolded",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium",
+                                  "runtime_config_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium/runtime.json",
+                                  "install_plan_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium/install-plan.json",
+                                  "manual_install":  "Bootstrap scaffolds `runtime.json` and `install-plan.json` under `NIKOF_STT_MODELS_ROOT\\faster-whisper-medium`. Install or extract the approved Faster-Whisper Medium payload under that local-only root, place a provider-local entrypoint under `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper`, and rerun bootstrap so startup checks can confirm both proofs.",
+                                  "acceptance_targets":  [
+                                                             {
+                                                                 "id":  "faster-whisper-medium-model-root",
+                                                                 "label":  "Faster-Whisper Medium model root",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium"
+                                                                                    ],
+                                                                 "acceptance_proof":  "At least one non-manifest file or folder must exist under this root; runtime.json and install-plan.json alone do not count."
+                                                             },
+                                                             {
+                                                                 "id":  "faster-whisper-provider-entrypoint",
+                                                                 "label":  "Faster-Whisper provider entrypoint",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/main.py"
+                                                                                    ],
+                                                                 "acceptance_proof":  "One accepted provider entrypoint file must exist under the managed provider root."
+                                                             }
+                                                         ],
+                                  "blocker_details":  [
+                                                          {
+                                                              "id":  "missing-faster-whisper-medium-payload-proof",
+                                                              "status":  "blocked",
+                                                              "summary":  "The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium"
+                                                                                 ],
+                                                              "remediation":  "Place the approved Faster-Whisper Medium model files under this local-only root. Scaffold manifests alone do not satisfy readiness.",
+                                                              "evidence":  [
+                                                                               "Bootstrap treats runtime.json and install-plan.json as scaffold markers only.",
+                                                                               "Model runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium/runtime.json",
+                                                                               "Install plan: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium/install-plan.json"
+                                                                           ]
+                                                          },
+                                                          {
+                                                              "id":  "missing-faster-whisper-provider-entrypoint",
+                                                              "status":  "blocked",
+                                                              "summary":  "The Faster-Whisper provider entrypoint is still missing from the managed provider root.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/main.py"
+                                                                                 ],
+                                                              "remediation":  "Place one provider entrypoint file under the managed provider root, then rerun bootstrap so startup can confirm the proof.",
+                                                              "evidence":  [
+                                                                               "Accepted entrypoints: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py, \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/main.py",
+                                                                               "Provider runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/runtime.json"
+                                                                           ]
+                                                          }
+                                                      ]
+                              },
+                              {
+                                  "id":  "stt-provider-entrypoint",
+                                  "state":  "scaffolded",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                  "runtime_config_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/runtime.json",
+                                  "install_plan_path":  null,
+                                  "manual_install":  "Bootstrap scaffolds the local provider runtime manifest under `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper`. Place a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper\\transcribe.py` or `main.py`, update the manifest only if you need a non-default entrypoint or Python executable, and rerun bootstrap so startup checks can confirm the provider proof.",
+                                  "acceptance_targets":  [
+                                                             {
+                                                                 "id":  "faster-whisper-medium-model-root",
+                                                                 "label":  "Faster-Whisper Medium model root",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium"
+                                                                                    ],
+                                                                 "acceptance_proof":  "At least one non-manifest file or folder must exist under this root; runtime.json and install-plan.json alone do not count."
+                                                             },
+                                                             {
+                                                                 "id":  "faster-whisper-provider-entrypoint",
+                                                                 "label":  "Faster-Whisper provider entrypoint",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/main.py"
+                                                                                    ],
+                                                                 "acceptance_proof":  "One accepted provider entrypoint file must exist under the managed provider root."
+                                                             }
+                                                         ],
+                                  "blocker_details":  [
+                                                          {
+                                                              "id":  "missing-faster-whisper-medium-payload-proof",
+                                                              "status":  "blocked",
+                                                              "summary":  "The approved Faster-Whisper Medium payload has not been placed under the managed STT root yet.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium"
+                                                                                 ],
+                                                              "remediation":  "Place the approved Faster-Whisper Medium model files under this local-only root. Scaffold manifests alone do not satisfy readiness.",
+                                                              "evidence":  [
+                                                                               "Bootstrap treats runtime.json and install-plan.json as scaffold markers only.",
+                                                                               "Model runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium/runtime.json",
+                                                                               "Install plan: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-medium/install-plan.json"
+                                                                           ]
+                                                          },
+                                                          {
+                                                              "id":  "missing-faster-whisper-provider-entrypoint",
+                                                              "status":  "blocked",
+                                                              "summary":  "The Faster-Whisper provider entrypoint is still missing from the managed provider root.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py",
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/main.py"
+                                                                                 ],
+                                                              "remediation":  "Place one provider entrypoint file under the managed provider root, then rerun bootstrap so startup can confirm the proof.",
+                                                              "evidence":  [
+                                                                               "Accepted entrypoints: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/transcribe.py, \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/main.py",
+                                                                               "Provider runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/stt/faster-whisper/runtime.json"
+                                                                           ]
+                                                          }
+                                                      ]
+                              },
+                              {
+                                  "id":  "stt-small",
+                                  "state":  "missing",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/stt/faster-whisper-small",
+                                  "runtime_config_path":  null,
+                                  "install_plan_path":  null,
+                                  "manual_install":  "Download the Faster-Whisper Small files only if you want the lower-VRAM fallback available on the machine. Reuse the same provider-local entrypoint under `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper\\` when the backend is not running Faster-Whisper inline."
+                              },
+                              {
+                                  "id":  "tts-model-gpt-sovits",
+                                  "state":  "scaffolded",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits",
+                                  "runtime_config_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits/runtime.json",
+                                  "install_plan_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits/install-plan.json",
+                                  "manual_install":  "Bootstrap scaffolds `runtime.json` and `install-plan.json` under `NIKOF_TTS_MODELS_ROOT\\gpt-sovits`. Install or extract the approved GPT-SoVITS payload under that local-only root, keep any voice-specific weights there, and rerun bootstrap so startup checks can confirm the payload proof. The backend-facing provider entrypoint still lives separately under `NIKOF_PROVIDERS_ROOT\\tts\\gpt-sovits`.",
+                                  "acceptance_targets":  [
+                                                             {
+                                                                 "id":  "gpt-sovits-payload-root",
+                                                                 "label":  "GPT-SoVITS payload root",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits"
+                                                                                    ],
+                                                                 "acceptance_proof":  "At least one non-manifest file or folder must exist under this root; runtime.json and install-plan.json alone do not count."
+                                                             },
+                                                             {
+                                                                 "id":  "gpt-sovits-provider-entrypoint",
+                                                                 "label":  "GPT-SoVITS provider entrypoint",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/api_server.py"
+                                                                                    ],
+                                                                 "acceptance_proof":  "One accepted provider entrypoint file must exist under the managed provider root."
+                                                             }
+                                                         ],
+                                  "blocker_details":  [
+                                                          {
+                                                              "id":  "missing-gpt-sovits-payload-proof",
+                                                              "status":  "blocked",
+                                                              "summary":  "The approved GPT-SoVITS payload has not been placed under the managed TTS root yet.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits"
+                                                                                 ],
+                                                              "remediation":  "Place the approved GPT-SoVITS runtime payload, weights, and any voice-specific assets under this local-only root. Scaffold manifests alone do not satisfy readiness.",
+                                                              "evidence":  [
+                                                                               "Bootstrap treats runtime.json and install-plan.json as scaffold markers only.",
+                                                                               "Model runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits/runtime.json",
+                                                                               "Install plan: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits/install-plan.json"
+                                                                           ]
+                                                          },
+                                                          {
+                                                              "id":  "missing-gpt-sovits-provider-entrypoint",
+                                                              "status":  "blocked",
+                                                              "summary":  "The GPT-SoVITS provider entrypoint is still missing from the managed provider root.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/api_server.py"
+                                                                                 ],
+                                                              "remediation":  "Place one provider entrypoint file under the managed provider root, then rerun bootstrap so startup can confirm the proof.",
+                                                              "evidence":  [
+                                                                               "Accepted entrypoints: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py, \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/api_server.py",
+                                                                               "Provider runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/runtime.json"
+                                                                           ]
+                                                          }
+                                                      ]
+                              },
+                              {
+                                  "id":  "tts-provider-entrypoint",
+                                  "state":  "scaffolded",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                  "runtime_config_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/runtime.json",
+                                  "install_plan_path":  null,
+                                  "manual_install":  "Bootstrap scaffolds the local provider runtime manifest under `NIKOF_PROVIDERS_ROOT\\tts\\gpt-sovits`. Place a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT\\tts\\gpt-sovits\\synthesize.py` or `api_server.py`, update the manifest only if you need a non-default entrypoint or Python executable, and rerun bootstrap so startup checks can confirm the provider proof.",
+                                  "acceptance_targets":  [
+                                                             {
+                                                                 "id":  "gpt-sovits-payload-root",
+                                                                 "label":  "GPT-SoVITS payload root",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits"
+                                                                                    ],
+                                                                 "acceptance_proof":  "At least one non-manifest file or folder must exist under this root; runtime.json and install-plan.json alone do not count."
+                                                             },
+                                                             {
+                                                                 "id":  "gpt-sovits-provider-entrypoint",
+                                                                 "label":  "GPT-SoVITS provider entrypoint",
+                                                                 "satisfied":  false,
+                                                                 "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                                 "accepted_paths":  [
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                                                        "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/api_server.py"
+                                                                                    ],
+                                                                 "acceptance_proof":  "One accepted provider entrypoint file must exist under the managed provider root."
+                                                             }
+                                                         ],
+                                  "blocker_details":  [
+                                                          {
+                                                              "id":  "missing-gpt-sovits-payload-proof",
+                                                              "status":  "blocked",
+                                                              "summary":  "The approved GPT-SoVITS payload has not been placed under the managed TTS root yet.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits"
+                                                                                 ],
+                                                              "remediation":  "Place the approved GPT-SoVITS runtime payload, weights, and any voice-specific assets under this local-only root. Scaffold manifests alone do not satisfy readiness.",
+                                                              "evidence":  [
+                                                                               "Bootstrap treats runtime.json and install-plan.json as scaffold markers only.",
+                                                                               "Model runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits/runtime.json",
+                                                                               "Install plan: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/tts/gpt-sovits/install-plan.json"
+                                                                           ]
+                                                          },
+                                                          {
+                                                              "id":  "missing-gpt-sovits-provider-entrypoint",
+                                                              "status":  "blocked",
+                                                              "summary":  "The GPT-SoVITS provider entrypoint is still missing from the managed provider root.",
+                                                              "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                              "accepted_paths":  [
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py",
+                                                                                     "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/api_server.py"
+                                                                                 ],
+                                                              "remediation":  "Place one provider entrypoint file under the managed provider root, then rerun bootstrap so startup can confirm the proof.",
+                                                              "evidence":  [
+                                                                               "Accepted entrypoints: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/synthesize.py, \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/api_server.py",
+                                                                               "Provider runtime config: \u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/tts/gpt-sovits/runtime.json"
+                                                                           ]
+                                                          }
+                                                      ]
+                              },
+                              {
+                                  "id":  "embeddings-primary",
+                                  "state":  "missing",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/embeddings/bge-small-en",
+                                  "runtime_config_path":  null,
+                                  "install_plan_path":  null,
+                                  "manual_install":  "Download the embedding model files into the embeddings root using the expected folder name."
+                              },
+                              {
+                                  "id":  "embeddings-fallback",
+                                  "state":  "missing",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/models/embeddings/MiniLM-L6-v2",
+                                  "runtime_config_path":  null,
+                                  "install_plan_path":  null,
+                                  "manual_install":  "Add the MiniLM-L6-v2 payload only if you need the lighter fallback path available on the machine."
+                              },
+                              {
+                                  "id":  "provider-ollama",
+                                  "state":  "missing",
+                                  "present":  false,
+                                  "expected_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/llm/ollama",
+                                  "runtime_config_path":  "\u003crun-artifacts\u003e/bootstrap-prereq-sandbox/providers/llm/ollama/runtime.json",
+                                  "install_plan_path":  null,
+                                  "manual_install":  "Install Ollama if you plan to run the LLM baseline through it, then keep any machine-local endpoint override or shim in `NIKOF_PROVIDERS_ROOT\\llm\\ollama\\runtime.json` instead of committing it."
+                              }
+                          ],
+    "missing_provider_payloads":  [
+                                      "llm-model-ollama-llama3.1-8b",
+                                      "stt-medium",
+                                      "stt-provider-entrypoint",
+                                      "stt-small",
+                                      "tts-model-gpt-sovits",
+                                      "tts-provider-entrypoint",
+                                      "embeddings-primary",
+                                      "embeddings-fallback",
+                                      "provider-ollama"
+                                  ]
 }

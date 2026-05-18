@@ -12,6 +12,11 @@
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     },
+    "idle.tired": {
+      "path": "assets/animations/dsl/shared/idle.tired.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
     "speak.loop": {
       "path": "assets/animations/dsl/shared/speak.loop.json",
       "stage": "staged_raw_unity_source",

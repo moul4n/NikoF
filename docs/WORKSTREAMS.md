@@ -118,17 +118,19 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 - [x] Wire Faster-Whisper Medium as the default STT path with Small as the fallback profile.
 - [x] Wire GPT-SoVITS latest stable 2026 fork behind the normalized TTS contract.
-- [ ] Publish the timing or phoneme metadata shape needed for speech-aligned avatar playback.
+- [x] Start the real GPT-SoVITS preview lane on the existing backend-owned `tts_preview` seam so configured local runtimes return normalized `audio_reference` and timing metadata while missing runtimes still degrade cleanly.
+- [x] Publish the timing or phoneme metadata shape needed for speech-aligned avatar playback.
 - [ ] Define bootstrap download steps, checksum or version expectations, and manual install notes for STT and TTS providers.
 - [ ] Stay consult-only for the next live-delivery seam unless Tank needs timing, provider-status, or other speech-envelope normalization changes beyond the current operator-command contract.
 
 ### Link Stage 4
 
-- [ ] Integrate the LLaMA 3.1 8B Q4_K_M baseline through llama.cpp or Ollama without leaking runtime choice past the adapter boundary.
+- [ ] Integrate the full LLaMA 3.1 8B Q4_K_M baseline through llama.cpp or Ollama without leaking runtime choice past the adapter boundary.
+- [x] Start the real Ollama-backed LLaMA 3.1 operator lane for backend-owned `text_question` replies when the documented local roots are configured.
 - [x] Add the first local text-generation adapter slice for backend-owned `text_question` replies, keeping degraded `unavailable` and `error` outcomes inside one normalized assistant contract.
 - [ ] Define the embedding baseline as `bge-small-en` first and `MiniLM-L6-v2` second.
 - [ ] Keep SQLite plus ChromaDB or FAISS retrieval hidden behind a normalized memory contract.
-- [ ] Document expected local model placement and provider-specific environment settings so fresh-machine setup stays deterministic.
+- [ ] Document expected local model placement and local `runtime.json` metadata under the managed roots so fresh-machine setup stays deterministic.
 - [x] Narrow the first LLM slice to one local `text_question` reply path with no retrieval or memory enrichment beyond the current operator-command input.
 
 ### Link Stage 5
@@ -180,7 +182,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 ## Immediate Handoff
 
 - Tank now owns seam stability: keep the backend-owned `text_question` reply path authoritative on `POST /session/operator-command`, preserve the current canonical session plus `speech.lifecycle` envelopes, and only deepen the slice when hardening requires it.
-- Link keeps the local text-generation adapter narrow and provider-agnostic: no retrieval, memory enrichment, or provider-profile work while this first backend-owned reply path settles.
+- Link keeps the local text-generation and preview-synthesis adapters narrow and provider-agnostic: no retrieval, memory enrichment, or provider-profile work while the first real operator-command lane settles.
 - Mouse stays on the critical path for seam hardening: extend backend-first regression coverage for canonical assistant reply publication and degraded local-LLM outcomes without inventing frontend-only assertions.
 - Trinity keeps debug and operator-control expansion deferred: preserve active-character selection as the only selection control and keep `wave`, provider switching, and diagnostics growth in the backlog.
 - Switch treats the current control-surface assistant reply readout as sufficient until the backend proves a real read-model gap; the display surface remains read-only over canonical backend state.

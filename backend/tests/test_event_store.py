@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import types
 from unittest.mock import patch
 import threading
@@ -148,12 +149,16 @@ def parse_sse_messages(payload: str) -> list[dict[str, str]]:
 
         message: dict[str, str] = {}
         for line in block.split("\n"):
+            if line.startswith(":"):
+                continue
+
             field, separator, value = line.partition(":")
             if not separator:
                 continue
             message[field] = value.lstrip()
 
-        messages.append(message)
+        if message:
+            messages.append(message)
 
     return messages
 
@@ -184,9 +189,17 @@ class FakeResponse:
 
 
 class FakeStreamingResponse:
-    def __init__(self, body_iterator, media_type: str) -> None:
+    def __init__(self, body_iterator, media_type: str, headers: dict[str, str] | None = None) -> None:
         self.body_iterator = body_iterator
         self.media_type = media_type
+        self.headers = headers or {}
+
+
+class FakeFileResponse:
+    def __init__(self, path, **kwargs) -> None:
+        self.path = path
+        self.kwargs = kwargs
+        self.media_type = kwargs.get("media_type")
 
 
 class FakeRoute:
@@ -239,6 +252,7 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+    fake_fastapi_responses.FileResponse = FakeFileResponse
 
     session_service = InMemorySessionService(default_character_id="test-vrm-01")
     snapshot = session_service.get_snapshot()
@@ -299,6 +313,7 @@ def build_session_animation_route_endpoints() -> tuple[object, object, FiniteSes
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+    fake_fastapi_responses.FileResponse = FakeFileResponse
 
     session_service = InMemorySessionService(default_character_id="test-vrm-01")
     character_service = CharacterService(FileSystemCharacterManifestSource())
@@ -370,6 +385,7 @@ def build_operator_command_route_endpoint(
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+    fake_fastapi_responses.FileResponse = FakeFileResponse
 
     session_service = InMemorySessionService(default_character_id="test-vrm-01")
     character_service = CharacterService(FileSystemCharacterManifestSource())
@@ -770,26 +786,40 @@ class SpeechLifecycleRouteTransportTests(unittest.TestCase):
         )
 
         self.assertEqual("text/event-stream", response.media_type)
+        self.assertEqual("no-cache, no-transform", response.headers["Cache-Control"])
+        self.assertEqual("keep-alive", response.headers["Connection"])
+        self.assertEqual("no", response.headers["X-Accel-Buffering"])
 
         messages = parse_sse_messages(collect_streaming_payload(response))
         self.assertEqual([None], live_delivery.cursors)
+        bootstrap_payload = canonicalize_transport_payload(
+            _serialize_dataclass_payload(
+                cast(
+                    object,
+                    asyncio.run(endpoint(FakeRequest(headers={"accept": "application/json"}), cursor=None)),
+                )
+            )
+        )
         expected_envelopes = [
             canonicalize_transport_payload(_serialize_dataclass_payload(envelope))
             for envelope in publication.speech_lifecycle_events
         ]
 
-        self.assertEqual(2, len(messages))
+        self.assertEqual(3, len(messages))
+        self.assertEqual(SPEECH_LIFECYCLE_STREAM, messages[0]["event"])
+        self.assertNotIn("id", messages[0])
+        self.assertEqual(bootstrap_payload, canonicalize_transport_payload(json.loads(messages[0]["data"])))
         self.assertEqual(
             [envelope.cursor for envelope in publication.speech_lifecycle_events],
-            [message["id"] for message in messages],
+            [message["id"] for message in messages[1:]],
         )
         self.assertEqual(
             [SPEECH_LIFECYCLE_STREAM, SPEECH_LIFECYCLE_STREAM],
-            [message["event"] for message in messages],
+            [message["event"] for message in messages[1:]],
         )
         self.assertEqual(
             expected_envelopes,
-            [canonicalize_transport_payload(json.loads(message["data"])) for message in messages],
+            [canonicalize_transport_payload(json.loads(message["data"])) for message in messages[1:]],
         )
 
     def test_route_sse_resume_reuses_existing_cursor_query_seam(self) -> None:
@@ -807,17 +837,80 @@ class SpeechLifecycleRouteTransportTests(unittest.TestCase):
         )
 
         self.assertEqual("text/event-stream", response.media_type)
+        self.assertEqual("no-cache, no-transform", response.headers["Cache-Control"])
+        self.assertEqual("keep-alive", response.headers["Connection"])
+        self.assertEqual("no", response.headers["X-Accel-Buffering"])
 
         messages = parse_sse_messages(collect_streaming_payload(response))
         self.assertEqual([resume_cursor], live_delivery.cursors)
+        bootstrap_payload = canonicalize_transport_payload(
+            _serialize_dataclass_payload(
+                cast(
+                    object,
+                    asyncio.run(
+                        endpoint(
+                            FakeRequest(headers={"accept": "application/json"}),
+                            cursor=resume_cursor,
+                        )
+                    ),
+                )
+            )
+        )
 
-        self.assertEqual(1, len(messages))
-        self.assertEqual(publication.speech_lifecycle_events[1].cursor, messages[0]["id"])
+        self.assertEqual(2, len(messages))
+        self.assertEqual(SPEECH_LIFECYCLE_STREAM, messages[0]["event"])
+        self.assertNotIn("id", messages[0])
+        self.assertEqual(bootstrap_payload, canonicalize_transport_payload(json.loads(messages[0]["data"])))
+        self.assertEqual(publication.speech_lifecycle_events[1].cursor, messages[1]["id"])
         self.assertEqual(
             canonicalize_transport_payload(
                 _serialize_dataclass_payload(publication.speech_lifecycle_events[1])
             ),
+            canonicalize_transport_payload(json.loads(messages[1]["data"])),
+        )
+
+    def test_route_flushes_keepalive_when_live_stream_has_no_pending_events(self) -> None:
+        endpoint, publication, live_delivery = build_transport_route_endpoint()
+        next_cursor = (
+            f"{SPEECH_LIFECYCLE_STREAM}:session-scaffold-01:"
+            f"{publication.speech_lifecycle_events[-1].sequence + 1}"
+        )
+
+        response = cast(
+            FakeStreamingResponse,
+            asyncio.run(
+                endpoint(
+                    FakeRequest(headers={"accept": "text/event-stream"}),
+                    cursor=next_cursor,
+                )
+            ),
+        )
+
+        payload = collect_streaming_payload(response)
+        messages = parse_sse_messages(payload)
+        self.assertEqual([next_cursor], live_delivery.cursors)
+        self.assertEqual("no-cache, no-transform", response.headers["Cache-Control"])
+        self.assertEqual("keep-alive", response.headers["Connection"])
+        self.assertEqual("no", response.headers["X-Accel-Buffering"])
+        self.assertGreater(len(payload), 0)
+        self.assertEqual(1, len(messages))
+        self.assertEqual(SPEECH_LIFECYCLE_STREAM, messages[0]["event"])
+        self.assertNotIn("id", messages[0])
+        self.assertEqual(
             canonicalize_transport_payload(json.loads(messages[0]["data"])),
+            canonicalize_transport_payload(
+                _serialize_dataclass_payload(
+                    cast(
+                        object,
+                        asyncio.run(
+                            endpoint(
+                                FakeRequest(headers={"accept": "application/json"}),
+                                cursor=next_cursor,
+                            )
+                        ),
+                    )
+                )
+            ),
         )
 
     def test_route_rejects_invalid_cursor_before_transport_negotiation(self) -> None:
@@ -867,21 +960,40 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
         )
 
         self.assertEqual("text/event-stream", response.media_type)
+        self.assertEqual("no-cache, no-transform", response.headers["Cache-Control"])
+        self.assertEqual("keep-alive", response.headers["Connection"])
+        self.assertEqual("no", response.headers["X-Accel-Buffering"])
 
         messages = parse_sse_messages(collect_streaming_payload(response))
         self.assertEqual([None], live_delivery.cursors)
-        self.assertEqual(2, len(messages))
-        self.assertEqual([update.cursor for update in expected_updates], [message["id"] for message in messages])
+        bootstrap_payload = canonicalize_transport_payload(
+            _serialize_dataclass_payload(
+                cast(
+                    object,
+                    asyncio.run(
+                        animation_endpoint(FakeRequest(headers={"accept": "application/json"}), cursor=None)
+                    ),
+                )
+            )
+        )
+        self.assertEqual(3, len(messages))
+        self.assertEqual(SESSION_ANIMATION_STREAM, messages[0]["event"])
+        self.assertNotIn("id", messages[0])
+        self.assertEqual(bootstrap_payload, canonicalize_transport_payload(json.loads(messages[0]["data"])))
+        self.assertEqual(
+            [update.cursor for update in expected_updates],
+            [message["id"] for message in messages[1:]],
+        )
         self.assertEqual(
             [SESSION_ANIMATION_STREAM, SESSION_ANIMATION_STREAM],
-            [message["event"] for message in messages],
+            [message["event"] for message in messages[1:]],
         )
         self.assertEqual(
             [
                 canonicalize_transport_payload(_serialize_dataclass_payload(update.snapshot))
                 for update in expected_updates
             ],
-            [canonicalize_transport_payload(json.loads(message["data"])) for message in messages],
+            [canonicalize_transport_payload(json.loads(message["data"])) for message in messages[1:]],
         )
 
     def test_route_sse_resume_reuses_existing_cursor_query_seam(self) -> None:
@@ -904,12 +1016,51 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
 
         messages = parse_sse_messages(collect_streaming_payload(response))
         self.assertEqual([resume_cursor], live_delivery.cursors)
-        self.assertEqual(1, len(messages))
-        self.assertEqual(expected_updates[1].cursor, messages[0]["id"])
+        bootstrap_payload = canonicalize_transport_payload(
+            _serialize_dataclass_payload(
+                cast(
+                    object,
+                    asyncio.run(
+                        animation_endpoint(
+                            FakeRequest(headers={"accept": "application/json"}),
+                            cursor=resume_cursor,
+                        )
+                    ),
+                )
+            )
+        )
+        self.assertEqual(2, len(messages))
+        self.assertEqual(SESSION_ANIMATION_STREAM, messages[0]["event"])
+        self.assertNotIn("id", messages[0])
+        self.assertEqual(bootstrap_payload, canonicalize_transport_payload(json.loads(messages[0]["data"])))
+        self.assertEqual(expected_updates[1].cursor, messages[1]["id"])
         self.assertEqual(
             canonicalize_transport_payload(_serialize_dataclass_payload(expected_updates[1].snapshot)),
-            canonicalize_transport_payload(json.loads(messages[0]["data"])),
+            canonicalize_transport_payload(json.loads(messages[1]["data"])),
         )
+
+    def test_route_flushes_keepalive_when_live_stream_has_no_pending_updates(self) -> None:
+        animation_endpoint, _lifecycle_endpoint, live_delivery = build_session_animation_route_endpoints()
+
+        response = cast(
+            FakeStreamingResponse,
+            asyncio.run(
+                animation_endpoint(FakeRequest(headers={"accept": "text/event-stream"}), cursor=None)
+            ),
+        )
+
+        payload = collect_streaming_payload(response)
+        messages = parse_sse_messages(payload)
+        self.assertEqual([None], live_delivery.cursors)
+        self.assertEqual("no-cache, no-transform", response.headers["Cache-Control"])
+        self.assertEqual("keep-alive", response.headers["Connection"])
+        self.assertEqual("no", response.headers["X-Accel-Buffering"])
+        self.assertGreater(len(payload), 0)
+        self.assertEqual(1, len(messages))
+        self.assertEqual(SESSION_ANIMATION_STREAM, messages[0]["event"])
+        self.assertNotIn("id", messages[0])
+        self.assertEqual("session-scaffold-01", json.loads(messages[0]["data"])["session_id"])
+        self.assertEqual("idle.default", json.loads(messages[0]["data"])["command"]["semantic_id"])
 
     def test_route_rejects_invalid_cursor_before_transport_negotiation(self) -> None:
         animation_endpoint, _lifecycle_endpoint, _live_delivery = build_session_animation_route_endpoints()
@@ -1066,6 +1217,40 @@ class OperatorCommandRouteTests(unittest.TestCase):
         self.assertEqual(["session.operator.tts-preview"], [event.event.event_type for event in session_events])
         self.assertEqual("speech.lifecycle:session-scaffold-01:2", payload["next_speech_cursor"])
 
+    def test_tts_preview_command_round_trips_through_speech_snapshot_without_assistant_event(self) -> None:
+        endpoint, session_service = build_operator_command_route_endpoint()
+
+        response = endpoint(
+            OperatorCommandRequest(
+                command_type="tts_preview",
+                text="This is a voice preview.",
+                locale="en-US",
+            )
+        )
+
+        response_payload = cast(
+            dict[str, object],
+            canonicalize_transport_payload(_serialize_dataclass_payload(response)),
+        )
+        snapshot_service = StubSpeechLifecycleSnapshotService(event_store=session_service.event_store)
+        transport_snapshot = snapshot_service.get_snapshot(
+            session_service.get_snapshot(),
+            character_id="test-vrm-01",
+        )
+        snapshot_payload = cast(
+            dict[str, object],
+            canonicalize_transport_payload(_serialize_dataclass_payload(transport_snapshot)),
+        )
+
+        response_events = cast(list[dict[str, object]], response_payload["speech_lifecycle_events"])
+        snapshot_events = cast(list[dict[str, object]], snapshot_payload["events"])
+
+        self.assertEqual(response_events, snapshot_events)
+        self.assertEqual(response_payload["next_speech_cursor"], snapshot_payload["next_cursor"])
+        self.assertEqual(1, len(snapshot_events))
+        self.assertEqual("speech.synthesis", snapshot_events[0]["event"]["event_type"])
+        self.assertIsNone(cast(dict[str, object], snapshot_events[0]["event"]).get("assistant"))
+
     def test_operator_command_route_rejects_unknown_command_type(self) -> None:
         endpoint, _session_service = build_operator_command_route_endpoint()
 
@@ -1205,6 +1390,46 @@ class DefaultTurnPipelinePublisherTests(unittest.TestCase):
 
         self.assertEqual(str(audio_path), publication.speech_lifecycle_events[1].event.synthesis.audio_reference)
         self.assertEqual(str(audio_path), stored_synthesis_event.event.synthesis.audio_reference)
+
+    def test_snapshot_service_projects_machine_local_audio_reference_to_session_artifact_route(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="session-scaffold-01",
+            active_character_id="test-vrm-01",
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, {"NIKOF_TTS_MODELS_ROOT": temp_dir}, clear=False):
+                audio_path = Path(temp_dir) / "reply.wav"
+                audio_path.write_bytes(b"RIFF")
+                store = InMemorySessionEventStore()
+                publisher = DefaultTurnPipelinePublisher(
+                    transcription_service=cast(
+                        SpeechTranscriptionService,
+                        StaticSpeechTranscriptionService(build_transcription_contract("final")),
+                    ),
+                    synthesis_service=cast(
+                        SpeechSynthesisService,
+                        StaticSpeechSynthesisService(
+                            build_synthesis_contract("ready", audio_reference=str(audio_path))
+                        ),
+                    ),
+                    session_event_factory=DefaultSessionEventFactory(),
+                    event_store=store,
+                )
+
+                publication = publisher.publish_turn(snapshot, build_turn_request())
+                stored_synthesis_event = store.read("speech.lifecycle", session_id=snapshot.session_id)[1]
+                snapshot_service = StubSpeechLifecycleSnapshotService(event_store=store)
+                transport_snapshot = snapshot_service.get_snapshot(
+                    snapshot,
+                    character_id="test-vrm-01",
+                )
+
+        self.assertEqual(str(audio_path), stored_synthesis_event.event.synthesis.audio_reference)
+        self.assertEqual(
+            f"/api/session/speech-artifacts/{publication.speech_lifecycle_events[1].event_id}/audio",
+            transport_snapshot.events[1].event.synthesis.audio_reference,
+        )
 
     def test_publish_turn_keeps_speech_lifecycle_order_deterministic_across_publications(self) -> None:
         snapshot = SessionSnapshot(

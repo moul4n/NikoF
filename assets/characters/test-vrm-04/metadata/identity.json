@@ -1,0 +1,12 @@
+{
+  "character_id": "test-vrm-04",
+  "display_name": "Test Character 04 (No Skirt)",
+  "identity_status": "imported",
+  "source_vrm": {
+    "file_name": "model.vrm",
+    "embedded_name": null,
+    "embedded_identifier": "import_file_name:4141371705774241586.vrm"
+  },
+  "review_required": true,
+  "notes": "User-imported inspection model without skirt geometry for easier idle hand-position checks."
+}

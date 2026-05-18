@@ -4,7 +4,8 @@
     "repoLocalFallbackRoot": ".local\\nikof",
     "reportRoot": ".local\\bootstrap",
     "envFileName": "session-env.ps1",
-    "reportFileName": "bootstrap-report.json"
+    "reportFileName": "bootstrap-report.json",
+    "providerHintsRoot": ".local\\bootstrap\\hints"
   },
   "tools": [
     {
@@ -51,20 +52,140 @@
   ],
   "providers": [
     {
-      "id": "llm",
-      "displayName": "LLaMA 3.1 8B Q4_K_M baseline",
+      "id": "llm-model-ollama-llama3.1-8b",
+      "displayName": "Ollama model hint for llama3.1:8b",
       "rootKey": "llm_models_root",
-      "expectedRelativePath": "llama-3.1-8b-q4_k_m",
-      "upstream": "Operator-selected local runtime source such as Ollama or llama.cpp using the documented LLaMA 3.1 8B Q4_K_M baseline.",
-      "manualInstall": "Place the approved local LLM payload under the expected LLM models root or configure the runtime to point there. Capture the exact runtime choice in later provider settings instead of committing the payload."
+      "expectedRelativePath": "ollama-llama3.1-8b",
+      "upstream": "https://ollama.com/library/llama3.1:8b",
+      "manualInstall": "Run the Ollama pull hook or manually execute `ollama pull llama3.1:8b`, then keep the repo-facing readiness marker and optional local-only runtime manifest under `NIKOF_LLM_MODELS_ROOT\\ollama-llama3.1-8b` so bootstrap and startup checks can confirm the machine-local model contract.",
+      "required": true,
+      "matchMode": "any",
+      "expectedRelativePaths": [
+        "ollama-llama3.1-8b",
+        "ollama-llama3.1-8b\\.installed.json"
+      ],
+      "runtimeConfig": {
+        "relativePath": "ollama-llama3.1-8b\\runtime.json",
+        "template": {
+          "model": "llama3.1:8b",
+          "notes": [
+            "Optional machine-local override for the Ollama model tag used by NikoF.",
+            "Keep this file local only. Bootstrap and startup checks may reference the path, but git should not track it."
+          ]
+        }
+      },
+      "remediation": {
+        "id": "ollama-pull-llama3.1-8b",
+        "displayName": "Pull the local Ollama baseline model",
+        "type": "command",
+        "safeAutomation": true,
+        "command": "ollama",
+        "args": [
+          "pull",
+          "llama3.1:8b"
+        ],
+        "postSuccessMarkerRelativePath": "ollama-llama3.1-8b\\.installed.json",
+        "successHint": "After the pull succeeds, rerun bootstrap so the report can confirm the local model hint path or the live Ollama runtime configuration. If you need a non-default model tag, edit `NIKOF_LLM_MODELS_ROOT\\ollama-llama3.1-8b\\runtime.json`.",
+        "notes": [
+          "Ollama stores model blobs in its own machine-local cache; NikoF does not copy those blobs into git or into the repo tree.",
+          "If you want a repo-visible readiness marker, keep a small `.installed.json` note under NIKOF_LLM_MODELS_ROOT\\ollama-llama3.1-8b.",
+          "The hook also scaffolds `runtime.json` if it does not already exist so the local model tag can stay machine-specific and outside git."
+        ]
+      }
     },
     {
       "id": "stt-medium",
       "displayName": "Faster-Whisper Medium",
       "rootKey": "stt_models_root",
+      "bootstrapScaffold": true,
       "expectedRelativePath": "faster-whisper-medium",
       "upstream": "https://huggingface.co/Systran/faster-whisper-medium",
-      "manualInstall": "Download the Faster-Whisper Medium files from the upstream release page and extract them under the STT models root using the expected folder name. If the backend environment will not install `faster_whisper` directly, also provide a local provider entrypoint at `%LOCALAPPDATA%\\NikoF\\providers\\stt\\faster-whisper\\transcribe.py` or `main.py`."
+      "manualInstall": "Bootstrap scaffolds `runtime.json` and `install-plan.json` under `NIKOF_STT_MODELS_ROOT\\faster-whisper-medium`. Install or extract the approved Faster-Whisper Medium payload under that local-only root, place a provider-local entrypoint under `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper`, and rerun bootstrap so startup checks can confirm both proofs.",
+      "required": true,
+      "runtimeConfig": {
+        "relativePath": "faster-whisper-medium\\runtime.json",
+        "template": {
+          "model_size": "medium",
+          "device": "auto",
+          "compute_type": "default",
+          "notes": [
+            "Machine-local Faster-Whisper Medium metadata belongs here after you place the approved model payload under NIKOF_STT_MODELS_ROOT\\faster-whisper-medium.",
+            "Keep this file local only. Bootstrap and startup checks use it as a scaffold marker, not as payload proof."
+          ]
+        }
+      },
+      "installPlan": {
+        "relativePath": "faster-whisper-medium\\install-plan.json",
+        "template": {
+          "provider": "faster-whisper",
+          "variant": "medium",
+          "acquisition": {
+            "mode": "manual",
+            "upstream": "https://huggingface.co/Systran/faster-whisper-medium"
+          },
+          "expected_root": "NIKOF_STT_MODELS_ROOT\\faster-whisper-medium",
+          "local_only": true,
+          "steps": [
+            "Download the approved Faster-Whisper Medium files to a machine-local staging directory.",
+            "Extract only the model payload under NIKOF_STT_MODELS_ROOT\\faster-whisper-medium; do not commit downloaded model files.",
+            "Place one accepted provider entrypoint under NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper.",
+            "Update runtime.json with any machine-specific model metadata you need.",
+            "Rerun bootstrap so the report and startup checks can confirm the local STT contract."
+          ]
+        }
+      },
+      "remediation": {
+        "id": "stt-manual-medium",
+        "displayName": "Scaffold the Faster-Whisper Medium local install plan",
+        "type": "manual",
+        "safeAutomation": false,
+        "successHint": "Bootstrap already scaffolds `runtime.json` and `install-plan.json` during a normal run. Use this hook only to re-create them if they were deleted, then place the approved model payload and rerun bootstrap.",
+        "notes": [
+          "Do not commit downloaded STT model payloads.",
+          "The provider entrypoint lives under NIKOF_PROVIDERS_ROOT and stays separate from the model files.",
+          "The manual hook never downloads vendor payloads; it only re-creates local guidance files under the configured STT models root."
+        ]
+      }
+    },
+    {
+      "id": "stt-provider-entrypoint",
+      "displayName": "Faster-Whisper provider entrypoint",
+      "rootKey": "providers_root",
+      "bootstrapScaffold": true,
+      "expectedRelativePath": "stt\\faster-whisper\\transcribe.py",
+      "upstream": "Project-local adapter wrapper under the configured providers root.",
+      "manualInstall": "Bootstrap scaffolds the local provider runtime manifest under `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper`. Place a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper\\transcribe.py` or `main.py`, update the manifest only if you need a non-default entrypoint or Python executable, and rerun bootstrap so startup checks can confirm the provider proof.",
+      "required": false,
+      "matchMode": "any",
+      "expectedRelativePaths": [
+        "stt\\faster-whisper\\transcribe.py",
+        "stt\\faster-whisper\\main.py"
+      ],
+      "runtimeConfig": {
+        "relativePath": "stt\\faster-whisper\\runtime.json",
+        "template": {
+          "entrypoint": "transcribe.py",
+          "python_executable": "",
+          "timeout_seconds": 20,
+          "notes": [
+            "Optional machine-local adapter overrides for Faster-Whisper invocation.",
+            "Set python_executable only when Faster-Whisper must run from a separate local environment.",
+            "Entrypoint paths must stay within NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper."
+          ]
+        }
+      },
+      "remediation": {
+        "id": "stt-provider-manual",
+        "displayName": "Scaffold the Faster-Whisper adapter manifest",
+        "type": "manual",
+        "safeAutomation": false,
+        "successHint": "Bootstrap already scaffolds `runtime.json` during a normal run. Use this hook only to re-create the local manifest if it was deleted, then place one provider entrypoint file there and rerun bootstrap.",
+        "notes": [
+          "This is a hook surface, not a vendor download.",
+          "Do not commit provider runtime payloads or copied vendor trees.",
+          "The manual hook never installs vendor code; it only re-creates a local manifest path that bootstrap and startup guidance can both reference."
+        ]
+      }
     },
     {
       "id": "stt-small",
@@ -72,15 +193,108 @@
       "rootKey": "stt_models_root",
       "expectedRelativePath": "faster-whisper-small",
       "upstream": "https://huggingface.co/Systran/faster-whisper-small",
-      "manualInstall": "Download the Faster-Whisper Small files only if you want the lower-VRAM fallback available on the machine. Reuse the same provider-local entrypoint under `%LOCALAPPDATA%\\NikoF\\providers\\stt\\faster-whisper\\` when the backend is not running Faster-Whisper inline."
+      "manualInstall": "Download the Faster-Whisper Small files only if you want the lower-VRAM fallback available on the machine. Reuse the same provider-local entrypoint under `NIKOF_PROVIDERS_ROOT\\stt\\faster-whisper\\` when the backend is not running Faster-Whisper inline.",
+      "required": false,
+      "remediation": {
+        "id": "stt-manual-small",
+        "displayName": "Manual Faster-Whisper Small placement",
+        "type": "manual",
+        "safeAutomation": false,
+        "successHint": "Extract the fallback model so `NIKOF_STT_MODELS_ROOT\\faster-whisper-small` exists, then rerun bootstrap."
+      }
     },
     {
-      "id": "tts",
-      "displayName": "GPT-SoVITS runtime payloads",
+      "id": "tts-model-gpt-sovits",
+      "displayName": "GPT-SoVITS model/runtime payload root",
       "rootKey": "tts_models_root",
+      "bootstrapScaffold": true,
       "expectedRelativePath": "gpt-sovits",
       "upstream": "Use the project-approved GPT-SoVITS upstream release or fork selected for the environment; do not commit vendor payloads.",
-      "manualInstall": "Install or extract the selected GPT-SoVITS runtime under the TTS models root and keep any voice-specific weights alongside that runtime in local storage only. Also provide a local provider entrypoint at `%LOCALAPPDATA%\\NikoF\\providers\\tts\\gpt-sovits\\synthesize.py` or `api_server.py` so the backend can invoke the runtime through its normalized adapter contract."
+      "manualInstall": "Bootstrap scaffolds `runtime.json` and `install-plan.json` under `NIKOF_TTS_MODELS_ROOT\\gpt-sovits`. Install or extract the approved GPT-SoVITS payload under that local-only root, keep any voice-specific weights there, and rerun bootstrap so startup checks can confirm the payload proof. The backend-facing provider entrypoint still lives separately under `NIKOF_PROVIDERS_ROOT\\tts\\gpt-sovits`.",
+      "required": true,
+      "runtimeConfig": {
+        "relativePath": "gpt-sovits\\runtime.json",
+        "template": {
+          "weights_root": ".\\weights",
+          "speaker_manifest": ".\\speakers\\default.json",
+          "reference_audio_root": ".\\reference-audio",
+          "notes": [
+            "Machine-local GPT-SoVITS model metadata belongs here after you place the vendor payload under NIKOF_TTS_MODELS_ROOT\\gpt-sovits.",
+            "The current backend adapter does not require these keys yet, but bootstrap and startup guidance treat this file as the canonical model-side local manifest."
+          ]
+        }
+      },
+      "installPlan": {
+        "relativePath": "gpt-sovits\\install-plan.json",
+        "template": {
+          "provider": "gpt-sovits",
+          "acquisition": {
+            "mode": "manual",
+            "upstream": "Use the project-approved GPT-SoVITS upstream release or fork selected for the environment; do not commit vendor payloads."
+          },
+          "expected_root": "NIKOF_TTS_MODELS_ROOT\\gpt-sovits",
+          "local_only": true,
+          "steps": [
+            "Download or clone the approved GPT-SoVITS runtime to a machine-local staging directory.",
+            "Extract only the local runtime payload under NIKOF_TTS_MODELS_ROOT\\gpt-sovits; do not commit copied vendor trees.",
+            "Place speaker checkpoints and reference audio beneath that same local-only tree.",
+            "Update runtime.json with any machine-specific speaker metadata you need.",
+            "Rerun bootstrap so the report and startup checks can confirm the local contract."
+          ]
+        }
+      },
+      "remediation": {
+        "id": "tts-manual-gpt-sovits",
+        "displayName": "Scaffold the GPT-SoVITS local install plan",
+        "type": "manual",
+        "safeAutomation": false,
+        "successHint": "Bootstrap already scaffolds `runtime.json` and `install-plan.json` during a normal run. Use this hook only to re-create them if they were deleted, then place the approved payload and rerun bootstrap.",
+        "notes": [
+          "This repo intentionally does not auto-download GPT-SoVITS vendor payloads.",
+          "Keep speaker checkpoints and voice-specific weights in the same local-only tree or a documented subfolder beneath it.",
+          "The manual hook never downloads payloads; it only re-creates local guidance files under the configured TTS models root."
+        ]
+      }
+    },
+    {
+      "id": "tts-provider-entrypoint",
+      "displayName": "GPT-SoVITS provider entrypoint",
+      "rootKey": "providers_root",
+      "bootstrapScaffold": true,
+      "expectedRelativePath": "tts\\gpt-sovits\\synthesize.py",
+      "upstream": "Project-local adapter wrapper under the configured providers root.",
+      "manualInstall": "Bootstrap scaffolds the local provider runtime manifest under `NIKOF_PROVIDERS_ROOT\\tts\\gpt-sovits`. Place a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT\\tts\\gpt-sovits\\synthesize.py` or `api_server.py`, update the manifest only if you need a non-default entrypoint or Python executable, and rerun bootstrap so startup checks can confirm the provider proof.",
+      "required": true,
+      "matchMode": "any",
+      "expectedRelativePaths": [
+        "tts\\gpt-sovits\\synthesize.py",
+        "tts\\gpt-sovits\\api_server.py"
+      ],
+      "runtimeConfig": {
+        "relativePath": "tts\\gpt-sovits\\runtime.json",
+        "template": {
+          "entrypoint": "synthesize.py",
+          "python_executable": "",
+          "timeout_seconds": 20,
+          "notes": [
+            "Optional machine-local adapter overrides for GPT-SoVITS invocation.",
+            "Set python_executable only when GPT-SoVITS must run from a separate local environment.",
+            "Entrypoint paths must stay within NIKOF_PROVIDERS_ROOT\\tts\\gpt-sovits."
+          ]
+        }
+      },
+      "remediation": {
+        "id": "tts-provider-manual",
+        "displayName": "Scaffold the GPT-SoVITS adapter manifest",
+        "type": "manual",
+        "safeAutomation": false,
+        "successHint": "Bootstrap already scaffolds `runtime.json` during a normal run. Use this hook only to re-create the local manifest if it was deleted, then place one provider entrypoint file there and rerun bootstrap.",
+        "notes": [
+          "This is the safe hook surface for repo-local GPT-SoVITS invocation.",
+          "Do not commit provider runtime payloads or copied vendor trees.",
+          "The manual hook never installs vendor code; it only re-creates a local manifest path that startup guidance and the backend adapter can both reference."
+        ]
+      }
     },
     {
       "id": "embeddings-primary",
@@ -88,7 +302,15 @@
       "rootKey": "embeddings_root",
       "expectedRelativePath": "bge-small-en",
       "upstream": "https://huggingface.co/BAAI/bge-small-en-v1.5",
-      "manualInstall": "Download the embedding model files into the embeddings root using the expected folder name."
+      "manualInstall": "Download the embedding model files into the embeddings root using the expected folder name.",
+      "required": false,
+      "remediation": {
+        "id": "embeddings-manual-primary",
+        "displayName": "Manual bge-small-en placement",
+        "type": "manual",
+        "safeAutomation": false,
+        "successHint": "Extract the embedding model so `NIKOF_EMBEDDINGS_ROOT\\bge-small-en` exists, then rerun bootstrap."
+      }
     },
     {
       "id": "embeddings-fallback",
@@ -96,15 +318,47 @@
       "rootKey": "embeddings_root",
       "expectedRelativePath": "MiniLM-L6-v2",
       "upstream": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
-      "manualInstall": "Add the MiniLM-L6-v2 payload only if you need the lighter fallback path available on the machine."
+      "manualInstall": "Add the MiniLM-L6-v2 payload only if you need the lighter fallback path available on the machine.",
+      "required": false,
+      "remediation": {
+        "id": "embeddings-manual-fallback",
+        "displayName": "Manual MiniLM-L6-v2 placement",
+        "type": "manual",
+        "safeAutomation": false,
+        "successHint": "Extract the fallback embedding model so `NIKOF_EMBEDDINGS_ROOT\\MiniLM-L6-v2` exists, then rerun bootstrap."
+      }
     },
     {
       "id": "provider-ollama",
       "displayName": "Ollama for Windows",
       "rootKey": "providers_root",
-      "expectedRelativePath": "ollama",
+      "bootstrapScaffold": true,
+      "expectedRelativePath": "llm\\ollama",
       "upstream": "https://ollama.com/download/windows",
-      "manualInstall": "Install Ollama if you plan to run the LLM baseline through it, then place any machine-local shim or notes under the providers root instead of committing them."
+      "manualInstall": "Install Ollama if you plan to run the LLM baseline through it, then keep any machine-local endpoint override or shim in `NIKOF_PROVIDERS_ROOT\\llm\\ollama\\runtime.json` instead of committing it.",
+      "required": true,
+      "runtimeConfig": {
+        "relativePath": "llm\\ollama\\runtime.json",
+        "template": {
+          "endpoint": "http://127.0.0.1:11434",
+          "notes": [
+            "Optional machine-local override when Ollama is not running on the default local endpoint.",
+            "The backend appends /api/generate automatically."
+          ]
+        }
+      },
+      "remediation": {
+        "id": "ollama-install-windows",
+        "displayName": "Install Ollama for Windows",
+        "type": "link",
+        "safeAutomation": false,
+        "url": "https://ollama.com/download/windows",
+        "successHint": "After Ollama is installed, rerun bootstrap and use the pull hook for llama3.1:8b. If you need a non-default endpoint, create or edit `NIKOF_PROVIDERS_ROOT\\llm\\ollama\\runtime.json`.",
+        "notes": [
+          "Bootstrap can point to the installer, but it does not silently install Windows vendor runtimes.",
+          "Use a local-only runtime.json under NIKOF_PROVIDERS_ROOT\\llm\\ollama instead of adding new repo-tracked settings for endpoint overrides."
+        ]
+      }
     }
   ]
 }

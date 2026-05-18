@@ -1,0 +1,7 @@
+﻿{
+    "endpoint":  "http://127.0.0.1:11434",
+    "notes":  [
+                  "Optional machine-local override when Ollama is not running on the default local endpoint.",
+                  "The backend appends /api/generate automatically."
+              ]
+}
