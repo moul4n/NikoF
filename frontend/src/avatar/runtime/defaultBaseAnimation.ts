@@ -12,6 +12,8 @@ import type {
   SemanticAnimationRuntimeSampling
 } from "../../shared/types/animation";
 import idleDefaultRuntime from "../../../../assets/animations/generated/shared/idle.default/idle.default.runtime.json";
+import idle1Runtime from "../../../../assets/animations/generated/shared/idle1/idle1.runtime.json";
+import idle1v2Runtime from "../../../../assets/animations/generated/shared/idle1v2/idle1v2.runtime.json";
 
 import listenLoopRuntime from "../../../../assets/animations/generated/shared/listen.loop/listen.loop.runtime.json";
 import speakLoopRuntime from "../../../../assets/animations/generated/shared/speak.loop/speak.loop.runtime.json";
@@ -29,6 +31,10 @@ export interface SharedAnimationRuntimeSidecarDocument {
       avatar_source?: string;
       uses_runtime_sampling_times?: boolean;
       bone_count?: number;
+      anchor?: {
+        type?: string;
+        bones?: string[];
+      };
       bones?: Array<{
         name?: string;
         human_body_bone?: string;
@@ -89,6 +95,12 @@ const sharedAnimationRuntimeSidecarModules: Record<string, SharedAnimationRuntim
   "idle.default": {
     default: idleDefaultRuntime as SharedAnimationRuntimeSidecarDocument
   },
+  "idle1": {
+    default: idle1Runtime as SharedAnimationRuntimeSidecarDocument
+  },
+  "idle1v2": {
+    default: idle1v2Runtime as SharedAnimationRuntimeSidecarDocument
+  },
 
   "listen.loop": {
     default: listenLoopRuntime as SharedAnimationRuntimeSidecarDocument
@@ -99,7 +111,7 @@ const sharedAnimationRuntimeSidecarModules: Record<string, SharedAnimationRuntim
 };
 
 export const DEFAULT_BASE_ANIMATION_COMMAND: SemanticAnimationCommand = {
-  id: "idle.default",
+  id: "idle1v2",
   source: "shared",
   playback: "loop"
 };
@@ -392,6 +404,14 @@ function resolveRuntimeExportAudit(
             Number.isFinite(boneTransformComparisonDocument.bone_count)
               ? boneTransformComparisonDocument.bone_count
               : undefined,
+          anchor: boneTransformComparisonDocument.anchor?.type
+            ? {
+                type: boneTransformComparisonDocument.anchor.type,
+                bones: boneTransformComparisonDocument.anchor.bones?.filter(
+                  (b): b is string => typeof b === "string" && b.length > 0
+                )
+              }
+            : undefined,
           bones: resolvedBones
         }
       : undefined;

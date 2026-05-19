@@ -71,6 +71,11 @@ export interface SemanticAnimationRuntimeBoneTransformComparisonBone {
   localPositionSamples?: SemanticAnimationRuntimePositionSampleSeries;
 }
 
+export interface SemanticAnimationRuntimeAnchor {
+  type: string;
+  bones?: string[];
+}
+
 export interface SemanticAnimationRuntimeBoneTransformComparison {
   clipGateSemanticId?: string;
   comparisonKind?: string;
@@ -78,6 +83,7 @@ export interface SemanticAnimationRuntimeBoneTransformComparison {
   avatarSource?: string;
   usesRuntimeSamplingTimes?: boolean;
   boneCount?: number;
+  anchor?: SemanticAnimationRuntimeAnchor;
   bones: SemanticAnimationRuntimeBoneTransformComparisonBone[];
 }
 

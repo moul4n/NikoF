@@ -3,6 +3,15 @@ import type { CharacterCatalogEntry } from "../../shared/types/character";
 import type { AvatarRuntimeBridge } from "../runtime/avatarRuntime";
 import { getAvatarRuntimeMountPoints } from "../runtime/mountPoints";
 
+const DISPLAY_EMOTION_OPTIONS = [
+  { value: null, label: "Neutral" },
+  { value: "happy", label: "Happy" },
+  { value: "sad", label: "Sad" },
+  { value: "angry", label: "Angry" },
+  { value: "relaxed", label: "Relaxed" },
+  { value: "surprised", label: "Surprised" }
+] as const;
+
 interface AvatarStageProps {
   runtime: AvatarRuntimeBridge;
   selectedCharacter: CharacterCatalogEntry | null;
@@ -71,6 +80,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
       ? "The display surface is rendering the manifest-resolved VRM."
       : "The default shell is now rendering the imported VRM.";
   const displayCharacterLabel = selectedCharacter?.summary.displayName ?? "Waiting for backend-confirmed selection";
+  const emotionControlsEnabled = Boolean(selectedCharacter) && snapshot.loadState === "ready";
 
   return (
     <section className={variant === "display" ? "avatar-stage avatar-stage--display" : "avatar-stage"} aria-labelledby="avatar-stage-title">
@@ -101,6 +111,28 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
           {snapshot.error ? <p className="avatar-stage__viewport-message avatar-stage__viewport-message--error">{snapshot.error}</p> : null}
           {snapshot.loadState === "ready" ? <p className="avatar-stage__viewport-message">{readyMessage}</p> : null}
         </div>
+        {variant === "display" ? (
+          <div className="avatar-stage__emotion-controls" aria-label="Facial expression controls">
+            {DISPLAY_EMOTION_OPTIONS.map((option) => {
+              const isActive = snapshot.activeEmotion === option.value;
+
+              return (
+                <button
+                  key={option.label}
+                  type="button"
+                  className={isActive ? "avatar-stage__emotion-button avatar-stage__emotion-button--active" : "avatar-stage__emotion-button"}
+                  aria-pressed={isActive}
+                  disabled={!emotionControlsEnabled}
+                  onClick={() => {
+                    runtime.setEmotion(option.value);
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {variant === "display" ? null : (
           <aside id={mountPoints.overlayElementId} className="avatar-stage__overlay">
             <h3>Selected character</h3>

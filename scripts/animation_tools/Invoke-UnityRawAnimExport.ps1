@@ -156,6 +156,8 @@ $resolvedUnityExecutable = Resolve-UnityEditorExecutable -RequestedPath $UnityEd
 $unityBatchScript = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'unity\RawAnimBatchExporter.cs')
 
 $sourceRelativePath = Resolve-RelativeRepoPath -Path $resolvedSourceClip -Root $resolvedRepoRoot
+$sourceExtension = [System.IO.Path]::GetExtension($resolvedSourceClip)
+$importedAssetPath = "Assets/Imported/source$sourceExtension"
 $stagedSidecarOutputPath = Join-Path $resolvedRepoRoot "assets\animations\dsl\shared\$SemanticId.json"
 $semanticAssetOutputPath = Join-Path $resolvedRepoRoot "assets\animations\dsl\generated\shared\$SemanticId.json"
 $runtimePayloadOutputPath = Join-Path $resolvedRepoRoot "assets\animations\generated\shared\$SemanticId\$SemanticId.runtime.json"
@@ -179,7 +181,7 @@ try {
         '--repo-root', $resolvedRepoRoot,
         '--semantic-id', $SemanticId,
         '--source-repo-path', $sourceRelativePath,
-        '--source-asset-path', 'Assets/Imported/source.anim',
+        '--source-asset-path', $importedAssetPath,
         '--staged-sidecar-output', $stagedSidecarOutputPath,
         '--semantic-asset-output', $semanticAssetOutputPath,
         '--runtime-output', $runtimePayloadOutputPath
@@ -195,7 +197,7 @@ try {
         '--repo-root', $resolvedRepoRoot,
         '--semantic-id', $SemanticId,
         '--source-repo-path', $sourceRelativePath,
-        '--source-asset-path', 'Assets/Imported/source.anim',
+        '--source-asset-path', $importedAssetPath,
         '--staged-sidecar-output', $stagedSidecarOutputPath,
         '--semantic-asset-output', $semanticAssetOutputPath,
         '--runtime-output', $runtimePayloadOutputPath
@@ -218,7 +220,9 @@ try {
     New-Directory -Path (Join-Path $tempProjectRoot 'Assets\Editor')
     New-Directory -Path (Join-Path $tempProjectRoot 'Assets\Imported')
 
-    Copy-Item -LiteralPath $resolvedSourceClip -Destination (Join-Path $tempProjectRoot 'Assets\Imported\source.anim')
+    # Preserve original extension for FBX support (sub-asset clip loading)
+    $importedFileName = "source$sourceExtension"
+    Copy-Item -LiteralPath $resolvedSourceClip -Destination (Join-Path $tempProjectRoot "Assets\Imported\$importedFileName")
     Copy-Item -LiteralPath $unityBatchScript.Path -Destination (Join-Path $tempProjectRoot 'Assets\Editor\RawAnimBatchExporter.cs')
 
     $compilePassInvocation = @{

@@ -29,7 +29,7 @@ namespace NikoF.AnimationTools
 
         private static bool IsIdleBoneComparisonSemanticId(string semanticId)
         {
-            return semanticId.StartsWith("idle.", StringComparison.Ordinal);
+            return semanticId.StartsWith("idle", StringComparison.Ordinal);
         }
 
         public static void RunFromCommandLine()
@@ -46,7 +46,10 @@ namespace NikoF.AnimationTools
 
             AssetDatabase.Refresh();
 
-            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(sourceAssetPath);
+            // For FBX files, ensure the model is imported as Humanoid so we get an Avatar
+            EnsureHumanoidImportSettings(sourceAssetPath);
+
+            var clip = LoadAnimationClip(sourceAssetPath);
             if (clip == null)
             {
                 throw new InvalidOperationException($"Unable to load AnimationClip at asset path '{sourceAssetPath}'.");
@@ -117,7 +120,7 @@ namespace NikoF.AnimationTools
 
             AddDerivedElbowFlexChannels(channels);
             AddDerivedLowerArmRotationHintChannels(channels);
-            var boneTransformComparison = BuildBoneTransformComparison(semanticId, channels, times);
+            var boneTransformComparison = BuildBoneTransformComparison(semanticId, channels, times, clip, sourceAssetPath);
 
             var playbackMode = DeterminePlaybackMode(semanticId, clipSettings.loopTime, channels);
             var rootMotion = DetermineRootMotion(rootX, rootZ);
@@ -262,6 +265,59 @@ namespace NikoF.AnimationTools
             }
 
             return parsed;
+        }
+
+        private static void EnsureHumanoidImportSettings(string assetPath)
+        {
+            if (!assetPath.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+            if (importer == null)
+            {
+                return;
+            }
+
+            if (importer.animationType == ModelImporterAnimationType.Human)
+            {
+                return; // Already humanoid
+            }
+
+            importer.animationType = ModelImporterAnimationType.Human;
+            importer.SaveAndReimport();
+            AssetDatabase.Refresh();
+        }
+
+        private static AnimationClip LoadAnimationClip(string assetPath)
+        {
+            // Direct .anim clip load
+            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(assetPath);
+            if (clip != null)
+            {
+                return clip;
+            }
+
+            // FBX/model: clips are sub-assets — load all and find the real one
+            var allAssets = AssetDatabase.LoadAllAssetsAtPath(assetPath);
+            if (allAssets == null || allAssets.Length == 0)
+            {
+                return null;
+            }
+
+            AnimationClip bestClip = null;
+            foreach (var asset in allAssets)
+            {
+                var subClip = asset as AnimationClip;
+                if (subClip == null) continue;
+                // Skip Unity's internal preview clips
+                if (subClip.name.StartsWith("__preview__", StringComparison.Ordinal)) continue;
+                bestClip = subClip;
+                break;
+            }
+
+            return bestClip;
         }
 
         private static string RequireArgument(Dictionary<string, string> args, string key)
@@ -465,7 +521,9 @@ namespace NikoF.AnimationTools
         private static RuntimeBoneTransformComparisonDocument BuildBoneTransformComparison(
             string semanticId,
             IReadOnlyList<RuntimeChannelDocument> channels,
-            IReadOnlyList<float> times)
+            IReadOnlyList<float> times,
+            AnimationClip clip,
+            string sourceAssetPath)
         {
             if (!ShouldExportBoneTransformComparison(semanticId))
             {
@@ -473,6 +531,13 @@ namespace NikoF.AnimationTools
             }
 
             var sampledMuscleChannels = ResolveHumanoidMuscleChannels(channels);
+
+            // If no humanoid muscle channels (e.g. FBX with generic transform bindings),
+            // use the FBX model's own Avatar and sample via clip playback on the source rig.
+            if (sampledMuscleChannels.Length == 0)
+            {
+                return BuildBoneTransformComparisonFromFbxClipSampling(semanticId, times, clip, sourceAssetPath);
+            }
             var comparisonDefinitions = GetPunchBoneComparisonDefinitions();
             var rig = CreatePunchComparisonRig();
 
@@ -513,6 +578,19 @@ namespace NikoF.AnimationTools
                     })
                     .ToArray();
 
+                // Hips position samples (captured from Animator after pose application)
+                var hipsPositionSamples = new RuntimePositionComponentSamplesDocument
+                {
+                    x = new float[times.Count],
+                    y = new float[times.Count],
+                    z = new float[times.Count],
+                };
+
+                // Foot world positions per frame (for foot-anchoring post-process)
+                var footCenterXPerFrame = new float[times.Count];
+                var footCenterYPerFrame = new float[times.Count];
+                var footCenterZPerFrame = new float[times.Count];
+
                 for (var sampleIndex = 0; sampleIndex < times.Count; sampleIndex += 1)
                 {
                     Array.Clear(pose.muscles, 0, pose.muscles.Length);
@@ -546,6 +624,26 @@ namespace NikoF.AnimationTools
 
                     rig.poseHandler.SetHumanPose(ref pose);
 
+                    // Capture hips local position and foot world positions for anchoring
+                    var hipsTransform = rig.animator.GetBoneTransform(HumanBodyBones.Hips);
+                    if (hipsTransform != null)
+                    {
+                        hipsPositionSamples.x[sampleIndex] = Quantize(hipsTransform.localPosition.x);
+                        hipsPositionSamples.y[sampleIndex] = Quantize(hipsTransform.localPosition.y);
+                        hipsPositionSamples.z[sampleIndex] = Quantize(hipsTransform.localPosition.z);
+                    }
+
+                    // Record foot world positions for foot-anchoring post-process
+                    var leftFootTransform = rig.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+                    var rightFootTransform = rig.animator.GetBoneTransform(HumanBodyBones.RightFoot);
+                    if (leftFootTransform != null && rightFootTransform != null)
+                    {
+                        var footCenter = (leftFootTransform.position + rightFootTransform.position) * 0.5f;
+                        footCenterXPerFrame[sampleIndex] = footCenter.x;
+                        footCenterYPerFrame[sampleIndex] = Mathf.Min(leftFootTransform.position.y, rightFootTransform.position.y);
+                        footCenterZPerFrame[sampleIndex] = footCenter.z;
+                    }
+
                     for (var boneIndex = 0; boneIndex < comparisonDefinitions.Length; boneIndex += 1)
                     {
                         var localRotation = SampleLocalRotation(rig.animator, comparisonDefinitions[boneIndex].humanBodyBone);
@@ -567,6 +665,34 @@ namespace NikoF.AnimationTools
                         comparisonBones[boneIndex].max_angle_from_first_frame_deg = Mathf.Max(
                             comparisonBones[boneIndex].max_angle_from_first_frame_deg,
                             angleFromFirstFrame);
+                    }
+                }
+
+                // Foot-anchoring post-process: offset hips position so feet stay planted
+                // at the frame-0 reference position. This preserves the hip sway motion
+                // (rotations are untouched) but eliminates floor-plane drift.
+                var referenceFootX = footCenterXPerFrame[0];
+                var referenceFootY = footCenterYPerFrame[0];
+                var referenceFootZ = footCenterZPerFrame[0];
+
+                for (var i = 0; i < times.Count; i += 1)
+                {
+                    var footDriftX = footCenterXPerFrame[i] - referenceFootX;
+                    var footDriftY = footCenterYPerFrame[i] - referenceFootY;
+                    var footDriftZ = footCenterZPerFrame[i] - referenceFootZ;
+
+                    hipsPositionSamples.x[i] = Quantize(hipsPositionSamples.x[i] - footDriftX);
+                    hipsPositionSamples.y[i] = Quantize(hipsPositionSamples.y[i] - footDriftY);
+                    hipsPositionSamples.z[i] = Quantize(hipsPositionSamples.z[i] - footDriftZ);
+                }
+
+                // Assign hips position samples to the hips bone document
+                for (var boneIndex = 0; boneIndex < comparisonDefinitions.Length; boneIndex += 1)
+                {
+                    if (comparisonDefinitions[boneIndex].humanBodyBone == HumanBodyBones.Hips)
+                    {
+                        comparisonBones[boneIndex].local_position_samples = hipsPositionSamples;
+                        break;
                     }
                 }
 
@@ -592,6 +718,7 @@ namespace NikoF.AnimationTools
                     avatar_source = "temporary_humanoid_reference_rig",
                     uses_runtime_sampling_times = true,
                     bone_count = comparisonBones.Length,
+                    anchor = ResolveAnchor(semanticId),
                     bones = comparisonBones,
                 };
             }
@@ -611,6 +738,175 @@ namespace NikoF.AnimationTools
                 {
                     UnityEngine.Object.DestroyImmediate(rig.root);
                 }
+            }
+        }
+
+        private static RuntimeBoneTransformComparisonDocument BuildBoneTransformComparisonFromFbxClipSampling(
+            string semanticId,
+            IReadOnlyList<float> times,
+            AnimationClip clip,
+            string sourceAssetPath)
+        {
+            // Load the FBX model prefab and its Avatar
+            var allAssets = AssetDatabase.LoadAllAssetsAtPath(sourceAssetPath);
+            Avatar fbxAvatar = null;
+            GameObject fbxModelPrefab = null;
+
+            foreach (var asset in allAssets)
+            {
+                if (asset is Avatar a && a.isValid && a.isHuman)
+                {
+                    fbxAvatar = a;
+                }
+
+                if (asset is GameObject go && go.GetComponentInChildren<SkinnedMeshRenderer>() != null)
+                {
+                    fbxModelPrefab = go;
+                }
+            }
+
+            // If no skinned mesh found, try any root GameObject from the FBX
+            if (fbxModelPrefab == null)
+            {
+                foreach (var asset in allAssets)
+                {
+                    if (asset is GameObject go && go.transform.parent == null)
+                    {
+                        fbxModelPrefab = go;
+                        break;
+                    }
+                }
+            }
+
+            if (fbxAvatar == null || fbxModelPrefab == null)
+            {
+                Debug.LogWarning($"[RawAnimBatchExporter] FBX at '{sourceAssetPath}' has no humanoid Avatar or model prefab. Falling back to empty bone comparison.");
+                return null;
+            }
+
+            var instance = UnityEngine.Object.Instantiate(fbxModelPrefab);
+            instance.hideFlags = HideFlags.HideAndDontSave;
+
+            try
+            {
+                var animator = instance.GetComponent<Animator>();
+                if (animator == null)
+                {
+                    animator = instance.AddComponent<Animator>();
+                }
+
+                animator.avatar = fbxAvatar;
+                animator.applyRootMotion = false;
+                animator.Rebind();
+                animator.Update(0f);
+
+                var comparisonDefinitions = GetPunchBoneComparisonDefinitions();
+                var comparisonBones = comparisonDefinitions
+                    .Select(definition => new RuntimeBoneRotationComparisonBoneDocument
+                    {
+                        name = definition.name,
+                        human_body_bone = definition.humanBodyBone.ToString(),
+                        group = definition.group,
+                        muscle_channels = definition.muscleChannels,
+                        local_rotation_samples = new RuntimeQuaternionComponentSamplesDocument
+                        {
+                            x = new float[times.Count],
+                            y = new float[times.Count],
+                            z = new float[times.Count],
+                            w = new float[times.Count],
+                        },
+                    })
+                    .ToArray();
+
+                // Also collect hips position samples
+                var hipsPositionSamples = new RuntimePositionComponentSamplesDocument
+                {
+                    x = new float[times.Count],
+                    y = new float[times.Count],
+                    z = new float[times.Count],
+                };
+
+                for (var sampleIndex = 0; sampleIndex < times.Count; sampleIndex += 1)
+                {
+                    clip.SampleAnimation(instance, times[sampleIndex]);
+
+                    for (var boneIndex = 0; boneIndex < comparisonDefinitions.Length; boneIndex += 1)
+                    {
+                        var localRotation = SampleLocalRotation(animator, comparisonDefinitions[boneIndex].humanBodyBone);
+                        var rotationSamples = comparisonBones[boneIndex].local_rotation_samples;
+
+                        rotationSamples.x[sampleIndex] = Quantize(localRotation.x);
+                        rotationSamples.y[sampleIndex] = Quantize(localRotation.y);
+                        rotationSamples.z[sampleIndex] = Quantize(localRotation.z);
+                        rotationSamples.w[sampleIndex] = Quantize(localRotation.w);
+
+                        // Collect hips local position
+                        if (comparisonDefinitions[boneIndex].humanBodyBone == HumanBodyBones.Hips)
+                        {
+                            var hipsTransform = animator.GetBoneTransform(HumanBodyBones.Hips);
+                            if (hipsTransform != null)
+                            {
+                                hipsPositionSamples.x[sampleIndex] = Quantize(hipsTransform.localPosition.x);
+                                hipsPositionSamples.y[sampleIndex] = Quantize(hipsTransform.localPosition.y);
+                                hipsPositionSamples.z[sampleIndex] = Quantize(hipsTransform.localPosition.z);
+                            }
+                        }
+
+                        if (sampleIndex == 0)
+                        {
+                            comparisonBones[boneIndex].first_local_rotation = ToQuaternionDocument(localRotation);
+                            continue;
+                        }
+
+                        var firstRotation = FromQuaternionDocument(comparisonBones[boneIndex].first_local_rotation);
+                        var angleFromFirstFrame = Quantize(Quaternion.Angle(firstRotation, localRotation));
+                        comparisonBones[boneIndex].max_angle_from_first_frame_deg = Mathf.Max(
+                            comparisonBones[boneIndex].max_angle_from_first_frame_deg,
+                            angleFromFirstFrame);
+                    }
+                }
+
+                // Assign hips position samples
+                for (var boneIndex = 0; boneIndex < comparisonDefinitions.Length; boneIndex += 1)
+                {
+                    if (comparisonDefinitions[boneIndex].humanBodyBone == HumanBodyBones.Hips)
+                    {
+                        comparisonBones[boneIndex].local_position_samples = hipsPositionSamples;
+                        break;
+                    }
+                }
+
+                foreach (var comparisonBone in comparisonBones)
+                {
+                    var lastSampleIndex = comparisonBone.local_rotation_samples.x.Length - 1;
+                    var finalRotation = new Quaternion(
+                        comparisonBone.local_rotation_samples.x[lastSampleIndex],
+                        comparisonBone.local_rotation_samples.y[lastSampleIndex],
+                        comparisonBone.local_rotation_samples.z[lastSampleIndex],
+                        comparisonBone.local_rotation_samples.w[lastSampleIndex]);
+                    comparisonBone.final_local_rotation = ToQuaternionDocument(finalRotation);
+                    comparisonBone.final_angle_from_first_frame_deg = Quantize(Quaternion.Angle(
+                        FromQuaternionDocument(comparisonBone.first_local_rotation),
+                        finalRotation));
+                }
+
+                Debug.Log($"[RawAnimBatchExporter] FBX clip sampling: {comparisonBones.Length} bones, {times.Count} samples via SampleAnimation on '{sourceAssetPath}'");
+
+                return new RuntimeBoneTransformComparisonDocument
+                {
+                    clip_gate_semantic_id = semanticId,
+                    comparison_kind = ResolveBoneTransformComparisonKind(semanticId),
+                    sampling_mode = "fbx_clip_sample_animation_to_bone_local_rotations",
+                    avatar_source = "fbx_model_instance_with_humanoid_avatar",
+                    uses_runtime_sampling_times = true,
+                    bone_count = comparisonBones.Length,
+                    anchor = ResolveAnchor(semanticId),
+                    bones = comparisonBones,
+                };
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(instance);
             }
         }
 
@@ -652,6 +948,39 @@ namespace NikoF.AnimationTools
         {
             return string.Equals(semanticId, PunchBoneComparisonSemanticId, StringComparison.Ordinal)
                 || IsIdleBoneComparisonSemanticId(semanticId);
+        }
+
+        private static RuntimeAnchorDocument ResolveAnchor(string semanticId)
+        {
+            // Standing/idle animations: feet are the fixed anchor
+            if (IsIdleBoneComparisonSemanticId(semanticId) ||
+                semanticId.StartsWith("stand", StringComparison.Ordinal) ||
+                semanticId.StartsWith("walk", StringComparison.Ordinal) ||
+                string.Equals(semanticId, PunchBoneComparisonSemanticId, StringComparison.Ordinal))
+            {
+                return new RuntimeAnchorDocument
+                {
+                    type = "feet",
+                    bones = new[] { "LeftFoot", "RightFoot", "LeftToes", "RightToes" },
+                };
+            }
+
+            // Hanging animations: hands are the fixed anchor
+            if (semanticId.StartsWith("hang", StringComparison.Ordinal))
+            {
+                return new RuntimeAnchorDocument
+                {
+                    type = "hands",
+                    bones = new[] { "LeftHand", "RightHand" },
+                };
+            }
+
+            // Default: feet anchor for any unclassified animation
+            return new RuntimeAnchorDocument
+            {
+                type = "feet",
+                bones = new[] { "LeftFoot", "RightFoot", "LeftToes", "RightToes" },
+            };
         }
 
         private static string ResolveBoneTransformComparisonKind(string semanticId)
@@ -1287,7 +1616,15 @@ namespace NikoF.AnimationTools
             public string avatar_source;
             public bool uses_runtime_sampling_times;
             public int bone_count;
+            public RuntimeAnchorDocument anchor;
             public RuntimeBoneRotationComparisonBoneDocument[] bones;
+        }
+
+        [Serializable]
+        private sealed class RuntimeAnchorDocument
+        {
+            public string type;
+            public string[] bones;
         }
 
         [Serializable]
@@ -1302,6 +1639,15 @@ namespace NikoF.AnimationTools
             public float max_angle_from_first_frame_deg;
             public float final_angle_from_first_frame_deg;
             public RuntimeQuaternionComponentSamplesDocument local_rotation_samples;
+            public RuntimePositionComponentSamplesDocument local_position_samples;
+        }
+
+        [Serializable]
+        private sealed class RuntimePositionComponentSamplesDocument
+        {
+            public float[] x;
+            public float[] y;
+            public float[] z;
         }
 
         [Serializable]

@@ -12,7 +12,7 @@ import type {
   CharacterManifestSummary,
   CharacterRuntimeState
 } from "../../shared/types/character";
-import { resolveSharedSemanticAnimationPayload } from "./defaultBaseAnimation";
+import { resolveSharedSemanticAnimationPayload, DEFAULT_BASE_ANIMATION_COMMAND } from "./defaultBaseAnimation";
 import {
   type HumanoidChannelPlayback,
   type HumanoidChannelPlaybackDebugPoseSnapshot
@@ -22,13 +22,24 @@ import {
   resolveAvatarRuntimePlayback,
   type AvatarRuntimeResolvedPlayback
 } from "./avatarRuntimePlaybackRoute";
+import { createVrmaPlayback, type VrmaPlaybackBridge } from "./vrmaPlayback";
+import { resolveVrmaAssetCandidates } from "./vrmaAssetResolution";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
+import { createPassiveBlinkController, type PassiveBlinkController } from "./passiveBlink";
+import { createPassiveMouthController, type PassiveMouthController } from "./passiveMouth";
+import { createPassiveEyeDriftController, type PassiveEyeDriftController } from "./passiveEyeDrift";
+import {
+  createPassiveEmotionController,
+  type PassiveEmotionController,
+  type PassiveEmotionName
+} from "./passiveEmotion";
 
 type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
 type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
 type AvatarOverlayChannelId = "speech";
 type AvatarOverlaySource = "backend.speech.lifecycle";
-export type AvatarAnimationPlaybackPath = "mixer";
+export type AvatarAnimationPlaybackPath = "mixer" | "feetAnchored" | "vrma";
+export type AvatarRuntimeEmotionName = PassiveEmotionName;
 type VRMHumanBoneNameValue = (typeof VRMHumanBoneName)[keyof typeof VRMHumanBoneName];
 
 type AvatarRuntimeListener = () => void;
@@ -188,6 +199,7 @@ export interface AvatarRuntimeSnapshot {
   baseAnimation: SemanticAnimationCommand | null;
   currentModelUrl: string | null;
   loadState: AvatarRuntimeLoadState;
+  activeEmotion: AvatarRuntimeEmotionName | null;
   speechReactionMode: AvatarSpeechReactionMode;
   activeViseme: string | null;
   overlayChannels: AvatarOverlayChannelSnapshot[];
@@ -202,6 +214,7 @@ export interface AvatarRuntimeBridge {
   setDebugProfileView: (profileView: AvatarDebugProfileView) => void;
   setRigOverlayEnabled: (enabled: boolean) => void;
   setAnimationPlaybackPath: (playbackPath: AvatarAnimationPlaybackPath) => void;
+  setEmotion: (emotion: AvatarRuntimeEmotionName | null) => void;
   beginSpeechReaction: (input: AvatarSpeechReactionInput) => void;
   clearSpeechReaction: () => void;
   play: (command: SemanticAnimationCommand | null) => void;
@@ -303,6 +316,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     baseAnimation: null,
     currentModelUrl: null,
     loadState: "idle",
+    activeEmotion: null,
     speechReactionMode: "idle",
     activeViseme: null,
     overlayChannels: [createSpeechOverlayChannel()],
@@ -321,6 +335,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let rigOverlayEnabled = false;
   let rigOverlayState: RigOverlayState | null = null;
   let animationPlaybackPath: AvatarAnimationPlaybackPath = "mixer";
+  let vrmaPlayback: VrmaPlaybackBridge | null = null;
+  let passiveBlink: PassiveBlinkController | null = null;
+  let passiveMouth: PassiveMouthController | null = null;
+  let passiveEyeDrift: PassiveEyeDriftController | null = null;
+  let passiveEmotion: PassiveEmotionController | null = null;
   let activeLoadRequestId = 0;
   let activeLoadTargetKey: string | null = null;
   let activeLoadPromise: Promise<void> | null = null;
@@ -478,7 +497,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       const rightVector = rightLateralNode
         .getWorldPosition(new THREE.Vector3())
         .sub(leftLateralNode.getWorldPosition(new THREE.Vector3()));
-      const humanoidForward = upVector.cross(rightVector);
+      const humanoidForward = rightVector.cross(upVector);
       humanoidForward.y = 0;
 
       if (humanoidForward.lengthSq() > 1e-6) {
@@ -724,6 +743,342 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     root.position.y -= floorHeight;
     console.log(`[ground:${label}] APPLIED => root.position.y=${root.position.y.toFixed(6)}`);
     root.updateWorldMatrix(true, true);
+  }
+
+  /**
+   * Per-frame floor grounding: two-phase approach equivalent to Unity's "Foot IK".
+   * Phase 1: Root Y clamp — lowers the whole skeleton so the lowest foot reaches Y=0.
+   * Phase 2: Per-leg IK — swings each UpperLeg to plant any remaining lifted foot at Y=0.
+   * Phase 3: Toe-out correction — applies retargeting compensation so feet splay outward
+   *          matching the source animation's visual intent on the original skeleton.
+   * Runs generically on all animations; compensates for proportion mismatch without
+   * modifying animation data.
+   */
+  const _floorVec = new THREE.Vector3();
+  const _floorVec2 = new THREE.Vector3();
+
+  // Toe-out angles (degrees) to apply as retargeting compensation.
+  // The source animation (XBot) shows ~7° toe-out on both feet in the idle pose.
+  // Our VRM model's leg chain orientation absorbs most of this, so we re-add it.
+  const TOE_OUT_LEFT_DEG = 5;
+  const TOE_OUT_RIGHT_DEG = 7;
+
+  function applyFloorGrounding(root: THREE.Object3D, vrm: VRM): void {
+    // --- Phase 1: Root Y clamp using HIGHEST foot ---
+    // By clamping to the max foot Y, we guarantee NO foot goes above Y=0.
+    // The other foot may go below floor (invisible) and gets IK'd back up in Phase 2.
+    root.updateMatrixWorld(true);
+
+    const leftFoot = vrm.humanoid.getRawBoneNode(VRMHumanBoneName.LeftFoot);
+    const rightFoot = vrm.humanoid.getRawBoneNode(VRMHumanBoneName.RightFoot);
+
+    if (!leftFoot || !rightFoot) return;
+
+    const leftFootY = leftFoot.getWorldPosition(_floorVec).y;
+    const rightFootY = rightFoot.getWorldPosition(_floorVec2).y;
+    const highestFootY = Math.max(leftFootY, rightFootY);
+
+    if (Number.isFinite(highestFootY) && Math.abs(highestFootY) > 0.0005) {
+      root.position.y -= highestFootY;
+      root.updateMatrixWorld(true);
+    }
+
+    // --- Phase 2: Per-leg IK (bring any foot that's below OR above Y=0 back to Y=0) ---
+    applyLegSwingIK(vrm, VRMHumanBoneName.LeftUpperLeg, VRMHumanBoneName.LeftFoot);
+    applyLegSwingIK(vrm, VRMHumanBoneName.RightUpperLeg, VRMHumanBoneName.RightFoot);
+
+    // --- Phase 3: Toe-out retargeting correction ---
+    // The source skeleton shows visible toe-out that the VRM chain doesn't reproduce.
+    // Apply a Y-axis rotation to each foot bone to match the original visual intent.
+    const leftToeOutRad = (TOE_OUT_LEFT_DEG * Math.PI) / 180;
+    leftFoot.quaternion.multiply(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), leftToeOutRad)
+    );
+    leftFoot.updateWorldMatrix(false, true);
+
+    const rightToeOutRad = (TOE_OUT_RIGHT_DEG * Math.PI) / 180;
+    rightFoot.quaternion.multiply(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -rightToeOutRad)
+    );
+    rightFoot.updateWorldMatrix(false, true);
+
+    // Expose VRM for debug inspection
+    (window as any).__vrm = vrm;
+
+    // Diagnostic (re-measure after IK)
+    const _diagLQ = new THREE.Quaternion();
+    const _diagRQ = new THREE.Quaternion();
+    leftFoot.getWorldQuaternion(_diagLQ);
+    rightFoot.getWorldQuaternion(_diagRQ);
+    // Foot forward = local -Z in world space (VRM T-pose faces -Z)
+    const lFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_diagLQ);
+    const rFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_diagRQ);
+    // Toe-out angle: atan2 of XZ projection relative to world -Z
+    const lToeOut = Math.atan2(-lFwd.x, -lFwd.z) * 180 / Math.PI;
+    const rToeOut = Math.atan2(rFwd.x, -rFwd.z) * 180 / Math.PI;
+
+    // Knee world positions for tracking direction
+    const leftKnee = vrm.humanoid.getRawBoneNode(VRMHumanBoneName.LeftLowerLeg);
+    const rightKnee = vrm.humanoid.getRawBoneNode(VRMHumanBoneName.RightLowerLeg);
+    const lKneePos = leftKnee ? leftKnee.getWorldPosition(new THREE.Vector3()) : null;
+    const rKneePos = rightKnee ? rightKnee.getWorldPosition(new THREE.Vector3()) : null;
+
+    (window as any).__floorClampDiag = {
+      highestFootY,
+      rootY: root.position.y,
+      leftFootY: leftFoot.getWorldPosition(_floorVec).y,
+      rightFootY: rightFoot.getWorldPosition(_floorVec2).y,
+      leftToeOutDeg: lToeOut,
+      rightToeOutDeg: rToeOut,
+      leftFootFwd: { x: lFwd.x.toFixed(4), z: lFwd.z.toFixed(4) },
+      rightFootFwd: { x: rFwd.x.toFixed(4), z: rFwd.z.toFixed(4) },
+      leftKneeWorldPos: lKneePos ? { x: lKneePos.x.toFixed(4), y: lKneePos.y.toFixed(4), z: lKneePos.z.toFixed(4) } : null,
+      rightKneeWorldPos: rKneePos ? { x: rKneePos.x.toFixed(4), y: rKneePos.y.toFixed(4), z: rKneePos.z.toFixed(4) } : null,
+    };
+  }
+
+  /**
+   * Two-bone IK solver for leg grounding. Adjusts UpperLeg and LowerLeg rotations
+   * to plant the foot at Y=0 while keeping the knee pointing forward via pole constraint.
+   *
+   * Algorithm:
+   *  1. Compute target knee position using law of cosines + pole direction
+   *  2. Swing upper leg to point at new knee position
+   *  3. Apply pole constraint: twist upper leg around its axis so knee faces forward
+   *  4. Swing lower leg to point at foot target
+   *  5. Restore foot world orientation (toe-out preservation)
+   */
+  function applyLegSwingIK(
+    vrm: VRM,
+    upperBoneName: VRMHumanBoneNameValue,
+    footBoneName: VRMHumanBoneNameValue
+  ): void {
+    const lowerBoneName = upperBoneName === VRMHumanBoneName.LeftUpperLeg
+      ? VRMHumanBoneName.LeftLowerLeg
+      : VRMHumanBoneName.RightLowerLeg;
+
+    const upperNode = vrm.humanoid.getRawBoneNode(upperBoneName);
+    const lowerNode = vrm.humanoid.getRawBoneNode(lowerBoneName);
+    const footNode = vrm.humanoid.getRawBoneNode(footBoneName);
+
+    if (!upperNode || !lowerNode || !footNode) return;
+
+    const hipPos = new THREE.Vector3();
+    const kneePos = new THREE.Vector3();
+    const footPos = new THREE.Vector3();
+    upperNode.getWorldPosition(hipPos);
+    lowerNode.getWorldPosition(kneePos);
+    footNode.getWorldPosition(footPos);
+
+    // Only fix if foot is meaningfully away from floor (in either direction)
+    if (Math.abs(footPos.y) <= 0.001) return;
+
+    // Capture foot world orientation BEFORE IK so we can restore it after
+    const footWorldQuatBefore = new THREE.Quaternion();
+    footNode.getWorldQuaternion(footWorldQuatBefore);
+
+    // --- Robust pole direction from animation's knee position ---
+    // The knee's forward direction (XZ projection from hip) tells us where the kneecap
+    // should face. This is stable even when the leg is nearly straight.
+    const animPoleDir = new THREE.Vector3(
+      kneePos.x - hipPos.x, 0, kneePos.z - hipPos.z
+    );
+    if (animPoleDir.lengthSq() < 0.0001) {
+      // Knee directly above/below hip — use world forward as fallback
+      animPoleDir.set(0, 0, -1);
+    }
+    animPoleDir.normalize();
+
+    // Target: same X/Z, Y=0
+    const targetPos = new THREE.Vector3(footPos.x, 0, footPos.z);
+
+    // Bone lengths
+    const upperLen = hipPos.distanceTo(kneePos);
+    const lowerLen = kneePos.distanceTo(footPos);
+    const chainLen = upperLen + lowerLen;
+
+    // Distance from hip to target
+    const targetDist = hipPos.distanceTo(targetPos);
+
+    // --- Unreachable: fully extend toward target ---
+    if (targetDist >= chainLen * 0.9999) {
+      const hipToTarget = targetPos.clone().sub(hipPos).normalize();
+      const currentHipToFoot = footPos.clone().sub(hipPos).normalize();
+      if (currentHipToFoot.distanceTo(hipToTarget) > 0.0001) {
+        const swing = new THREE.Quaternion().setFromUnitVectors(currentHipToFoot, hipToTarget);
+        applyWorldRotationToLocal(upperNode, swing);
+        upperNode.updateWorldMatrix(false, true);
+        // Apply pole constraint even for extended leg
+        applyPoleConstraint(upperNode, lowerNode, hipPos, animPoleDir);
+      }
+      // Straighten knee toward target
+      lowerNode.getWorldPosition(kneePos);
+      footNode.getWorldPosition(footPos);
+      const kneeToFoot = footPos.clone().sub(kneePos).normalize();
+      const kneeToTarget = targetPos.clone().sub(kneePos).normalize();
+      if (kneeToFoot.distanceTo(kneeToTarget) > 0.0001) {
+        const lowerSwing = new THREE.Quaternion().setFromUnitVectors(kneeToFoot, kneeToTarget);
+        applyWorldRotationToLocal(lowerNode, lowerSwing);
+        lowerNode.updateWorldMatrix(false, true);
+      }
+      restoreFootOrientation(footNode, footWorldQuatBefore);
+      (window as any).__ikDebug = { path: "unreachable", targetDist, chainLen };
+      return;
+    }
+
+    // --- Too close: bail ---
+    if (targetDist < Math.abs(upperLen - lowerLen) + 0.001) {
+      (window as any).__ikDebug = { bail: "tooClose", upperLen, lowerLen, targetDist };
+      return;
+    }
+
+    // --- Solve knee position using law of cosines ---
+    const cosHipAngle = (upperLen * upperLen + targetDist * targetDist - lowerLen * lowerLen)
+      / (2 * upperLen * targetDist);
+    const hipAngle = Math.acos(Math.max(-1, Math.min(1, cosHipAngle)));
+
+    // Direction from hip to target
+    const hipToTarget = targetPos.clone().sub(hipPos).normalize();
+
+    // Pole direction perpendicular to hip→target axis.
+    // Project animPoleDir onto the plane perpendicular to hipToTarget.
+    const poleDot = animPoleDir.dot(hipToTarget);
+    const poleDir = animPoleDir.clone().sub(
+      hipToTarget.clone().multiplyScalar(poleDot)
+    );
+    if (poleDir.lengthSq() < 0.0001) {
+      // Degenerate (pole aligned with target direction) — use world forward
+      poleDir.set(0, 0, -1);
+      const d = poleDir.dot(hipToTarget);
+      poleDir.sub(hipToTarget.clone().multiplyScalar(d));
+    }
+    poleDir.normalize();
+
+    // New knee position
+    const newKneePos = hipPos.clone()
+      .add(hipToTarget.clone().multiplyScalar(Math.cos(hipAngle) * upperLen))
+      .add(poleDir.clone().multiplyScalar(Math.sin(hipAngle) * upperLen));
+
+    // --- Step 1: Swing upper leg to point at new knee position ---
+    const currentHipToKnee = kneePos.clone().sub(hipPos).normalize();
+    const desiredHipToKnee = newKneePos.clone().sub(hipPos).normalize();
+
+    if (currentHipToKnee.distanceTo(desiredHipToKnee) > 0.0001) {
+      const upperSwing = new THREE.Quaternion().setFromUnitVectors(currentHipToKnee, desiredHipToKnee);
+      applyWorldRotationToLocal(upperNode, upperSwing);
+      upperNode.updateWorldMatrix(false, true);
+    }
+
+    // --- Step 2: Pole constraint — twist upper leg to keep knee forward ---
+    applyPoleConstraint(upperNode, lowerNode, hipPos, animPoleDir);
+
+    // --- Step 3: Swing lower leg to point at target ---
+    lowerNode.getWorldPosition(kneePos);
+    footNode.getWorldPosition(footPos);
+
+    const currentKneeToFoot = footPos.clone().sub(kneePos).normalize();
+    const desiredKneeToFoot = targetPos.clone().sub(kneePos).normalize();
+
+    if (currentKneeToFoot.distanceTo(desiredKneeToFoot) > 0.0001) {
+      const lowerSwing = new THREE.Quaternion().setFromUnitVectors(currentKneeToFoot, desiredKneeToFoot);
+      applyWorldRotationToLocal(lowerNode, lowerSwing);
+      lowerNode.updateWorldMatrix(false, true);
+    }
+
+    // --- Step 4: Restore foot orientation ---
+    restoreFootOrientation(footNode, footWorldQuatBefore);
+
+    // Debug
+    const finalFootPos = new THREE.Vector3();
+    footNode.getWorldPosition(finalFootPos);
+    (window as any).__ikDebug = {
+      applied: true,
+      leg: upperBoneName === VRMHumanBoneName.RightUpperLeg ? "right" : "left",
+      footAfterY: finalFootPos.y,
+      targetDist,
+      chainLen,
+      hipAngleDeg: hipAngle * 180 / Math.PI,
+    };
+  }
+
+  /**
+   * Pole constraint: twists the upper leg bone around its own axis so that
+   * the knee (child bone) points in the desired forward direction.
+   * This prevents knee pop-out caused by setFromUnitVectors introducing unwanted roll.
+   */
+  function applyPoleConstraint(
+    upperNode: THREE.Object3D,
+    lowerNode: THREE.Object3D,
+    hipPos: THREE.Vector3,
+    desiredPoleDir: THREE.Vector3
+  ): void {
+    // Get current knee position and upper leg axis
+    const currentKneePos = new THREE.Vector3();
+    lowerNode.getWorldPosition(currentKneePos);
+
+    const boneAxis = currentKneePos.clone().sub(hipPos).normalize();
+
+    // Project current knee offset onto the plane perpendicular to bone axis
+    // (This gives us the direction the knee is currently pointing)
+    const hipToKnee = currentKneePos.clone().sub(hipPos);
+    const axisProj = boneAxis.clone().multiplyScalar(hipToKnee.dot(boneAxis));
+    const currentPoleVec = hipToKnee.clone().sub(axisProj);
+
+    // Project desired pole direction onto the same perpendicular plane
+    const desiredProj = desiredPoleDir.clone().sub(
+      boneAxis.clone().multiplyScalar(desiredPoleDir.dot(boneAxis))
+    );
+
+    if (currentPoleVec.lengthSq() < 0.00001 || desiredProj.lengthSq() < 0.00001) {
+      // Leg is perfectly straight or pole is along bone axis — no correction possible
+      return;
+    }
+
+    currentPoleVec.normalize();
+    desiredProj.normalize();
+
+    // Compute the twist angle between current and desired pole direction
+    const dot = Math.max(-1, Math.min(1, currentPoleVec.dot(desiredProj)));
+    if (dot > 0.9999) return; // Already aligned
+
+    // Determine twist direction using cross product
+    const cross = currentPoleVec.clone().cross(desiredProj);
+    const sign = Math.sign(cross.dot(boneAxis));
+    const angle = sign * Math.acos(dot);
+
+    // Apply twist around the bone axis (in world space)
+    const twistQuat = new THREE.Quaternion().setFromAxisAngle(boneAxis, angle);
+    applyWorldRotationToLocal(upperNode, twistQuat);
+    upperNode.updateWorldMatrix(false, true);
+  }
+
+  /** Converts a world-space rotation to local space and premultiplies onto the bone. */
+  function applyWorldRotationToLocal(bone: THREE.Object3D, worldRot: THREE.Quaternion): void {
+    const parentWorldQuat = new THREE.Quaternion();
+    if (bone.parent) {
+      bone.parent.getWorldQuaternion(parentWorldQuat);
+    }
+    const parentInv = parentWorldQuat.clone().invert();
+    // localSwing = inv(parentWorld) * worldRot * parentWorld
+    const localSwing = parentInv.multiply(worldRot).multiply(parentWorldQuat);
+    bone.quaternion.premultiply(localSwing);
+  }
+
+  /**
+   * After leg IK adjusts upper/lower leg, the foot's world orientation drifts because
+   * it's a child of the rotated chain. This restores the foot's original world orientation
+   * (preserving toe-out angle from the animation).
+   */
+  function restoreFootOrientation(footNode: THREE.Object3D, targetWorldQuat: THREE.Quaternion): void {
+    const currentWorldQuat = new THREE.Quaternion();
+    footNode.getWorldQuaternion(currentWorldQuat);
+
+    // World-space correction: from current → target
+    const correction = currentWorldQuat.clone().invert().premultiply(targetWorldQuat);
+    // correction = targetWorldQuat * inv(currentWorldQuat) — applied in world space
+
+    // Convert to local space and apply
+    applyWorldRotationToLocal(footNode, correction);
   }
 
   function createRigOverlayState(avatar: LoadedAvatar): RigOverlayState | null {
@@ -1004,6 +1359,13 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return currentAvatar?.vrm?.expressionManager ?? null;
   }
 
+  function setActiveEmotion(emotion: AvatarRuntimeEmotionName | null): void {
+    passiveEmotion?.setEmotion(emotion);
+    updateSnapshot({
+      activeEmotion: emotion
+    });
+  }
+
   function resetSpeechExpressions(): void {
     const expressionManager = getExpressionManager();
 
@@ -1109,6 +1471,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   function beginSpeechReaction(input: AvatarSpeechReactionInput): void {
     clearSpeechReactionTimers();
     resetSpeechExpressions();
+    passiveMouth?.suppressForSpeech();
 
     const speechReactionVisemes = buildSpeechReactionVisemes(input);
 
@@ -1157,6 +1520,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   function clearSpeechReaction(): void {
     clearSpeechReactionTimers();
     resetSpeechExpressions();
+    passiveMouth?.releaseFromSpeech();
     updateSnapshot({
       currentState: "idle",
       ...buildSpeechOverlaySnapshot({
@@ -1173,7 +1537,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     vrm: VRM | null,
     payload: SemanticAnimationRuntimePayload
   ): ResolvedAnimationPlayback {
-    return resolveAvatarRuntimePlayback(vrm, payload);
+    return resolveAvatarRuntimePlayback(vrm, payload, animationPlaybackPath);
   }
 
   function restoreBaseAnimationPose(baseAnimationState: ActiveBaseAnimationState): void {
@@ -1191,9 +1555,14 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     activeBaseAnimation = null;
   }
 
-  let _groundDebugFrameCount = 0;
   function updateBaseAnimation(deltaSeconds: number): void {
     if (!activeBaseAnimation) {
+      return;
+    }
+
+    // VRMA path: let the VRMA mixer handle playback directly
+    if (activeBaseAnimation.playbackPath === "vrma" && vrmaPlayback) {
+      vrmaPlayback.update(deltaSeconds);
       return;
     }
 
@@ -1206,24 +1575,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     }
 
     activeBaseAnimation.humanoidPlayback?.apply(activeBaseAnimation.elapsedSeconds);
-
-    // Log every ~60 frames (approx once per second at 60fps)
-    _groundDebugFrameCount++;
-    if (_groundDebugFrameCount % 60 === 1) {
-      const root = activeBaseAnimation.root;
-      console.log(`[updateBase] frame=${_groundDebugFrameCount} elapsed=${activeBaseAnimation.elapsedSeconds.toFixed(3)} root.position.y=${root.position.y.toFixed(6)}`);
-      if (currentAvatar?.vrm) {
-        const lf = resolveRigOverlayBoneNode(currentAvatar.vrm, VRMHumanBoneName.LeftFoot);
-        const rf = resolveRigOverlayBoneNode(currentAvatar.vrm, VRMHumanBoneName.RightFoot);
-        if (lf) {
-          root.updateMatrixWorld(true);
-          console.log(`[updateBase] leftFoot worldY=${lf.getWorldPosition(new THREE.Vector3()).y.toFixed(6)}`);
-        }
-        if (rf) {
-          console.log(`[updateBase] rightFoot worldY=${rf.getWorldPosition(new THREE.Vector3()).y.toFixed(6)}`);
-        }
-      }
-    }
   }
 
   function activateBaseAnimation(command: SemanticAnimationCommand): void {
@@ -1254,13 +1605,30 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       elapsedSeconds: 0
     };
 
-    // Apply frame 0 so skeleton is in posed position, then ground
-    activeBaseAnimation.humanoidPlayback?.apply(0);
-    activeBaseAnimation.root.updateMatrixWorld(true);
-    console.log(`[activateBase] after apply(0), root.position.y=${activeBaseAnimation.root.position.y.toFixed(6)}`);
-    groundAvatarRootToFloor(activeBaseAnimation.root, currentAvatar.vrm, "animStart");
-    console.log(`[activateBase] after grounding, root.position.y=${activeBaseAnimation.root.position.y.toFixed(6)}`);
-    activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+    // VRMA path: load and play the .vrma file via three-vrm-animation
+    if (resolvedPlayback.playbackPath === "vrma" && vrmaPlayback) {
+      const candidates = resolveVrmaAssetCandidates(command.id);
+      const vrmaUrl = candidates[0]?.url;
+      if (vrmaUrl) {
+        vrmaPlayback.loadVrma(vrmaUrl, command.id).then(() => {
+          vrmaPlayback!.play(command.id, {
+            loop: command.playback === "loop"
+          });
+        }).catch((err) => {
+          console.warn(`[activateBase] VRMA load failed for ${command.id}:`, err);
+        });
+      }
+      // Ground immediately based on current pose
+      activeBaseAnimation.root.updateMatrixWorld(true);
+      groundAvatarRootToFloor(activeBaseAnimation.root, currentAvatar.vrm, "animStart");
+      activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+    } else {
+      // Mixer/feetAnchored path: apply frame 0 so skeleton is in posed position, then ground
+      activeBaseAnimation.humanoidPlayback?.apply(0);
+      activeBaseAnimation.root.updateMatrixWorld(true);
+      groundAvatarRootToFloor(activeBaseAnimation.root, currentAvatar.vrm, "animStart");
+      activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+    }
 
     updateBaseAnimation(0);
 
@@ -1285,12 +1653,22 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     if (!scene || !currentAvatar) {
       removeRigOverlayHelper();
       stopBaseAnimation();
+      if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
+      if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
+      if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
+      if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
+      if (passiveEmotion) { passiveEmotion.dispose(); passiveEmotion = null; }
       currentAvatar = null;
       return;
     }
 
     removeRigOverlayHelper();
     stopBaseAnimation();
+    if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
+    if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
+    if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
+    if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
+    if (passiveEmotion) { passiveEmotion.dispose(); passiveEmotion = null; }
     scene.remove(currentAvatar.anchorRoot);
     currentAvatar.root.traverse((node: THREE.Object3D) => {
       const mesh = node as THREE.Mesh;
@@ -1346,8 +1724,25 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       updateBaseAnimation(deltaSeconds);
 
+      // Passive blink runs independently of body animation
+      passiveBlink?.update(deltaSeconds);
+
+      // Passive mouth idle runs independently; suppressed during speech
+      passiveMouth?.update(deltaSeconds);
+
+      // Passive eye drift — natural micro-saccades and gaze wandering
+      passiveEyeDrift?.update(deltaSeconds);
+
+      // Passive emotion layer for smooth facial state transitions
+      passiveEmotion?.update(deltaSeconds);
+
       if (currentAvatar?.vrm) {
         currentAvatar.vrm.update(deltaSeconds);
+      }
+
+      // Per-frame floor grounding: root clamp + per-leg IK (Unity "Foot IK" equivalent)
+      if (currentAvatar?.vrm && activeBaseAnimation) {
+        applyFloorGrounding(currentAvatar.root, currentAvatar.vrm);
       }
 
       if (rigOverlayEnabled) {
@@ -1369,8 +1764,20 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     }
   }
 
-  function ensureRenderer(): void {
+  function syncOrbitControlsInteraction(mountPoints: AvatarRuntimeMountPoints | null): void {
+    if (!orbitControls) {
+      return;
+    }
+
+    const isDisplayViewer = mountPoints?.viewerVariant === "display";
+
+    orbitControls.enablePan = isDisplayViewer;
+    orbitControls.mouseButtons.RIGHT = isDisplayViewer ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+  }
+
+  function ensureRenderer(mountPoints: AvatarRuntimeMountPoints | null): void {
     if (renderer || !viewportElement) {
+      syncOrbitControlsInteraction(mountPoints);
       return;
     }
 
@@ -1396,11 +1803,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     orbitControls.dampingFactor = 0.08;
     orbitControls.rotateSpeed = 0.72;
     orbitControls.zoomSpeed = 0.9;
-    orbitControls.enablePan = snapshot.mountPoints?.viewerVariant === "display";
+    orbitControls.minDistance = 0.05;
     orbitControls.minPolarAngle = THREE.MathUtils.degToRad(70);
     orbitControls.maxPolarAngle = THREE.MathUtils.degToRad(110);
     orbitControls.minAzimuthAngle = Number.NEGATIVE_INFINITY;
     orbitControls.maxAzimuthAngle = Number.POSITIVE_INFINITY;
+    syncOrbitControlsInteraction(mountPoints);
     viewportElement.replaceChildren(renderer.domElement);
     handleResize();
     startRenderLoop();
@@ -1429,7 +1837,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     if (orbitControls) {
       orbitControls.target.copy(lookTarget);
-      orbitControls.minDistance = Math.max(cameraDistance * 0.42, 0.82);
+      orbitControls.minDistance = 0.05;
       orbitControls.maxDistance = Math.max(cameraDistance * 1.55, orbitControls.minDistance + 0.8);
       orbitControls.update();
       return;
@@ -1493,10 +1901,57 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         root,
         vrm
       };
+
+      // Create VRMA playback bridge for this VRM
+      if (vrmaPlayback) {
+        vrmaPlayback.dispose();
+        vrmaPlayback = null;
+      }
+      if (vrm) {
+        vrmaPlayback = createVrmaPlayback(vrm, root);
+      }
+
+      // Create passive blink controller for this VRM
+      if (passiveBlink) {
+        passiveBlink.dispose();
+        passiveBlink = null;
+      }
+      if (vrm) {
+        passiveBlink = createPassiveBlinkController(vrm);
+      }
+
+      // Create passive mouth controller for this VRM
+      if (passiveMouth) {
+        passiveMouth.dispose();
+        passiveMouth = null;
+      }
+      if (vrm) {
+        passiveMouth = createPassiveMouthController(vrm);
+      }
+
+      // Create passive eye drift controller for this VRM
+      if (passiveEyeDrift) {
+        passiveEyeDrift.dispose();
+        passiveEyeDrift = null;
+      }
+      if (vrm) {
+        passiveEyeDrift = createPassiveEyeDriftController(vrm);
+      }
+
+      // Create passive emotion controller for this VRM
+      if (passiveEmotion) {
+        passiveEmotion.dispose();
+        passiveEmotion = null;
+      }
+      if (vrm) {
+        passiveEmotion = createPassiveEmotionController(vrm);
+        passiveEmotion.setEmotion(snapshot.activeEmotion);
+      }
+
       syncRigOverlayHelper();
       frameLoadedAvatar(currentAvatar);
 
-      const nextBaseAnimation = snapshot.pendingAnimation ?? snapshot.baseAnimation;
+      const nextBaseAnimation = snapshot.pendingAnimation ?? snapshot.baseAnimation ?? DEFAULT_BASE_ANIMATION_COMMAND;
 
       if (nextBaseAnimation) {
         activateBaseAnimation(nextBaseAnimation);
@@ -1572,7 +2027,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         return;
       }
 
-      ensureRenderer();
+      ensureRenderer(mountPoints);
       window.addEventListener("resize", handleResize);
       updateSnapshot({
         mounted: true,
@@ -1647,6 +2102,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       if (currentAvatar && activeBaseAnimation) {
         activateBaseAnimation(activeBaseAnimation.command);
       }
+    },
+
+    setEmotion(emotion) {
+      setActiveEmotion(emotion);
     },
 
     beginSpeechReaction(input) {

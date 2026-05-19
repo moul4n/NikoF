@@ -322,3 +322,184 @@ Unity .anim → C# HumanPoseHandler → .vrma (glTF binary with VRMC_vrm_animati
   → Expression + LookAt tracks included
 ```
 Benefits: Standard format, proper retargeting, posture preserved, ecosystem tools work.
+
+---
+
+## Session: 2026-05-19 — Floor Grounding, Two-Bone IK & Knee Stabilisation
+
+### Context
+
+Switched to the `idle1v2` animation (from "X Bot@Idle (1).fbx") — a 16.6s, 500-sample, 30fps idle with a 13cm lateral hip weight shift. The runtime.json pipeline is working correctly for bone rotations and hips translation. The remaining visual issues are all **proportion mismatch** between the source XBot skeleton and our VRM model.
+
+### Problem: Left Foot Lifting Off Floor
+
+**Symptom:** During the rightward weight shift, the left foot lifts ~43mm above the floor plane. The right foot stays grounded but the left visibly separates from the ground.
+
+**Root Cause:** The VRM's legs are ~5% shorter than the XBot source skeleton. The position scaling uses uniform `vrmHipsY / sourceHipsY = 0.9479` which correctly scales the hips position, but during the 13cm lateral weight shift the left leg chain (total 0.768m) physically cannot reach the floor from the shifted hip position (requires 0.806m reach).
+
+**User's design philosophy:** "We don't want to be applying fixes to the animation but to the way the animation is built or applied to the model, so all future animations will work first time."
+
+---
+
+### Fix: Per-Frame Floor Grounding System (Two-Phase)
+
+Implemented in `frontend/src/avatar/runtime/avatarRuntime.ts` as `applyFloorGrounding()`. Runs generically after `vrm.update()` on every frame for all animations.
+
+#### Phase 1: Root Y Clamp (Highest Foot)
+
+Lowers `root.position.y` so the **highest** foot reaches Y=0. This guarantees no foot goes above the floor. The other foot may go below floor (gets fixed in Phase 2).
+
+```
+root.position.y -= Math.max(leftFootY, rightFootY)
+```
+
+#### Phase 2: Per-Leg Two-Bone IK
+
+For each foot that's displaced from Y=0, solves the full two-bone IK (UpperLeg → LowerLeg → Foot target):
+
+1. **Law of cosines** — computes the new knee angle given hip position, target foot position, and bone lengths
+2. **Pole-target constraint** — derives the IK plane from the animation's natural knee forward direction (XZ projection of hip→knee), ensuring the kneecap always faces forward
+3. **Swing rotation** — `setFromUnitVectors` rotates upper leg to point at the solved knee position
+4. **Pole correction** — after the swing, an explicit twist around the bone axis aligns the knee to the pole direction (prevents lateral pop-out from the swing introducing unwanted roll)
+5. **Lower leg swing** — rotates lower leg to point at the target
+6. **Foot orientation restoration** — captures foot world quaternion before IK, restores it after, preserving animation-driven toe-out angle
+7. **Unreachable fallback** — if `targetDist >= chainLen`, fully extends the leg toward target (best effort)
+
+#### Phase 3: Toe-Out Retargeting Correction
+
+The source XBot skeleton produces visible ~7° toe-out in the idle pose, but the VRM model's leg chain orientation absorbs most of this rotation. Post-IK, a static Y-axis rotation is applied to each foot bone:
+
+- Left foot: +5° outward
+- Right foot: +7° outward
+
+This matches the source animation's visual intent and biases the knee forward, improving natural appearance.
+
+---
+
+### Key Algorithm: Pole-Target Constraint
+
+The `applyPoleConstraint()` function prevents knee pop-out:
+
+1. Gets current knee world position and computes the upper leg bone axis
+2. Projects both the CURRENT knee direction and DESIRED pole direction onto the plane perpendicular to the bone axis
+3. Computes the signed angle between them (using cross product for direction)
+4. Applies a twist rotation around the bone axis to align the knee
+
+This is the same technique Unity/Unreal use in their IK systems — the pole target explicitly controls kneecap direction independent of how the directional swing was applied.
+
+---
+
+### Key Algorithm: Foot Orientation Restoration
+
+The `restoreFootOrientation()` function preserves animation-driven foot angles through IK:
+
+1. Before IK: captures the foot's world quaternion (animation intent)
+2. After IK: the foot's world orientation has drifted (it's a child of the rotated leg chain)
+3. Computes the world-space correction quaternion: `target * inv(current)`
+4. Applies it via `applyWorldRotationToLocal()` — converting from world to bone-local space
+
+---
+
+### Results (Verified Over Full 16.6s Cycle)
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Left foot peak lift | +43mm | ±0.5mm |
+| Right foot peak lift | ±0.5mm | ±0.0mm |
+| Right knee X (lateral) | 0.004 (collapsed inward) | 0.072–0.126 (stays outward) |
+| Right knee Z (forward) | -0.055 (behind hip!) | 0.054–0.133 (always forward) |
+| Left toe-out | -2.5° (toe-in) | +2.5°–4.9° (toe-out) |
+| Right toe-out | -3.5° (toe-in) | +3.3°–6.3° (toe-out) |
+
+All measurements sampled every 1s for 17 seconds via `window.__floorClampDiag` diagnostic.
+
+---
+
+### Known Remaining Issue: Hip/Upper-Leg Range
+
+During extreme weight shift, the upper leg bone doesn't move upward into the body enough to avoid tight angles at the knee. The IK geometrically solves the target but the resulting knee bend can look compressed because:
+
+1. The VRM hips are slightly lower than the XBot source
+2. The leg chain is ~5% shorter, so during weight shift it's operating near max extension
+3. The upper leg needs slightly more inward rotation to clear the pelvis visually
+
+This will be addressed in a future session — potential approaches include adjusting the Phase 1 root clamp strategy or adding a subtle hip offset during extreme shifts.
+
+---
+
+### Position Scaling Pipeline
+
+Hips position tracks use uniform scaling:
+
+```
+scale = vrmHipsRestY / sourceHipsRestY = 0.917 / 0.967 = 0.9479
+```
+
+Applied in `mixerPlayback.ts` via `rebasePositionToVrmRest()`:
+- Source position is relative to source rest (0, 0.967, 0)
+- Scaled by uniform ratio
+- Added to VRM rest position (0, 0.917, 0)
+
+This correctly scales the 13cm lateral hip sway to ~12.3cm on the VRM.
+
+---
+
+### Quaternion Conversion
+
+Unity (left-handed, Z-forward) → THREE.js/VRM (right-handed, Z-backward):
+
+```
+(x, y, z, w) → (-x, -y, z, w)
+```
+
+Applied in `interleaveQuaternionSamples()` for all rotation tracks.
+
+---
+
+### Render Loop Integration
+
+The floor grounding runs in the animation frame loop:
+
+```
+mixer.update(delta)           // advance animation
+vrm.update(delta)             // normalized → raw bone copy
+applyFloorGrounding(root, vrm) // IK correction on raw bones
+renderer.render(scene, camera) // draw
+```
+
+Critical: must run AFTER `vrm.update()` (which copies normalized→raw) and BEFORE render.
+
+---
+
+### Files Modified This Session
+
+| File | Change |
+|------|--------|
+| `frontend/src/avatar/runtime/avatarRuntime.ts` | Added `applyFloorGrounding()`, `applyLegSwingIK()`, `applyPoleConstraint()`, `restoreFootOrientation()`, `applyWorldRotationToLocal()` |
+| `frontend/src/avatar/runtime/mixerPlayback.ts` | Position scaling with uniform `vrmHipsY/sourceHipsY`, `rebasePositionToVrmRest()` |
+| `frontend/src/avatar/runtime/defaultBaseAnimation.ts` | `idle1v2` as default base animation |
+
+---
+
+### Stability & Build Status
+
+- TypeScript: `tsc --noEmit` passes cleanly (zero errors)
+- HMR: Vite dev server picks up changes on save
+- Runtime: No console errors, no frame drops from IK computation
+- All changes are generic (work for any animation, not tuned to idle1v2)
+
+---
+
+### Architecture Notes
+
+The floor grounding system follows the user's principle: fix the APPLICATION of animation to the model, not individual animations. It works because:
+
+1. **Generic** — runs on all animations without per-clip tuning
+2. **Proportion-aware** — compensates for any bone length mismatch automatically
+3. **Preserves intent** — pole constraint and foot restoration keep the animation's visual character intact
+4. **Composable** — sits cleanly after three-vrm's own bone pipeline without conflicting
+
+The remaining knee/hip issue is geometric (the VRM proportions force near-max-extension during weight shift), not an algorithmic failure. Potential future improvements:
+- Adaptive root offset that gives the IK more room during extreme poses
+- Soft IK (gradual extension near limits instead of hard geometric solve)
+- Per-model proportion metadata that adjusts the position scaling per bone chain

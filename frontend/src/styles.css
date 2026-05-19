@@ -721,6 +721,46 @@ select {
   color: #ffd1d1;
 }
 
+.avatar-stage__emotion-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.avatar-stage__emotion-button {
+  border: 1px solid rgba(140, 160, 191, 0.22);
+  border-radius: 999px;
+  background: rgba(8, 13, 22, 0.82);
+  color: #e6eefb;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+.avatar-stage__emotion-button:hover,
+.avatar-stage__emotion-button:focus-visible {
+  border-color: rgba(123, 211, 193, 0.72);
+  background: rgba(20, 31, 48, 0.94);
+  transform: translateY(-1px);
+}
+
+.avatar-stage__emotion-button--active {
+  border-color: rgba(123, 211, 193, 0.84);
+  background: rgba(30, 63, 71, 0.82);
+}
+
+.avatar-stage__emotion-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .avatar-stage__overlay dl {
   margin: 0;
   display: grid;

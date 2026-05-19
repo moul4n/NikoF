@@ -27,6 +27,17 @@ const DEV_DISPLAY_ANIMATION_OPTIONS = [
       playback: "loop"
     }
   },
+  {
+    id: "idle1",
+    label: "Force idle1",
+    description: "Loop the idle1 hip-sway clip extracted from FBX.",
+    behavior: "command",
+    semanticCommand: {
+      id: "idle1",
+      source: "shared",
+      playback: "loop"
+    }
+  },
 
 ] as const satisfies ReadonlyArray<{
   id: string;
@@ -65,6 +76,11 @@ const DEV_DISPLAY_PLAYBACK_PATH_OPTIONS = [
     id: "mixer",
     label: "Mixer (quaternion keyframes)",
     description: "Feeds bone quaternion keyframes directly to THREE.AnimationMixer. No manual scaling or Euler decomposition."
+  },
+  {
+    id: "vrma",
+    label: "VRMA (three-vrm-animation)",
+    description: "Loads .vrma files and uses @pixiv/three-vrm-animation for native retargeting with rest-pose preservation."
   }
 ] as const satisfies ReadonlyArray<{
   id: AvatarAnimationPlaybackPath;

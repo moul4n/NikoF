@@ -26,6 +26,11 @@
       "path": "assets/animations/dsl/shared/gesture.punch.once.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
+    },
+    "idle1": {
+      "path": "assets/animations/dsl/shared/idle1.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
     }
   }
 }

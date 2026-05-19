@@ -964,7 +964,9 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
         self.assertEqual("keep-alive", response.headers["Connection"])
         self.assertEqual("no", response.headers["X-Accel-Buffering"])
 
-        messages = parse_sse_messages(collect_streaming_payload(response))
+        all_messages = parse_sse_messages(collect_streaming_payload(response))
+        messages = [m for m in all_messages if m["event"] == SESSION_ANIMATION_STREAM]
+        command_messages = [m for m in all_messages if m["event"] == "animation.command"]
         self.assertEqual([None], live_delivery.cursors)
         bootstrap_payload = canonicalize_transport_payload(
             _serialize_dataclass_payload(
@@ -995,6 +997,12 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
             ],
             [canonicalize_transport_payload(json.loads(message["data"])) for message in messages[1:]],
         )
+        # Verify animation.command events are also emitted alongside
+        self.assertEqual(3, len(command_messages))
+        for cmd_msg in command_messages:
+            cmd_data = json.loads(cmd_msg["data"])
+            self.assertIn("command", cmd_data)
+            self.assertEqual("session-scaffold-01", cmd_data["session_id"])
 
     def test_route_sse_resume_reuses_existing_cursor_query_seam(self) -> None:
         animation_endpoint, lifecycle_endpoint, live_delivery = build_session_animation_route_endpoints()
@@ -1014,7 +1022,9 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
             ),
         )
 
-        messages = parse_sse_messages(collect_streaming_payload(response))
+        all_messages = parse_sse_messages(collect_streaming_payload(response))
+        messages = [m for m in all_messages if m["event"] == SESSION_ANIMATION_STREAM]
+        command_messages = [m for m in all_messages if m["event"] == "animation.command"]
         self.assertEqual([resume_cursor], live_delivery.cursors)
         bootstrap_payload = canonicalize_transport_payload(
             _serialize_dataclass_payload(
@@ -1038,6 +1048,8 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
             canonicalize_transport_payload(_serialize_dataclass_payload(expected_updates[1].snapshot)),
             canonicalize_transport_payload(json.loads(messages[1]["data"])),
         )
+        # Verify animation.command events are also emitted
+        self.assertEqual(2, len(command_messages))
 
     def test_route_flushes_keepalive_when_live_stream_has_no_pending_updates(self) -> None:
         animation_endpoint, _lifecycle_endpoint, live_delivery = build_session_animation_route_endpoints()
@@ -1050,7 +1062,9 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
         )
 
         payload = collect_streaming_payload(response)
-        messages = parse_sse_messages(payload)
+        all_messages = parse_sse_messages(payload)
+        messages = [m for m in all_messages if m["event"] == SESSION_ANIMATION_STREAM]
+        command_messages = [m for m in all_messages if m["event"] == "animation.command"]
         self.assertEqual([None], live_delivery.cursors)
         self.assertEqual("no-cache, no-transform", response.headers["Cache-Control"])
         self.assertEqual("keep-alive", response.headers["Connection"])
@@ -1061,6 +1075,11 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
         self.assertNotIn("id", messages[0])
         self.assertEqual("session-scaffold-01", json.loads(messages[0]["data"])["session_id"])
         self.assertEqual("idle.default", json.loads(messages[0]["data"])["command"]["semantic_id"])
+        # Verify animation.command event emitted alongside
+        self.assertEqual(1, len(command_messages))
+        cmd_data = json.loads(command_messages[0]["data"])
+        self.assertEqual("play_animation", cmd_data["command"]["command"])
+        self.assertEqual("idle.default", cmd_data["command"]["clip_id"])
 
     def test_route_rejects_invalid_cursor_before_transport_negotiation(self) -> None:
         animation_endpoint, _lifecycle_endpoint, _live_delivery = build_session_animation_route_endpoints()
