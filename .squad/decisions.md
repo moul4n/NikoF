@@ -2,6 +2,24 @@
 
 ## Active Decisions
 
+### 2026-05-19T00:00:00Z: VRMA migration architecture confirmed — backend sends semantic commands, frontend owns native VRMA playback
+
+**By:** Trinity
+**What:** Confirm the VRMA migration plan. The backend does NOT realize animation virtually or pass bone positions. The frontend loads standard `.vrma` files via `@pixiv/three-vrm-animation` and three-vrm handles all bone math, retargeting, and coordinate conversion. The backend sends semantic animation commands only (`play_animation`, `stop_animation`, `crossfade`, `set_expression`, `set_lookat`). The custom quaternion JSON pipeline (`.runtime.json` payloads, manual coordinate conversion, `officialPunchClipPlayback.ts` custom bone routing) is deprecated and scheduled for removal after Phase 2 proves visual parity.
+**Why:** The custom pipeline (Unity .anim → C# HumanPoseHandler → JSON quaternion arrays → THREE.js KeyframeTrack) is a dead end: VRM models have identity rest rotations, flat bone-local quaternions without a reference skeleton cannot retarget, and the pipeline has no expression support, lookAt, hips height scaling, or retargeting. `@pixiv/three-vrm-animation` solves all of these using world-space rotation retargeting with proper parent bone matrix transforms.
+
+### 2026-05-19T00:00:00Z: VRMA playback interface — dual-path coexistence with `"mixer" | "vrma"` route selection
+
+**By:** Switch
+**What:** Extend `AvatarRuntimePlaybackPath` from `"mixer"` to `"mixer" | "vrma"`. New modules: `vrmaPlayback.ts` (owns VRMAnimationLoaderPlugin, GLTF loading, createVRMAnimationClip retargeting, THREE.AnimationMixer control), `animationCommandHandler.ts` (accepts backend semantic commands and dispatches to vrmaPlayback or VRM expressionManager/lookAt). The `avatarRuntimePlaybackRoute.ts` route selector gains an optional `preferredPath` parameter that short-circuits legacy mixer resolution when VRMA is preferred. Default path remains `"mixer"` — VRMA is dormant until `.vrma` files exist and the path is explicitly selected.
+**Why:** Both pipelines can run simultaneously during migration. The legacy humanoid-channel pipeline uses direct bone manipulation incompatible with AnimationClip tracks in the same mixer. Immediate full replacement is rejected because VRMA files don't exist yet.
+
+### 2026-05-19T00:00:00Z: Animation command protocol — thin `animation.command` SSE events for VRMA frontend playback
+
+**By:** Tank
+**What:** Introduce `animation.command` SSE event alongside existing `session.animation` events. The backend emits both: `session.animation` (rich SessionAnimationSnapshot for observability) and `animation.command` (thin actionable envelope the frontend VRMA runtime can execute directly). Command types: `play_animation`, `stop_animation`, `crossfade`, `set_expression`, `set_lookat`. `AnimationCommandTranslator` in `backend/app/services/animation_commands.py` maintains per-session base-clip state and translates each snapshot into the appropriate thin command. Backward compatible — existing `session.animation` stream unchanged.
+**Why:** The backend stays in charge of WHAT plays WHEN (state machine, semantic resolution, fallbacks). The frontend only needs to know HOW to play. Thin commands map directly to `@pixiv/three-vrm-animation` operations without translation logic on the frontend. No bone math or engine internals cross the backend boundary.
+
 ### 2026-05-18T12:08:58.9671770Z: Approve browser-adjacent idle finger hardening on the existing runtime seam
 
 **By:** Trinity
