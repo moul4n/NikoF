@@ -31,6 +31,11 @@
       "path": "assets/animations/dsl/shared/idle1.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
+    },
+    "idle1v3": {
+      "path": "assets/animations/dsl/shared/idle1v3.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
     }
   }
 }

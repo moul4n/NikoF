@@ -503,3 +503,170 @@ The remaining knee/hip issue is geometric (the VRM proportions force near-max-ex
 - Adaptive root offset that gives the IK more room during extreme poses
 - Soft IK (gradual extension near limits instead of hard geometric solve)
 - Per-model proportion metadata that adjusts the position scaling per bone chain
+
+---
+
+## Session: 2026-05-20 — VRMA Grounding Diagnostics, Knee Bend Recovery, and Planned Pelvis Compliance Layer
+
+### Context
+
+The active base path for idle playback is now native VRMA playback (`idle1v3.vrma`) with a grounded post-process in `frontend/src/avatar/runtime/avatarRuntime.ts`.
+
+This session deliberately moved away from clip-side edits and back toward the model/runtime seam because the user confirmed the source animation already works on reference three-vrm models. The question became: why does the same VRMA clip need visible compensation on Maria?
+
+### What Was Verified
+
+#### Step 1: Plain vs Grounded A/B
+
+Dev-only diagnostics were added to switch between:
+
+- `plain`: raw VRMA playback on the project model
+- `grounded`: VRMA playback plus the project's grounding / IK correction layer
+
+The A/B result was decisive:
+
+- `plain` already looked wrong on Maria
+- `grounded` improved foot contact but initially created backward knee bending and later visible compression popping
+
+Conclusion: the problem is not only floor locking. The base retarget on Maria differs from reference three-vrm playback enough that the correction layer must absorb part of the mismatch.
+
+#### Step 2: Model Compatibility Diagnostics
+
+Additional diagnostics were added to measure Maria's lower-body chain at load and during playback:
+
+- `window.__NIKOF_AVATAR_DEBUG__.getModelCompatibilitySnapshot()`
+- `window.__NIKOF_AVATAR_DEBUG__.logModelCompatibilitySnapshot()`
+
+These snapshots exposed the actual bend-plane behavior instead of relying on visual inspection alone.
+
+Key finding: the animated knee bend in `plain` playback wants to travel strongly forward of Maria's baseline bend plane, but grounding originally pulled the knees back toward Maria's native backward bend. That localised the issue to the grounded leg solver rather than the animation asset.
+
+### What Changed in the Runtime
+
+The current grounded VRMA path in `frontend/src/avatar/runtime/avatarRuntime.ts` now includes:
+
+1. VRMA diagnostics for pre/post correction foot and knee state
+2. Model compatibility baseline/current diagnostics for both legs
+3. A bend-plane hint derived from the animated knee offset relative to the animated hip-to-foot chain
+4. A limited upward pelvis prepass that allows some vertical hip give instead of treating the animated hip height as a hard ceiling
+5. Smoothed pelvis prepass state carried across frames (`pelvisPrepassOffsetY`) so the vertical correction is not re-applied as a hard snap every frame
+6. A blended pelvis target derived from both leg demands instead of hard-switching to whichever leg currently demands the higher hip position
+7. A short reverse-order IK convergence pass so one leg does not consistently perturb the other after shared pelvis correction
+
+### Current State at End of Session
+
+The grounded solver is materially better than it was at the start of the investigation:
+
+- both feet now land exactly on target in the cleanest grounded snapshots
+- left/right post-correction asymmetry has been removed in the best recent runs
+- the hips now participate in vertical absorption (`postCorrection.hipY > preCorrection.hipY`) instead of staying rigid
+- the earlier full-leg twist regression was removed
+- the earlier persistent backward-knee regression was reduced substantially
+
+However, the user still reports that the motion is not fully convincing. The remaining issue is no longer "feet drift off the floor" or "knees always bend backward". The remaining issue is that the compression still reads too rigid around the top of the legs / hip / inner-hip area compared with reference three-vrm playback.
+
+### Planned Next Step: Separate Pelvis Compliance Layer
+
+The next change should be a distinct pelvis compliance layer, not more leg IK complexity.
+
+#### Rationale
+
+The current solver now handles:
+
+- foot planting
+- bend-side recovery
+- some vertical hip give
+
+What it still lacks is the extra degree of freedom that makes the motion feel human: pelvis roll and small lateral hip drift tied to asymmetric leg compression. The user's description is consistent across runs: in the reference playback, the legs appear to slide upward into the hip area during compression, while the current project runtime still looks too rigid in the upper leg / hip seam.
+
+#### Intended Design
+
+Add a grounded-only pelvis compliance pass after the vertical pelvis prepass and before the final render, driven by the left/right compression difference.
+
+Implementation outline:
+
+1. Measure per-leg compression after the vertical pelvis prepass and before the final convergence pass.
+  Use existing leg-chain data already available in `applyFloorGrounding(...)`:
+  - hip world position
+  - knee world position
+  - foot world position
+  - target foot world position
+
+2. Derive two compliance signals:
+  - `compressionAverage`: average compression demand across both legs
+  - `compressionBias`: left-vs-right compression difference
+
+3. Apply a small pelvis-only adjustment layer on the hips node:
+  - vertical: keep the existing smoothed pelvis offset path
+  - lateral: shift hips a small distance toward the more compressed/supporting side
+  - roll: apply a small roll toward the compressed/supporting side
+
+4. Smooth those new lateral and roll channels across frames, just like `pelvisPrepassOffsetY`, using per-avatar persisted state.
+
+5. Keep the layer grounded-only and opt-in for the VRMA correction path so plain VRMA playback remains the baseline diagnostic reference.
+
+#### Suggested State Additions
+
+If continuing from another machine, the clean extension point is the `LoadedAvatar` state in `frontend/src/avatar/runtime/avatarRuntime.ts`.
+
+Add fields analogous to the current vertical smoothing state:
+
+- `pelvisPrepassOffsetY` (already present)
+- `pelvisComplianceOffsetX` or `pelvisComplianceLateral`
+- `pelvisComplianceRollRadians`
+
+These should be reset on character load, exactly like the current vertical pelvis smoothing state.
+
+#### Suggested Hook Point
+
+The most likely insertion point is inside `applyFloorGrounding(...)`, after:
+
+- `applyPreIkPelvisHeightSolve(...)`
+
+and before the final per-leg convergence finishes.
+
+That keeps the compliance layer logically separate from the leg solver:
+
+- vertical pelvis prepass decides how much room the chain gets
+- pelvis compliance layer adds human-like lateral/roll give
+- leg IK still owns foot planting
+
+#### Guardrails
+
+Keep the planned pelvis compliance layer constrained:
+
+- small capped lateral shift only
+- small capped roll only
+- smoothed over time
+- grounded-only
+- no animation-specific tuning
+- no per-clip authored data required
+
+The goal is to improve how the model absorbs the animation, not to hack `idle1v3` specifically.
+
+### Recommended Continuation Steps on Another Computer
+
+1. Start from the current grounded VRMA path in `frontend/src/avatar/runtime/avatarRuntime.ts`.
+2. Preserve the current diagnostics and do not remove the `plain` vs `grounded` A/B switch.
+3. Preserve the current vertical pelvis smoothing and convergence pass.
+4. Add the separate pelvis compliance layer as a new, isolated slice.
+5. Validate with the existing console diagnostics:
+  - `window.__NIKOF_AVATAR_DEBUG__.logVrmaRetargetDiagnostics()`
+  - `window.__NIKOF_AVATAR_DEBUG__.logModelCompatibilitySnapshot()`
+6. Compare not just visuals, but whether:
+  - feet stay at exact targets
+  - knees stop popping laterally
+  - hip/inner-thigh compression looks less rigid
+  - plain mode remains unchanged
+
+### Files Relevant to This Handoff
+
+- `frontend/src/avatar/runtime/avatarRuntime.ts`
+- `assets/animations/dsl/shared/idle1v3.json`
+- `assets/animations/dsl/shared/animations.json`
+
+### Handoff Summary
+
+Do not resume from the old backward-knee or twist experiments. Resume from the current grounded solver and treat the next task as a new layer:
+
+"Add a separate pelvis compliance layer (vertical already exists; add lateral/roll) so grounded VRMA playback can absorb asymmetric compression in the hips instead of pushing the remaining motion into rigid upper-leg and knee behavior."
