@@ -111,7 +111,7 @@ const sharedAnimationRuntimeSidecarModules: Record<string, SharedAnimationRuntim
 };
 
 export const DEFAULT_BASE_ANIMATION_COMMAND: SemanticAnimationCommand = {
-  id: "idle1v2",
+  id: "idle1v3",
   source: "shared",
   playback: "loop"
 };

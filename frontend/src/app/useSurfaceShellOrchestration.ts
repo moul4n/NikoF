@@ -61,7 +61,7 @@ interface UseSurfaceShellOrchestrationResult {
   effectiveDisplayPlaybackPath: AvatarAnimationPlaybackPath;
   desiredConversationAnimationLifecycleState: AnimationLifecycleState | null;
   desiredConversationAnimationLifecycleReason: string | null;
-  handleCommandPublished: (response: BackendOperatorCommandResponseDocument) => void;
+  handleCommandPublished: (response: BackendOperatorCommandResponseDocument | null) => void;
 }
 
 function parseSpeechLifecycleCursor(cursor: string | null | undefined): {
@@ -212,7 +212,7 @@ export function useSurfaceShellOrchestration({
 }: UseSurfaceShellOrchestrationOptions): UseSurfaceShellOrchestrationResult {
   const [devDisplayProfileView, setDevDisplayProfileView] = useState<AvatarDebugProfileView>("front");
   const [devDisplayRigOverlayEnabled, setDevDisplayRigOverlayEnabled] = useState(false);
-  const [devDisplayPlaybackPath, setDevDisplayPlaybackPath] = useState<AvatarAnimationPlaybackPath>("mixer");
+  const [devDisplayPlaybackPath, setDevDisplayPlaybackPath] = useState<AvatarAnimationPlaybackPath>("vrma");
   const [devDisplayAnimationOverride, setDevDisplayAnimationOverride] = useState<DevDisplayAnimationOverrideState>({
     optionId: "backend",
     activationKey: 0
@@ -224,7 +224,7 @@ export function useSurfaceShellOrchestration({
   const effectiveDisplayRigOverlayEnabled =
     surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayRigOverlayEnabled : false;
   const effectiveDisplayPlaybackPath: AvatarAnimationPlaybackPath =
-    surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayPlaybackPath : "mixer";
+    surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayPlaybackPath : "vrma";
   const desiredConversationAnimationLifecycleState =
     catalogLoadStatus === "ready" && selectedCharacter
       ? resolveDesiredConversationAnimationLifecycleState(
@@ -248,17 +248,30 @@ export function useSurfaceShellOrchestration({
       return;
     }
 
-    if (!hasSpeechLifecycleSnapshotCaughtUp(speechLifecycleState.snapshot, latestPublishedCommand)) {
+    if (hasSpeechLifecycleSnapshotCaughtUp(speechLifecycleState.snapshot, latestPublishedCommand)) {
+      setLatestPublishedCommand((currentCommand) => {
+        if (currentCommand?.next_speech_cursor !== latestPublishedCommand.next_speech_cursor) {
+          return currentCommand;
+        }
+
+        return null;
+      });
       return;
     }
 
-    setLatestPublishedCommand((currentCommand) => {
-      if (currentCommand?.next_speech_cursor !== latestPublishedCommand.next_speech_cursor) {
-        return currentCommand;
-      }
+    // Safety net: if the snapshot never catches up (e.g. backend restarted and
+    // lost the event store), clear the stale published command after a timeout.
+    const stalenessTimeout = setTimeout(() => {
+      setLatestPublishedCommand((currentCommand) => {
+        if (currentCommand?.next_speech_cursor !== latestPublishedCommand.next_speech_cursor) {
+          return currentCommand;
+        }
 
-      return null;
-    });
+        return null;
+      });
+    }, 15_000);
+
+    return () => clearTimeout(stalenessTimeout);
   }, [latestPublishedCommand, speechLifecycleState.snapshot]);
 
   useEffect(() => {
@@ -289,7 +302,12 @@ export function useSurfaceShellOrchestration({
     surfaceMode
   ]);
 
-  function handleCommandPublished(response: BackendOperatorCommandResponseDocument): void {
+  function handleCommandPublished(response: BackendOperatorCommandResponseDocument | null): void {
+    if (!response) {
+      setLatestPublishedCommand(null);
+      return;
+    }
+
     const reconciledCharacterId = catalog
       ? resolveSelectedCharacterId(catalog, response.character_id)
       : response.character_id;

@@ -179,7 +179,9 @@ try {
     Set-Content -LiteralPath (Join-Path $projectSettingsDir 'ProjectVersion.txt') -Value "m_EditorVersion: 6000.4.7f1"
 
     # 2. Stage files into the temp project
-    Copy-Item -LiteralPath $resolvedSourceClip -Destination (Join-Path $importedDir 'source.anim')
+    $sourceExtension = [System.IO.Path]::GetExtension($resolvedSourceClip)
+    $importedFileName = "source$sourceExtension"
+    Copy-Item -LiteralPath $resolvedSourceClip -Destination (Join-Path $importedDir $importedFileName)
     Copy-Item -LiteralPath $vrmaExporterScript -Destination (Join-Path $editorDir 'VrmaExporter.cs')
 
     # 3. Ensure output directory exists
@@ -198,7 +200,7 @@ try {
         '-executeMethod', 'NikoF.AnimationTools.VrmaExporter.RunFromCommandLine',
         '--semantic-id', $SemanticId,
         '--repo-root', $resolvedRepoRoot,
-        '--source-asset-path', 'Assets/Imported/source.anim',
+        '--source-asset-path', "Assets/Imported/$importedFileName",
         '--vrma-output', $OutputPath
     )
 

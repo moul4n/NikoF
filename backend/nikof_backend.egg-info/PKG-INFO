@@ -6,6 +6,7 @@ Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: fastapi<1.0,>=0.115
 Requires-Dist: uvicorn<1.0,>=0.34
+Requires-Dist: psutil<7.0,>=5.9
 
 # Backend Scaffold
 

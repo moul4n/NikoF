@@ -1,12 +1,14 @@
 # Character Packages
 
-Drop the three current test VRMs into these exact package roots:
+Character imports are manifest-backed package folders under `assets/characters/`. Each package keeps the runtime VRM at `model.vrm`, plus the sidecar JSON files the frontend and backend already expect.
+
+The original three test packages still exist as stable fixture slots:
 
 - `assets/characters/test-vrm-01/model.vrm`
 - `assets/characters/test-vrm-02/model.vrm`
 - `assets/characters/test-vrm-03/model.vrm`
 
-Each package already has scaffold metadata so frontend, backend, and test work can proceed even if the source VRM does not expose a usable name or identifier yet.
+Additional optional characters should follow the same package contract in their own folder, as with `assets/characters/maria/`.
 
 ## Package Root Readiness
 
@@ -17,6 +19,41 @@ Each test package root is the direct drop location for one real UniVRM 1.0 file:
 - `assets/characters/test-vrm-03/` expects `model.vrm`
 
 Do not add nested `models/` folders or rename the incoming asset file. The manifest contract already points to `model.vrm`, so imports should replace the missing file at that exact relative path.
+
+## Future VRM Import Workflow
+
+Use this workflow for every new VRM import, whether it replaces a scaffolded test slot or adds a new optional character package.
+
+1. Create or choose a package folder under `assets/characters/{character_id}/`.
+2. Place the source VRM in that package root as `model.vrm`.
+3. Add or update the required sidecars: `manifest.json`, `metadata/identity.json`, `expressions/mapping.json`, `voice/profile.json`, and `overrides/animations.json`.
+4. If the character should be selectable in the frontend control surface, register the package in `frontend/src/avatar/loaders/characterCatalog.ts`.
+5. Generate Unity `.meta` files in batch mode so the package is editor-ready without opening the Unity UI manually.
+
+### Batch-Mode Unity Metadata Generation
+
+Use the batch importer after creating or updating a character package:
+
+```powershell
+Set-Location C:\Users\fletc\Sources\NikoF
+.\scripts\asset_validation\Invoke-UnityCharacterMetaImport.ps1 -AssetRelativePath 'assets/characters/{character_id}'
+```
+
+Notes:
+
+- The wrapper auto-discovers a local Unity editor under `C:\Program Files\Unity\Hub\Editor\` unless `-UnityEditorPath` is provided.
+- The Unity entrypoint lives in `assets/Editor/CharacterMetaGenerator.cs`.
+- The script verifies that the expected `.meta` files were generated for the package folder and its contents.
+- Logs are written to `.local/unity-meta-import/`.
+
+### Optional Character Checklist
+
+When importing a new optional character rather than replacing an existing scaffolded slot:
+
+1. Use a stable folder name that will become the package `character_id`.
+2. Keep the package non-default by appending it after the current default entries in `frontend/src/avatar/loaders/characterCatalog.ts`.
+3. Normalize vendor VRM filenames back to `model.vrm` and record the original filename in `metadata/identity.json` when needed.
+4. Treat missing embedded identity data as a packaging problem; solve it in the manifest and identity sidecar, not with runtime special cases.
 
 ## Asset Intake Checklist
 

@@ -150,16 +150,228 @@ namespace NikoF.AnimationTools
 
             AssetDatabase.Refresh();
 
-            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(sourceAssetPath);
+            // Ensure the FBX is imported as Humanoid so we get a valid Avatar
+            var importer = AssetImporter.GetAtPath(sourceAssetPath) as ModelImporter;
+            if (importer != null && importer.animationType != ModelImporterAnimationType.Human)
+            {
+                importer.animationType = ModelImporterAnimationType.Human;
+                importer.SaveAndReimport();
+                AssetDatabase.Refresh();
+            }
+
+            var clip = LoadAnimationClip(sourceAssetPath);
             if (clip == null)
             {
                 throw new InvalidOperationException($"Unable to load AnimationClip at asset path '{sourceAssetPath}'.");
             }
 
+            // Export bone local rotations (same approach as the working v2 pipeline).
+            // With identity VRMA rests, retargeting is pass-through. The library's VRM 0.x
+            // compensation converts the track to the correct normalized bone value.
             ExportClipAsVrma(clip, semanticId, vrmaOutput);
 
             Debug.Log($"[VrmaExporter] Exported '{semanticId}' to '{vrmaOutput}'");
             EditorApplication.Exit(0);
+        }
+
+        private static AnimationClip LoadAnimationClip(string assetPath)
+        {
+            var allAssets = AssetDatabase.LoadAllAssetsAtPath(assetPath);
+            foreach (var asset in allAssets)
+            {
+                if (asset is AnimationClip c && !c.name.Contains("__preview__"))
+                {
+                    return c;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Export using the FBX model's own Avatar via HumanPoseHandler.
+        /// This uses the FBX skeleton's real bone axes for muscle→rotation conversion,
+        /// and captures the source skeleton's REAL rest-pose rotations in the VRMA nodes.
+        /// three-vrm's createVRMAnimationClip then computes:
+        ///   delta = track * inverse(sourceRest)
+        ///   result = vrmRest * delta
+        /// which properly retargets the animation to any VRM model.
+        /// </summary>
+        public static void ExportFbxClipAsVrma(AnimationClip clip, string sourceAssetPath, string semanticId, string outputPath)
+        {
+            var allAssets = AssetDatabase.LoadAllAssetsAtPath(sourceAssetPath);
+            Avatar fbxAvatar = null;
+            GameObject fbxModelPrefab = null;
+
+            foreach (var asset in allAssets)
+            {
+                if (asset is Avatar a && a.isValid && a.isHuman)
+                    fbxAvatar = a;
+                if (asset is GameObject go && go.transform.parent == null)
+                {
+                    if (fbxModelPrefab == null)
+                        fbxModelPrefab = go;
+                }
+            }
+
+            if (fbxAvatar == null || fbxModelPrefab == null)
+            {
+                Debug.LogWarning($"[VrmaExporter] No humanoid Avatar in FBX '{sourceAssetPath}', falling back to synthetic-rig export.");
+                ExportClipAsVrma(clip, semanticId, outputPath);
+                return;
+            }
+
+            // Instantiate the FBX model so we have its real skeleton hierarchy
+            var instance = UnityEngine.Object.Instantiate(fbxModelPrefab);
+            instance.hideFlags = HideFlags.HideAndDontSave;
+            HumanPoseHandler poseHandler = null;
+
+            try
+            {
+                var animator = instance.GetComponent<Animator>();
+                if (animator == null)
+                    animator = instance.AddComponent<Animator>();
+                animator.avatar = fbxAvatar;
+                animator.applyRootMotion = false;
+                animator.Rebind();
+                animator.Update(0f);
+
+                poseHandler = new HumanPoseHandler(fbxAvatar, instance.transform);
+
+                var durationSeconds = Mathf.Max(0f, clip.length);
+                var sampleCount = Mathf.Max(2, Mathf.RoundToInt(durationSeconds * FrameRate) + 1);
+                var times = new float[sampleCount];
+                for (var i = 0; i < sampleCount; i++)
+                    times[i] = i < sampleCount - 1 ? i / (float)FrameRate : durationSeconds;
+
+                var boneCount = HumanoidBoneNames.Length;
+
+                // Extract muscle curves from the clip.
+                // For FBX Humanoid clips, property names are direct muscle names like
+                // "Left Upper Leg Front-Back" (no "Muscle" prefix). Accept all curves
+                // bound to the Animator on the root path (these are muscle/root-motion curves).
+                var muscleValues = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
+                var bindings = AnimationUtility.GetCurveBindings(clip);
+                foreach (var binding in bindings)
+                {
+                    var prop = binding.propertyName;
+                    // Skip transform curves (position/rotation/scale on specific paths)
+                    if (!string.IsNullOrEmpty(binding.path))
+                        continue;
+
+                    var curve = AnimationUtility.GetEditorCurve(clip, binding);
+                    if (curve == null) continue;
+
+                    var samples = new float[sampleCount];
+                    for (var i = 0; i < sampleCount; i++)
+                        samples[i] = curve.Evaluate(times[i]);
+
+                    muscleValues[NormalizeMusclePropertyName(prop)] = samples;
+                }
+
+                // Build muscle name → index map
+                var muscleNameToIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                for (var i = 0; i < HumanTrait.MuscleCount; i++)
+                {
+                    muscleNameToIndex[NormalizeMusclePropertyName(HumanTrait.MuscleName[i])] = i;
+                }
+
+                // Sample each frame using HumanPoseHandler on the FBX skeleton
+                var boneRotations = new Quaternion[boneCount][];
+                var hipsTranslations = new Vector3[sampleCount];
+                for (var b = 0; b < boneCount; b++)
+                    boneRotations[b] = new Quaternion[sampleCount];
+
+                var humanPose = new HumanPose();
+
+                // Pre-extract root motion curves (may or may not exist)
+                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootT.x"), out var rootTxSamples);
+                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootT.y"), out var rootTySamples);
+                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootT.z"), out var rootTzSamples);
+                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.x"), out var rootQxSamples);
+                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.y"), out var rootQySamples);
+                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.z"), out var rootQzSamples);
+                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.w"), out var rootQwSamples);
+
+                // Initialize humanPose struct once
+                poseHandler.GetHumanPose(ref humanPose);
+
+                for (var frame = 0; frame < sampleCount; frame++)
+                {
+                    // Zero all muscles then set from curves
+                    for (var m = 0; m < humanPose.muscles.Length && m < HumanTrait.MuscleCount; m++)
+                        humanPose.muscles[m] = 0f;
+
+                    foreach (var kvp in muscleValues)
+                    {
+                        if (muscleNameToIndex.TryGetValue(kvp.Key, out var muscleIdx))
+                        {
+                            humanPose.muscles[muscleIdx] = kvp.Value[frame];
+                        }
+                    }
+
+                    // ALWAYS set body position/rotation to ensure consistency with rest pose.
+                    // Default to identity/neutral when no root motion curves exist.
+                    humanPose.bodyPosition = new Vector3(
+                        rootTxSamples != null ? rootTxSamples[frame] : 0f,
+                        rootTySamples != null ? rootTySamples[frame] : 1f,
+                        rootTzSamples != null ? rootTzSamples[frame] : 0f);
+                    humanPose.bodyRotation = new Quaternion(
+                        rootQxSamples != null ? rootQxSamples[frame] : 0f,
+                        rootQySamples != null ? rootQySamples[frame] : 0f,
+                        rootQzSamples != null ? rootQzSamples[frame] : 0f,
+                        rootQwSamples != null ? rootQwSamples[frame] : 1f);
+
+                    poseHandler.SetHumanPose(ref humanPose);
+
+                    // Read bone rotations from the FBX skeleton
+                    for (var b = 0; b < boneCount; b++)
+                    {
+                        if (!BoneNameToHumanBodyBone.TryGetValue(HumanoidBoneNames[b], out var hbb))
+                        {
+                            boneRotations[b][frame] = Quaternion.identity;
+                            continue;
+                        }
+                        var bt = animator.GetBoneTransform(hbb);
+                        boneRotations[b][frame] = bt != null ? bt.localRotation : Quaternion.identity;
+
+                        if (hbb == HumanBodyBones.Hips && bt != null)
+                            hipsTranslations[frame] = bt.localPosition;
+                    }
+                }
+
+                // Capture REST pose (all muscles zeroed) — these become the VRMA node rotations
+                var restRotations = new Quaternion[boneCount];
+                var restHipsY = 1f;
+
+                for (var m = 0; m < humanPose.muscles.Length; m++)
+                    humanPose.muscles[m] = 0f;
+                // Reset body to default T-pose position
+                humanPose.bodyPosition = new Vector3(0f, 1f, 0f);
+                humanPose.bodyRotation = Quaternion.identity;
+                poseHandler.SetHumanPose(ref humanPose);
+
+                for (var b = 0; b < boneCount; b++)
+                {
+                    if (!BoneNameToHumanBodyBone.TryGetValue(HumanoidBoneNames[b], out var hbb))
+                    {
+                        restRotations[b] = Quaternion.identity;
+                        continue;
+                    }
+                    var bt = animator.GetBoneTransform(hbb);
+                    restRotations[b] = bt != null ? bt.localRotation : Quaternion.identity;
+                    if (hbb == HumanBodyBones.Hips && bt != null)
+                        restHipsY = bt.position.y;
+                }
+
+                var clipSettings = AnimationUtility.GetAnimationClipSettings(clip);
+                WriteGlb(outputPath, semanticId, times, boneRotations, hipsTranslations, restRotations, restHipsY,
+                    clipSettings.loopTime || semanticId.StartsWith("idle.", StringComparison.Ordinal) || semanticId.EndsWith(".loop", StringComparison.Ordinal));
+            }
+            finally
+            {
+                if (poseHandler != null) poseHandler.Dispose();
+                UnityEngine.Object.DestroyImmediate(instance);
+            }
         }
 
         public static void ExportClipAsVrma(AnimationClip clip, string semanticId, string outputPath)
@@ -212,9 +424,7 @@ namespace NikoF.AnimationTools
             try
             {
                 var boneCount = HumanoidBoneNames.Length;
-                // Per-bone, per-frame local rotations
                 var boneRotations = new Quaternion[boneCount][];
-                // Hips translation per frame
                 var hipsTranslations = new Vector3[sampleCount];
 
                 // Get rest-pose hips height for the rig
@@ -233,10 +443,13 @@ namespace NikoF.AnimationTools
                 }
 
                 var pose = new HumanPose();
+                pose.bodyPosition = new Vector3(0f, restHipsY, 0f);
+                pose.bodyRotation = Quaternion.identity;
+                pose.muscles = new float[HumanTrait.MuscleCount];
 
                 for (var frame = 0; frame < sampleCount; frame++)
                 {
-                    // Reset pose
+                    // Set pose for this frame
                     pose.bodyPosition = new Vector3(
                         rootTx != null ? rootTx[frame] : 0f,
                         rootTy != null ? rootTy[frame] : restHipsY,
@@ -247,14 +460,7 @@ namespace NikoF.AnimationTools
                         rootQz != null ? rootQz[frame] : 0f,
                         rootQw != null ? rootQw[frame] : 1f);
 
-                    if (pose.muscles == null || pose.muscles.Length != HumanTrait.MuscleCount)
-                    {
-                        pose.muscles = new float[HumanTrait.MuscleCount];
-                    }
-                    else
-                    {
-                        Array.Clear(pose.muscles, 0, pose.muscles.Length);
-                    }
+                    Array.Clear(pose.muscles, 0, pose.muscles.Length);
 
                     // Fill muscle values
                     foreach (var kvp in muscleValues)
@@ -267,21 +473,25 @@ namespace NikoF.AnimationTools
 
                     rig.poseHandler.SetHumanPose(ref pose);
 
-                    // Sample bone local rotations
+                    // Sample bone LOCAL rotations directly from HumanPoseHandler output.
+                    // Unity's normalized humanoid local rotations are compatible with
+                    // VRM 0.x normalized bones when applied directly — this is exactly
+                    // what the working v2 pipeline does (RawAnimBatchExporter).
+                    // Skip finger bones (indices >= 22) — v2 doesn't animate them,
+                    // and the Mixamo idle finger data creates unnatural poses on VRM models.
                     for (var b = 0; b < boneCount; b++)
                     {
+                        if (b >= 22)
+                        {
+                            boneRotations[b][frame] = Quaternion.identity;
+                            continue;
+                        }
+
                         if (!BoneNameToHumanBodyBone.TryGetValue(HumanoidBoneNames[b], out var hbb))
                             continue;
 
                         var boneTransform = rig.animator.GetBoneTransform(hbb);
-                        if (boneTransform != null)
-                        {
-                            boneRotations[b][frame] = boneTransform.localRotation;
-                        }
-                        else
-                        {
-                            boneRotations[b][frame] = Quaternion.identity;
-                        }
+                        boneRotations[b][frame] = boneTransform != null ? boneTransform.localRotation : Quaternion.identity;
                     }
 
                     // Sample hips world position for translation track
@@ -289,25 +499,36 @@ namespace NikoF.AnimationTools
                     hipsTranslations[frame] = hipsTransform != null ? hipsTransform.localPosition : Vector3.zero;
                 }
 
-                // Get rest pose rotations (frame 0 with all muscles at 0)
-                var restRotations = new Quaternion[boneCount];
+                // Lock hips X/Z to prevent horizontal sliding.
+                // V2's mixer playback uses constant rest XZ with only Y varying (FK-computed).
+                // For VRMA, zeroing X/Z achieves the same effect: the model stays planted.
+                for (var frame = 0; frame < sampleCount; frame++)
                 {
-                    pose.bodyPosition = new Vector3(0f, restHipsY, 0f);
-                    pose.bodyRotation = Quaternion.identity;
-                    Array.Clear(pose.muscles, 0, pose.muscles.Length);
-                    rig.poseHandler.SetHumanPose(ref pose);
+                    hipsTranslations[frame] = new Vector3(0f, hipsTranslations[frame].y, 0f);
+                }
 
-                    for (var b = 0; b < boneCount; b++)
+                // Pre-transform rotations so that after WriteGlb's (-x,-y,z,w) conversion
+                // and the library's VRM 0.x compensation (-x,y,-z,w), the normalized bone
+                // receives (-x,-y,z,w) of the original Unity localRotation — matching v2's
+                // interleaveQuaternionSamples which applies the same LH→RH transform.
+                // Chain: (-x,y,-z,w) → WriteGlb → (x,-y,-z,w) → VRM0.x comp → (-x,-y,z,w) ✓
+                for (var b = 0; b < boneCount; b++)
+                {
+                    for (var frame = 0; frame < sampleCount; frame++)
                     {
-                        if (!BoneNameToHumanBodyBone.TryGetValue(HumanoidBoneNames[b], out var hbb))
-                            continue;
-                        var bt = rig.animator.GetBoneTransform(hbb);
-                        restRotations[b] = bt != null ? bt.localRotation : Quaternion.identity;
+                        var q = boneRotations[b][frame];
+                        boneRotations[b][frame] = new Quaternion(-q.x, q.y, -q.z, q.w);
                     }
                 }
 
-                // Now write the .glb file
-                WriteGlb(outputPath, semanticId, times, boneRotations, hipsTranslations, restRotations, restHipsY,
+                // Write with identity rest rotations — retargeting becomes pass-through.
+                var identityRests = new Quaternion[boneCount];
+                for (var b = 0; b < boneCount; b++)
+                {
+                    identityRests[b] = Quaternion.identity;
+                }
+
+                WriteGlb(outputPath, semanticId, times, boneRotations, hipsTranslations, identityRests, restHipsY,
                     clipSettings.loopTime || semanticId.StartsWith("idle.", StringComparison.Ordinal) || semanticId.EndsWith(".loop", StringComparison.Ordinal));
             }
             finally
@@ -761,23 +982,23 @@ namespace NikoF.AnimationTools
         {
             var root = new GameObject("VrmaExportRig") { hideFlags = HideFlags.HideAndDontSave };
 
-            // Build skeleton with IDENTITY rest rotations.
-            // VRM convention: all bones have identity rotation in T-pose.
-            // Bone directions are implied by parent-to-child position vectors.
-            // Unity's AvatarBuilder infers bone axes from positions.
-            var hips = CreateBone(root.transform, "Hips", new Vector3(0f, 1f, 0f));
-            var spine = CreateBone(hips, "Spine", new Vector3(0f, 0.12f, 0f));
-            var chest = CreateBone(spine, "Chest", new Vector3(0f, 0.14f, 0f));
-            var upperChest = CreateBone(chest, "UpperChest", new Vector3(0f, 0.12f, 0f));
-            var neck = CreateBone(upperChest, "Neck", new Vector3(0f, 0.12f, 0f));
-            CreateBone(neck, "Head", new Vector3(0f, 0.12f, 0f));
+            // Build skeleton matching the v2 pipeline's rig (RawAnimBatchExporter.CreatePunchComparisonRig).
+            // The rest rotations and Z-offsets affect how AvatarBuilder constructs bone axes,
+            // which determines the muscle→localRotation mapping. Using the same rig ensures
+            // v3 VRMA produces identical normalized bone values as v2.
+            var hips = CreateBone(root.transform, "Hips", new Vector3(0f, 1f, 0f), Quaternion.Euler(4f, 0f, 0f));
+            var spine = CreateBone(hips, "Spine", new Vector3(0f, 0.12f, -0.01f), Quaternion.Euler(3f, 0f, 0f));
+            var chest = CreateBone(spine, "Chest", new Vector3(0f, 0.14f, -0.005f), Quaternion.Euler(2.5f, 0f, 0f));
+            var upperChest = CreateBone(chest, "UpperChest", new Vector3(0f, 0.12f, 0.01f), Quaternion.Euler(1.5f, 0f, 0f));
+            var neck = CreateBone(upperChest, "Neck", new Vector3(0f, 0.12f, 0f), Quaternion.Euler(3f, 0f, 0f));
+            CreateBone(neck, "Head", new Vector3(0f, 0.12f, 0f), Quaternion.Euler(-2f, 0f, 0f));
 
-            var leftShoulder = CreateBone(upperChest, "LeftShoulder", new Vector3(-0.07f, 0.1f, 0f));
+            var leftShoulder = CreateBone(upperChest, "LeftShoulder", new Vector3(-0.07f, 0.1f, 0f), Quaternion.Euler(0f, 0f, 3f));
             var leftUpperArm = CreateBone(leftShoulder, "LeftUpperArm", new Vector3(-0.18f, 0f, 0f));
             var leftLowerArm = CreateBone(leftUpperArm, "LeftLowerArm", new Vector3(-0.28f, 0f, 0f));
             var leftHand = CreateBone(leftLowerArm, "LeftHand", new Vector3(-0.22f, 0f, 0f));
 
-            var rightShoulder = CreateBone(upperChest, "RightShoulder", new Vector3(0.07f, 0.1f, 0f));
+            var rightShoulder = CreateBone(upperChest, "RightShoulder", new Vector3(0.07f, 0.1f, 0f), Quaternion.Euler(0f, 0f, -3f));
             var rightUpperArm = CreateBone(rightShoulder, "RightUpperArm", new Vector3(0.18f, 0f, 0f));
             var rightLowerArm = CreateBone(rightUpperArm, "RightLowerArm", new Vector3(0.28f, 0f, 0f));
             var rightHand = CreateBone(rightLowerArm, "RightHand", new Vector3(0.22f, 0f, 0f));

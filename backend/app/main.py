@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, AsyncIterator
 
 from app.api.router import RouteDefinition, build_api_contract_snapshot, build_api_router
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -13,6 +18,21 @@ class ApplicationShell:
 
     name: str
     routes: list[RouteDefinition]
+
+
+@asynccontextmanager
+async def _lifespan(app: Any) -> AsyncIterator[None]:
+    """Manage async services that need startup/shutdown hooks."""
+    # TTS worker temporarily disabled for testing other systems.
+    # from app.services.tts_worker import get_tts_worker
+    # tts_worker = get_tts_worker()
+    # await tts_worker.start()
+    # logger.info("TTS worker process loop started (model loads on first request)")
+
+    yield
+
+    # await tts_worker.stop()
+    # logger.info("TTS worker shut down")
 
 
 def create_app() -> Any:
@@ -25,7 +45,7 @@ def create_app() -> Any:
     except ImportError:
         return ApplicationShell(name="NikoF Backend", routes=router.routes)
 
-    app = FastAPI(title="NikoF Backend", version="0.1.0")
+    app = FastAPI(title="NikoF Backend", version="0.1.0", lifespan=_lifespan)
     app.include_router(router)
     return app
 

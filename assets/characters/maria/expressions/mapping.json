@@ -1,0 +1,18 @@
+{
+  "preset": "vrm-expression-baseline",
+  "required": {
+    "neutral": "neutral",
+    "happy": "happy",
+    "sad": "sad",
+    "angry": "angry",
+    "relaxed": "relaxed"
+  },
+  "fallback": {
+    "blink": "blink",
+    "aa": null,
+    "ih": null,
+    "ou": null,
+    "ee": null,
+    "oh": null
+  }
+}

@@ -45,7 +45,7 @@ interface SpeechPlaybackStateSeed {
   text: string | null;
 }
 
-const AUDIO_PLAYBACK_STARTUP_TIMEOUT_MS = 2000;
+const AUDIO_PLAYBACK_STARTUP_TIMEOUT_MS = 8000;
 
 export function useSpeechPlaybackBridge({
   runtime,
@@ -211,6 +211,8 @@ export function useSpeechPlaybackBridge({
     releaseSpeechAudio();
 
     const playbackAudio = new Audio(audioSource);
+    playbackAudio.volume = 1.0;
+    playbackAudio.muted = false;
     let settled = false;
 
     speechPlaybackBridge.activeAudio = playbackAudio;
@@ -236,6 +238,7 @@ export function useSpeechPlaybackBridge({
 
     speechPlaybackBridge.cleanupActiveAudio = cleanupPlaybackAudio;
     speechPlaybackBridge.playbackTimeoutId = window.setTimeout(() => {
+      console.warn("[SpeechPlayback] Startup timeout fired — audio did not start in time", { playbackKey });
       fallbackToTiming("Canonical audio reference did not begin playback before the bridge timeout.");
     }, resolveAudioPlaybackStartupTimeoutMs());
 
@@ -300,6 +303,13 @@ export function useSpeechPlaybackBridge({
     };
 
     const handlePlaying = (): void => {
+      console.info("[SpeechPlayback] 'playing' event fired", {
+        currentTime: playbackAudio.currentTime,
+        duration: playbackAudio.duration,
+        volume: playbackAudio.volume,
+        muted: playbackAudio.muted,
+        paused: playbackAudio.paused,
+      });
       if (speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
         return;
       }
@@ -323,6 +333,10 @@ export function useSpeechPlaybackBridge({
     };
 
     const handleEnded = (): void => {
+      console.info("[SpeechPlayback] 'ended' event fired", {
+        currentTime: playbackAudio.currentTime,
+        duration: playbackAudio.duration,
+      });
       finishPlayback();
     };
 
@@ -333,16 +347,33 @@ export function useSpeechPlaybackBridge({
     playbackAudio.addEventListener("playing", handlePlaying);
     playbackAudio.addEventListener("ended", handleEnded);
     playbackAudio.addEventListener("error", handleError);
+    playbackAudio.addEventListener("loadedmetadata", () => {
+      console.info("[SpeechPlayback] loadedmetadata", {
+        duration: playbackAudio.duration,
+        paused: playbackAudio.paused,
+        muted: playbackAudio.muted,
+        volume: playbackAudio.volume,
+        readyState: playbackAudio.readyState,
+        networkState: playbackAudio.networkState,
+        src: playbackAudio.src,
+      });
+    });
 
-    void playbackAudio.play().catch((error: unknown) => {
+    console.info("[SpeechPlayback] Attempting audio.play()", { audioSource, durationMs, playbackKey });
+    void playbackAudio.play().then(() => {
+      console.info("[SpeechPlayback] play() resolved successfully", {
+        duration: playbackAudio.duration,
+        currentTime: playbackAudio.currentTime,
+        paused: playbackAudio.paused,
+        volume: playbackAudio.volume,
+        muted: playbackAudio.muted,
+      });
+    }).catch((error: unknown) => {
+      console.warn("[SpeechPlayback] play() rejected:", error);
       fallbackToTiming(error instanceof Error ? error.message : "Canonical audio playback could not start.");
     });
 
     function resolveAudioPlaybackStartupTimeoutMs(): number {
-      if (typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0) {
-        return Math.min(durationMs, AUDIO_PLAYBACK_STARTUP_TIMEOUT_MS);
-      }
-
       return AUDIO_PLAYBACK_STARTUP_TIMEOUT_MS;
     }
   }

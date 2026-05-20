@@ -1,0 +1,12 @@
+{
+  "character_id": "maria",
+  "display_name": "Maria",
+  "identity_status": "imported",
+  "source_vrm": {
+    "file_name": "model.vrm",
+    "embedded_name": null,
+    "embedded_identifier": "import_file_name:maria_F4.0.vrm"
+  },
+  "review_required": true,
+  "notes": "User-imported optional character package created from the Maria root VRM drop."
+}

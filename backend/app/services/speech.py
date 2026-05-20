@@ -27,6 +27,7 @@ from app.schemas.session import (
     STT_BASELINE_PROFILE_IDS,
     TTS_BASELINE_PROFILE_IDS,
 )
+from app.services.resource_monitor import get_resource_monitor
 from app.services.session import InvalidEventCursor, SessionEventStore
 
 
@@ -674,6 +675,7 @@ class FasterWhisperTranscriptionAdapter(StubSpeechTranscriptionService):
 
     def transcribe(self, request: SpeechTranscriptionRequest) -> SpeechTranscriptionContract:
         binding = self.binding_for(request)
+        tracker = get_resource_monitor().tracker("stt")
         fallback_timing = request.timing or self.default_timing
         if not binding.configured:
             return SpeechTranscriptionContract(
@@ -685,6 +687,7 @@ class FasterWhisperTranscriptionAdapter(StubSpeechTranscriptionService):
                 timing=fallback_timing,
             )
 
+        start_time = time.time()
         try:
             response = _run_json_entrypoint(
                 binding.invocation_entrypoint,
@@ -721,6 +724,14 @@ class FasterWhisperTranscriptionAdapter(StubSpeechTranscriptionService):
                 confidence=request.confidence_hint,
                 timing=fallback_timing,
             )
+
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        # Mark STT as loaded on first successful transcription
+        if not tracker.loaded:
+            # faster-whisper medium uses ~2GB VRAM
+            tracker.mark_loaded(f"faster-whisper/{binding.model_root.name}", vram_mb=2000, ram_mb=512)
+        tracker.record_request(elapsed_ms)
 
         transcript = str(
             response.get("transcript")

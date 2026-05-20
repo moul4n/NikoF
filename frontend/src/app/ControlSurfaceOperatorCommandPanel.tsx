@@ -31,7 +31,7 @@ interface ControlSurfaceOperatorCommandPanelProps {
   selectedCharacter: CharacterCatalogEntry | null;
   speechLifecycleState: SpeechLifecycleLoadState;
   speechPlaybackStatus: SpeechPlaybackState;
-  onCommandPublished: (response: BackendOperatorCommandResponseDocument) => void;
+  onCommandPublished: (response: BackendOperatorCommandResponseDocument | null) => void;
 }
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
@@ -285,6 +285,8 @@ export function ControlSurfaceOperatorCommandPanel({
 
   function handleOperatorCommandSubmit(commandType: BackendOperatorCommandType, text: string): void {
     const locale = operatorCommandLocale.trim() || "en-US";
+
+    onCommandPublished(null);
 
     setOperatorCommandState((currentState) => ({
       status: "submitting",

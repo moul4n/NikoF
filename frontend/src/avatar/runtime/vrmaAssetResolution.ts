@@ -26,7 +26,6 @@ export function resolveVrmaAssetUrl(
   semanticId: string,
   characterId?: string
 ): VrmaAssetResolution | null {
-  // Normalize semantic ID to a safe filename
   const fileName = `${semanticId}.vrma`;
 
   if (characterId) {

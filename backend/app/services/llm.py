@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import time
 from pathlib import Path
 from typing import Any, Protocol
 from urllib import error as urllib_error
@@ -9,6 +10,7 @@ from urllib import request as urllib_request
 
 from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import AssistantMessageContract, LLM_BASELINE_PROFILE_IDS
+from app.services.resource_monitor import get_resource_monitor
 
 
 OLLAMA_GENERATE_PATH = "/api/generate"
@@ -195,6 +197,8 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
 
     def generate(self, request: TextGenerationRequest) -> AssistantMessageContract:
         binding = self.binding_for(request)
+        tracker = get_resource_monitor().tracker("llm")
+
         if not binding.configured:
             return self._build_contract(
                 request,
@@ -202,6 +206,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
                 text=self.unavailable_text,
             )
 
+        start_time = time.time()
         try:
             response = _read_json_response(
                 binding.endpoint,
@@ -218,6 +223,14 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
                 status=status,
                 text=self.unavailable_text if status == "unavailable" else "Local text generation failed.",
             )
+
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        # Mark LLM as loaded on first successful response
+        if not tracker.loaded:
+            # Ollama llama3.1:8b Q4 uses ~5-6GB VRAM
+            tracker.mark_loaded(f"ollama/{binding.model_name}", vram_mb=5500, ram_mb=1024)
+        tracker.record_request(elapsed_ms)
 
         reply_text = str(response.get("response") or response.get("text") or "").strip()
         if not reply_text:

@@ -334,7 +334,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let debugProfileView: AvatarDebugProfileView = "front";
   let rigOverlayEnabled = false;
   let rigOverlayState: RigOverlayState | null = null;
-  let animationPlaybackPath: AvatarAnimationPlaybackPath = "mixer";
+  let animationPlaybackPath: AvatarAnimationPlaybackPath = "vrma";
   let vrmaPlayback: VrmaPlaybackBridge | null = null;
   let passiveBlink: PassiveBlinkController | null = null;
   let passiveMouth: PassiveMouthController | null = null;
@@ -763,10 +763,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   const TOE_OUT_LEFT_DEG = 5;
   const TOE_OUT_RIGHT_DEG = 7;
 
-  function applyFloorGrounding(root: THREE.Object3D, vrm: VRM): void {
-    // --- Phase 1: Root Y clamp using HIGHEST foot ---
-    // By clamping to the max foot Y, we guarantee NO foot goes above Y=0.
-    // The other foot may go below floor (invisible) and gets IK'd back up in Phase 2.
+  function applyFloorGrounding(root: THREE.Object3D, vrm: VRM, skipLegOverrides = false): void {
     root.updateMatrixWorld(true);
 
     const leftFoot = vrm.humanoid.getRawBoneNode(VRMHumanBoneName.LeftFoot);
@@ -776,6 +773,21 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     const leftFootY = leftFoot.getWorldPosition(_floorVec).y;
     const rightFootY = rightFoot.getWorldPosition(_floorVec2).y;
+
+    // For VRMA playback: anchor the character to the floor every frame using
+    // only the root clamp and preserving the authored leg rotations.
+    if (skipLegOverrides) {
+      const highestFootY = Math.max(leftFootY, rightFootY);
+      if (Number.isFinite(highestFootY) && Math.abs(highestFootY) > 0.0005) {
+        root.position.y -= highestFootY;
+        root.updateMatrixWorld(true);
+      }
+      return;
+    }
+
+    // --- V2/mixer path: Phase 1 uses HIGHEST foot ---
+    // By clamping to the max foot Y, we guarantee NO foot goes above Y=0.
+    // The other foot may go below floor (invisible) and gets IK'd back up in Phase 2.
     const highestFootY = Math.max(leftFootY, rightFootY);
 
     if (Number.isFinite(highestFootY) && Math.abs(highestFootY) > 0.0005) {
@@ -1530,7 +1542,23 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   }
 
   function resolveBaseAnimationPayload(command: SemanticAnimationCommand): SemanticAnimationRuntimePayload | null {
-    return resolveSharedSemanticAnimationPayload(command);
+    const payload = resolveSharedSemanticAnimationPayload(command);
+    if (payload) return payload;
+
+    // For VRMA-only animations (no JSON sidecar), create a synthetic payload
+    // if the VRMA path is active and the asset URL resolves.
+    if (animationPlaybackPath === "vrma") {
+      const candidates = resolveVrmaAssetCandidates(command.id);
+      if (candidates.length > 0) {
+        return {
+          semanticId: command.id,
+          playback: command.playback ?? "loop",
+          durationMs: 0 // Duration handled by VRMA mixer internally
+        };
+      }
+    }
+
+    return null;
   }
 
   function resolveHumanoidPlayback(
@@ -1742,7 +1770,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       // Per-frame floor grounding: root clamp + per-leg IK (Unity "Foot IK" equivalent)
       if (currentAvatar?.vrm && activeBaseAnimation) {
-        applyFloorGrounding(currentAvatar.root, currentAvatar.vrm);
+        // VRMA playback: only apply root Y clamp (Phase 1). Skip leg IK (Phase 2)
+        // and toe-out (Phase 3) since the VRMA animation already provides correct
+        // leg rotations — the IK would override them and cause "leg popping."
+        const skipLegOverrides = activeBaseAnimation.playbackPath === "vrma";
+        applyFloorGrounding(currentAvatar.root, currentAvatar.vrm, skipLegOverrides);
       }
 
       if (rigOverlayEnabled) {

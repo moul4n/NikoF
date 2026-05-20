@@ -18,6 +18,8 @@ import tertiaryCharacterManifest from "../../../../assets/characters/test-vrm-03
 import tertiaryCharacterModelUrl from "../../../../assets/characters/test-vrm-03/model.vrm?url";
 import inspectionCharacterManifest from "../../../../assets/characters/test-vrm-04/manifest.json";
 import inspectionCharacterModelUrl from "../../../../assets/characters/test-vrm-04/model.vrm?url";
+import mariaCharacterManifest from "../../../../assets/characters/maria/manifest.json";
+import mariaCharacterModelUrl from "../../../../assets/characters/maria/model.vrm?url";
 import {
   createBackendCharacterCatalogBridge,
   type BackendCharacterCatalogBridge
@@ -53,6 +55,10 @@ const placeholderCharacterCatalog: CharacterCatalogSeed[] = [
   {
     characterId: "test-vrm-04",
     manifestUrl: "/assets/characters/test-vrm-04/manifest.json"
+  },
+  {
+    characterId: "maria",
+    manifestUrl: "/assets/characters/maria/manifest.json"
   }
 ];
 
@@ -60,7 +66,8 @@ const bundledManifestDocuments: Partial<Record<string, CharacterManifestDocument
   "test-vrm-01": defaultCharacterManifest as CharacterManifestDocument,
   "test-vrm-02": secondaryCharacterManifest as CharacterManifestDocument,
   "test-vrm-03": tertiaryCharacterManifest as CharacterManifestDocument,
-  "test-vrm-04": inspectionCharacterManifest as CharacterManifestDocument
+  "test-vrm-04": inspectionCharacterManifest as CharacterManifestDocument,
+  maria: mariaCharacterManifest as CharacterManifestDocument
 };
 
 const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverrides>> = {
@@ -75,6 +82,9 @@ const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverride
   },
   "test-vrm-04": {
     "model.vrm": inspectionCharacterModelUrl
+  },
+  maria: {
+    "model.vrm": mariaCharacterModelUrl
   }
 };
 

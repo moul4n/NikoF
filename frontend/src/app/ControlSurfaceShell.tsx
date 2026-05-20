@@ -1,6 +1,8 @@
 import React from "react";
 import { CharacterCatalogPanel } from "../avatar/components/CharacterCatalogPanel.js";
 import { ControlSurfaceSummaryPanel } from "./ControlSurfaceSummaryPanel.js";
+import { ResourceMonitorPanel } from "./ResourceMonitorPanel.js";
+import { useResourceMonitor } from "./useResourceMonitor.js";
 import type {
   BackendOperatorCommandResponseDocument,
   BackendSpeechSynthesisDocument,
@@ -211,7 +213,7 @@ interface ControlSurfaceShellProps {
   selectedCharacter: CharacterCatalogEntry | null;
   selectedCharacterId: CharacterId | null;
   onSelectCharacter: (characterId: CharacterId) => void;
-  onCommandPublished: (response: BackendOperatorCommandResponseDocument) => void;
+  onCommandPublished: (response: BackendOperatorCommandResponseDocument | null) => void;
   backendStatusMessage: string;
   backendSyncState: BackendSyncState;
   speechLifecycleState: SpeechLifecycleLoadState;
@@ -229,6 +231,7 @@ export function ControlSurfaceShell({
   speechLifecycleState,
   speechPlaybackStatus
 }: ControlSurfaceShellProps): JSX.Element {
+  const resourceState = useResourceMonitor();
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
   const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
   const speechDeliveryLabel = resolveSpeechLifecycleDeliveryLabel(speechLifecycleState);
@@ -276,6 +279,7 @@ export function ControlSurfaceShell({
             canonicalTranscription={canonicalTranscription}
             canonicalSynthesis={canonicalSynthesis}
           />
+          <ResourceMonitorPanel resourceState={resourceState} />
         </div>
         <div className="app-shell__control-rail">
           <ControlSurfaceOperatorCommandPanel
@@ -284,6 +288,21 @@ export function ControlSurfaceShell({
             speechPlaybackStatus={speechPlaybackStatus}
             onCommandPublished={onCommandPublished}
           />
+          {speechPlaybackStatus.audioSource && (
+            <section className="surface-panel" style={{ padding: "0.75rem" }}>
+              <p style={{ margin: "0 0 0.5rem", fontWeight: "bold", fontSize: "0.85rem" }}>
+                Audio Debug Player — click play below:
+              </p>
+              <audio
+                controls
+                src={speechPlaybackStatus.audioSource}
+                style={{ width: "100%" }}
+              />
+              <p style={{ margin: "0.25rem 0 0", fontSize: "0.75rem", opacity: 0.7 }}>
+                {speechPlaybackStatus.audioSource}
+              </p>
+            </section>
+          )}
           <ControlSurfaceSummaryPanel
             selectedCharacter={selectedCharacter}
             backendStatusMessage={backendStatusMessage}
