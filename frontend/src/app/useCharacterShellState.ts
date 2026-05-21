@@ -140,6 +140,7 @@ function applyBackendBridge(
 ): void {
   void bridgeCharacterCatalogWithBackend(catalog).then((bridge) => {
     const nextMessages = [...bridge.messages];
+    const persistedCharacterId = readPersistedSelectedCharacterId();
 
     if (bridge.activeCharacterId && !findCharacterEntry(bridge.catalog, bridge.activeCharacterId)) {
       nextMessages.push(
@@ -153,14 +154,10 @@ function applyBackendBridge(
       error: null
     });
     setSelectedCharacterId((currentCharacterId) => {
-      if (bridge.activeCharacterConnected) {
-        return resolveSelectedCharacterId(bridge.catalog, bridge.activeCharacterId);
-      }
-
       return resolvePreferredCharacterId(
         bridge.catalog,
-        currentCharacterId,
-        readPersistedSelectedCharacterId()
+        currentCharacterId ?? persistedCharacterId,
+        bridge.activeCharacterConnected ? bridge.activeCharacterId : persistedCharacterId
       );
     });
     setBackendSyncState({
@@ -288,6 +285,7 @@ export function useCharacterShellState(): UseCharacterShellStateResult {
       return;
     }
 
+    writePersistedSelectedCharacterId(characterId);
     setSelectedCharacterId(characterId);
 
     if (!backendSyncState.activeCharacterConnected) {

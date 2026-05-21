@@ -1,0 +1,207 @@
+import { useEffect, useState } from "react";
+import type { BackendSttInputDeviceDocument, BackendSttStateDocument } from "../shared/types/character";
+
+export const STT_STATE_ROUTE_PATH = "/session/stt";
+export const STT_DEVICE_ROUTE_PATH = "/session/stt/device";
+export const STT_DEVICES_ROUTE_PATH = "/session/stt/devices";
+export const STT_LISTENING_ROUTE_PATH = "/session/stt/listening";
+
+const sttPollIntervalMs = 1250;
+
+function resolveApiBaseUrl(): string {
+  const configuredBaseUrl = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_BACKEND_API_BASE_URL?.trim();
+
+  if (!configuredBaseUrl) {
+    return "/api";
+  }
+
+  return configuredBaseUrl.replace(/\/+$/, "");
+}
+
+function buildBackendApiUrl(pathname: string): string {
+  const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `${resolveApiBaseUrl()}${normalizedPath}`;
+}
+
+export type SttLoadState = {
+  status: "loading" | "ready" | "offline";
+  snapshot: BackendSttStateDocument | null;
+  devices: BackendSttInputDeviceDocument[];
+  action: "idle" | "device" | "listening";
+  message: string | null;
+};
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(buildBackendApiUrl(path), {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {})
+    }
+  });
+
+  if (!response.ok) {
+    let detail: string | null = null;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      detail = typeof payload.detail === "string" ? payload.detail : null;
+    } catch {
+      detail = null;
+    }
+
+    throw new Error(detail ?? `Backend STT request failed with status ${response.status}.`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export function describeSttStateLine(state: SttLoadState): string {
+  if (state.status === "loading") {
+    return "Loading STT sidecar status.";
+  }
+
+  if (state.status === "offline") {
+    return state.message ?? "STT sidecar is offline.";
+  }
+
+  const snapshot = state.snapshot;
+  if (!snapshot) {
+    return "Awaiting STT sidecar status.";
+  }
+
+  if (!snapshot.available) {
+    return snapshot.last_error ?? "STT sidecar is unavailable.";
+  }
+
+  const deviceLabel = snapshot.selected_device_label ?? "default input";
+  if (snapshot.state === "detected") {
+    return `Detected speech on ${deviceLabel}.`;
+  }
+  if (snapshot.state === "processing") {
+    return `Processing confirmed speech from ${deviceLabel}.`;
+  }
+  if (snapshot.listening) {
+    return `Listening on ${deviceLabel}.`;
+  }
+  if (snapshot.state === "ready") {
+    return `STT sidecar ready on ${deviceLabel}.`;
+  }
+
+  return `${snapshot.state} on ${deviceLabel}.`;
+}
+
+export function useSttState(): {
+  state: SttLoadState;
+  setSelectedDevice: (deviceId: string | null) => Promise<void>;
+  setListening: (enabled: boolean) => Promise<void>;
+} {
+  const [state, setState] = useState<SttLoadState>({
+    status: "loading",
+    snapshot: null,
+    devices: [],
+    action: "idle",
+    message: null
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshState(): Promise<void> {
+      try {
+        const [snapshot, devicesPayload] = await Promise.all([
+          fetchJson<BackendSttStateDocument>(STT_STATE_ROUTE_PATH),
+          fetchJson<{ devices: BackendSttInputDeviceDocument[] }>(STT_DEVICES_ROUTE_PATH)
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setState((currentState) => ({
+          status: "ready",
+          snapshot,
+          devices: Array.isArray(devicesPayload.devices) ? devicesPayload.devices : [],
+          action: currentState.action === "idle" ? "idle" : currentState.action,
+          message: null
+        }));
+      } catch (error: unknown) {
+        if (cancelled) {
+          return;
+        }
+
+        setState((currentState) => ({
+          status: "offline",
+          snapshot: currentState.snapshot,
+          devices: currentState.devices,
+          action: "idle",
+          message: error instanceof Error ? error.message : "Backend STT route unavailable."
+        }));
+      }
+    }
+
+    void refreshState();
+    const intervalId = window.setInterval(() => {
+      void refreshState();
+    }, sttPollIntervalMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  async function setSelectedDevice(deviceId: string | null): Promise<void> {
+    setState((currentState) => ({ ...currentState, action: "device", message: null }));
+    try {
+      const snapshot = await fetchJson<BackendSttStateDocument>(STT_DEVICE_ROUTE_PATH, {
+        method: "PUT",
+        body: JSON.stringify({ device_id: deviceId })
+      });
+      const devicesPayload = await fetchJson<{ devices: BackendSttInputDeviceDocument[] }>(STT_DEVICES_ROUTE_PATH);
+      setState({
+        status: "ready",
+        snapshot,
+        devices: Array.isArray(devicesPayload.devices) ? devicesPayload.devices : [],
+        action: "idle",
+        message: null
+      });
+    } catch (error: unknown) {
+      setState((currentState) => ({
+        ...currentState,
+        status: currentState.snapshot ? "ready" : "offline",
+        action: "idle",
+        message: error instanceof Error ? error.message : "Backend STT device update failed."
+      }));
+    }
+  }
+
+  async function setListening(enabled: boolean): Promise<void> {
+    setState((currentState) => ({ ...currentState, action: "listening", message: null }));
+    try {
+      const snapshot = await fetchJson<BackendSttStateDocument>(STT_LISTENING_ROUTE_PATH, {
+        method: "PUT",
+        body: JSON.stringify({ enabled })
+      });
+      setState((currentState) => ({
+        status: "ready",
+        snapshot,
+        devices: currentState.devices,
+        action: "idle",
+        message: null
+      }));
+    } catch (error: unknown) {
+      setState((currentState) => ({
+        ...currentState,
+        status: currentState.snapshot ? "ready" : "offline",
+        action: "idle",
+        message: error instanceof Error ? error.message : "Backend STT listening update failed."
+      }));
+    }
+  }
+
+  return {
+    state,
+    setSelectedDevice,
+    setListening
+  };
+}

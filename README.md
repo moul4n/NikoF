@@ -83,6 +83,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite
 
 The current suite snapshots the contract validator, the bootstrap prerequisite surface, the bootstrap report JSON surface, the Stage 1 backend contract snapshot, and the Stage 1 backend payload-key surface. Checked-in baselines live under `tests/stability/baselines/`, while generated run artifacts and JSON reports are written under `tests/stability/artifacts/` and stay Git-ignored.
 
+## TTS Soak Capture
+
+Run the reusable TTS soak capture from the repo root when you want a machine-local JSON artifact for warm-path latency, sampled GPU usage, tail idle state, and lifecycle-poll stability:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-TtsSoak.ps1
+```
+
+Pass `-Prompts` for a short ad hoc run or `-PromptFile` for a custom prompt list. Output is written under `.local/monitoring/`.
+
+The artifact reports both the raw TTS request counter from `GET /system/resources` and an estimated completed-request total derived from returned `audio_reference` ids. On the current backend, the resource counter can lag behind successful preview responses, so use the estimated total when you need a closer completion count during active debugging.
+
 ## Fresh-Machine Bootstrap
 
 On a new Windows machine, run the bootstrap scaffold first:

@@ -18,6 +18,7 @@ import {
   resolveSpeechLifecycleDeliveryLabel,
   type SpeechLifecycleLoadState
 } from "./useSpeechLifecycleState.js";
+import { describeSttStateLine, useSttState } from "./useSttState.js";
 
 type OperatorCommandSubmissionState = {
   status: "idle" | "submitting" | "ready" | "error";
@@ -272,6 +273,7 @@ export function ControlSurfaceOperatorCommandPanel({
   speechPlaybackStatus,
   onCommandPublished
 }: ControlSurfaceOperatorCommandPanelProps): JSX.Element {
+  const { state: sttState, setSelectedDevice, setListening } = useSttState();
   const [operatorCommandLocale, setOperatorCommandLocale] = useState("en-US");
   const [textQuestionDraft, setTextQuestionDraft] = useState("");
   const [ttsPreviewDraft, setTtsPreviewDraft] = useState("");
@@ -385,6 +387,20 @@ export function ControlSurfaceOperatorCommandPanel({
   const operatorPreviewSummaryClassName = buildFeedbackClassName("surface-panel__summary", operatorFeedbackTone);
   const submitTextQuestionDisabled = isSubmitting || textQuestionDraft.trim().length === 0;
   const submitTtsPreviewDisabled = isSubmitting || ttsPreviewDraft.trim().length === 0;
+  const sttSnapshot = sttState.snapshot;
+  const sttStatusLine = describeSttStateLine(sttState);
+  const sttLatestTranscript = sttSnapshot?.latest_confirmed_text ?? "Awaiting a queued transcript from the STT sidecar.";
+  const sttListeningButtonLabel = sttSnapshot?.listening ? "Stop listening" : "Start listening";
+  const sttControlsDisabled = sttState.action !== "idle" || sttState.status === "loading";
+
+  function handleSelectedDeviceChange(event: { target: { value: string } }): void {
+    const nextDeviceId = event.target.value.trim() || null;
+    void setSelectedDevice(nextDeviceId);
+  }
+
+  function handleListeningToggle(): void {
+    void setListening(!(sttSnapshot?.listening ?? false));
+  }
 
   return (
     <section className="surface-panel operator-panel" aria-labelledby="operator-command-panel-title">
@@ -458,7 +474,65 @@ export function ControlSurfaceOperatorCommandPanel({
           <dt>Playback transport</dt>
           <dd>{describeSpeechPlaybackTransport(speechPlaybackStatus)}</dd>
         </div>
+        <div>
+          <dt>STT state</dt>
+          <dd>{sttSnapshot?.state ?? sttState.status}</dd>
+        </div>
+        <div>
+          <dt>STT device</dt>
+          <dd>{sttSnapshot?.selected_device_label ?? "Awaiting backend device list"}</dd>
+        </div>
       </dl>
+
+      <section className="operator-panel__stt" aria-labelledby="operator-stt-title">
+        <div className="operator-panel__stt-header">
+          <div>
+            <p className="eyebrow">Speech-to-text</p>
+            <h3 id="operator-stt-title">Hot mic sidecar</h3>
+          </div>
+          <p className="operator-panel__stt-status">{sttStatusLine}</p>
+        </div>
+
+        <label className="operator-panel__field" htmlFor="operator-stt-device">
+          <span className="operator-panel__field-label">Audio input</span>
+          <select
+            id="operator-stt-device"
+            className="operator-panel__input"
+            value={sttSnapshot?.selected_device_id ?? ""}
+            onChange={handleSelectedDeviceChange}
+            disabled={sttControlsDisabled}
+          >
+            {sttState.devices.length === 0 ? <option value="">No backend input devices detected</option> : null}
+            {sttState.devices.map((device) => (
+              <option key={device.device_id} value={device.device_id}>
+                {device.label}
+                {device.default ? " (default)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="operator-panel__actions">
+          <button
+            className="operator-panel__button"
+            type="button"
+            onClick={handleListeningToggle}
+            disabled={sttControlsDisabled || !sttSnapshot?.available}
+          >
+            {sttState.action === "listening" ? "Updating microphone state..." : sttListeningButtonLabel}
+          </button>
+        </div>
+
+        <div className="operator-panel__stt-transcript" aria-live="polite">
+          <p className="operator-panel__stt-transcript-label">Latest queued transcript</p>
+          <p className="operator-panel__stt-transcript-text">{sttLatestTranscript}</p>
+        </div>
+
+        <p className="operator-panel__hint">
+          Browser controls stay backend-owned here: input selection updates the sidecar through the backend, and accepted transcripts are pushed into the same reply workflow as text_question.
+        </p>
+        {sttState.message ? <p className="surface-panel__summary">{sttState.message}</p> : null}
+      </section>
 
       {assistantReply ? <p className="surface-panel__message">{assistantReply.text}</p> : null}
       {assistantReply ? (

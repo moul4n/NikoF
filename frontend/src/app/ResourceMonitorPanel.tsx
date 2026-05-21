@@ -1,5 +1,10 @@
 import React from "react";
-import type { ResourceMonitorState, ResourceStatusSnapshot } from "./useResourceMonitor";
+import type {
+  GpuProcessStatus,
+  OwnedProcessStatus,
+  ResourceMonitorState,
+  ResourceStatusSnapshot,
+} from "./useResourceMonitor";
 
 function formatMb(mb: number | null | undefined): string {
   if (mb == null) return "—";
@@ -85,32 +90,132 @@ function SubsystemsSection({ snapshot }: { snapshot: ResourceStatusSnapshot }): 
   return (
     <div className="resource-panel__section">
       <h4>Model subsystems</h4>
-      <table className="resource-panel__table">
-        <thead>
-          <tr>
-            <th>Subsystem</th>
-            <th>Status</th>
-            <th>Model</th>
-            <th>VRAM</th>
-            <th>Requests</th>
-            <th>Avg latency</th>
-          </tr>
-        </thead>
-        <tbody>
-          {snapshot.subsystems.map((s) => (
-            <tr key={s.subsystem}>
-              <td>{s.subsystem.toUpperCase()}</td>
-              <td className={s.loaded ? "resource-status--ok" : "resource-status--idle"}>
-                {s.loaded ? "loaded" : "idle"}
-              </td>
-              <td>{s.model_name ?? "—"}</td>
-              <td>{formatMb(s.vram_allocated_mb)}</td>
-              <td>{s.requests_processed}</td>
-              <td>{formatLatency(s.average_latency_ms)}</td>
+      <div className="resource-panel__table-wrap">
+        <table className="resource-panel__table">
+          <thead>
+            <tr>
+              <th>Subsystem</th>
+              <th>Status</th>
+              <th>Model</th>
+              <th>VRAM</th>
+              <th>Requests</th>
+              <th>Avg latency</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {snapshot.subsystems.map((s) => (
+              <tr key={s.subsystem}>
+                <td>{s.subsystem.toUpperCase()}</td>
+                <td className={s.loaded ? "resource-status--ok" : "resource-status--idle"}>
+                  {s.loaded ? "loaded" : "idle"}
+                </td>
+                <td>{s.model_name ?? "—"}</td>
+                <td>{formatMb(s.vram_allocated_mb)}</td>
+                <td>{s.requests_processed}</td>
+                <td>{formatLatency(s.average_latency_ms)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function formatCommand(value: string | null | undefined): string {
+  if (!value) return "—";
+  return value.length > 96 ? `${value.slice(0, 93)}...` : value;
+}
+
+function formatProcessLabel(label: string): string {
+  switch (label) {
+    case "backend":
+      return "Backend API";
+    case "backend-worker":
+      return "Backend worker";
+    case "backend-child":
+      return "Backend child";
+    case "tts-sidecar":
+      return "TTS sidecar";
+    case "tts-entrypoint":
+      return "TTS entrypoint";
+    case "llm-sidecar":
+      return "LLM sidecar";
+    case "stt-sidecar":
+      return "STT sidecar";
+    default:
+      return label;
+  }
+}
+
+function OwnedProcessesSection({ processes }: { processes: OwnedProcessStatus[] }): JSX.Element {
+  return (
+    <div className="resource-panel__section">
+      <h4>Backend-owned processes</h4>
+      {processes.length === 0 ? (
+        <p className="resource-panel__metric">No backend-owned child processes detected</p>
+      ) : (
+        <div className="resource-panel__table-wrap">
+          <table className="resource-panel__table">
+            <thead>
+              <tr>
+                <th>Role</th>
+                <th>PID</th>
+                <th>Process</th>
+                <th>RAM</th>
+                <th>GPU VRAM</th>
+                <th>Command</th>
+              </tr>
+            </thead>
+            <tbody>
+              {processes.map((process) => (
+                <tr key={process.pid}>
+                  <td>{formatProcessLabel(process.label)}</td>
+                  <td>{process.pid}</td>
+                  <td>{process.process_name}</td>
+                  <td>{formatMb(process.rss_mb)}</td>
+                  <td>{formatMb(process.gpu_memory_mb)}</td>
+                  <td className="resource-panel__command" title={process.command ?? undefined}>
+                    {formatCommand(process.command)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GpuProcessesSection({ processes }: { processes: GpuProcessStatus[] }): JSX.Element {
+  return (
+    <div className="resource-panel__section">
+      <h4>Visible GPU processes</h4>
+      {processes.length === 0 ? (
+        <p className="resource-panel__metric">No GPU process details available</p>
+      ) : (
+        <div className="resource-panel__table-wrap">
+          <table className="resource-panel__table">
+            <thead>
+              <tr>
+                <th>PID</th>
+                <th>Process</th>
+                <th>GPU VRAM</th>
+              </tr>
+            </thead>
+            <tbody>
+              {processes.map((process) => (
+                <tr key={`${process.pid}-${process.process_name}`}>
+                  <td>{process.pid}</td>
+                  <td className="resource-panel__command" title={process.process_name}>{process.process_name}</td>
+                  <td>{formatMb(process.used_memory_mb)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -184,6 +289,8 @@ export function ResourceMonitorPanel({ resourceState }: ResourceMonitorPanelProp
 
           <TTSWorkerSection snapshot={snapshot} />
           <SubsystemsSection snapshot={snapshot} />
+          <OwnedProcessesSection processes={snapshot.owned_processes} />
+          <GpuProcessesSection processes={snapshot.gpu_processes} />
         </>
       ) : null}
     </section>

@@ -862,7 +862,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     if (!activeBaseAnimation) {
       applyDebugProfileView(currentAvatar);
-      fitCameraToAvatar(currentAvatar.anchorRoot);
+      fitCameraToAvatar(currentAvatar);
       emitChange();
       return;
     }
@@ -870,7 +870,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     restoreBaseAnimationPose(activeBaseAnimation);
     applyDebugProfileView(currentAvatar);
     updateBaseAnimation(0);
-    fitCameraToAvatar(currentAvatar.anchorRoot);
+    fitCameraToAvatar(currentAvatar);
     emitChange();
   }
 
@@ -1779,7 +1779,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     camera.updateProjectionMatrix();
 
     if (currentAvatar) {
-      fitCameraToAvatar(currentAvatar.anchorRoot);
+      fitCameraToAvatar(currentAvatar);
       return;
     }
 
@@ -1889,31 +1889,96 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     startRenderLoop();
   }
 
-  function fitCameraToAvatar(root: THREE.Object3D): void {
+  function fitCameraToAvatar(avatar: LoadedAvatar): void {
     if (!camera) {
       return;
     }
 
+    const root = avatar.anchorRoot;
     root.updateWorldMatrix(true, true);
 
     const bounds = new THREE.Box3().setFromObject(root);
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
+    const isDisplayViewer = snapshot.mountPoints?.viewerVariant === "display";
     const verticalHalfFovRadians = THREE.MathUtils.degToRad(camera.fov * 0.5);
     const horizontalHalfFovRadians = Math.atan(Math.tan(verticalHalfFovRadians) * camera.aspect);
-    const horizontalSpan = Math.max(size.x, size.z, 0.7);
-    const verticalDistance = (Math.max(size.y, 1.4) * 0.58 + 0.28) / Math.tan(verticalHalfFovRadians);
-    const horizontalDistance = (horizontalSpan * 0.68 + 0.2) / Math.tan(horizontalHalfFovRadians);
-    const lookTargetY = Math.max(center.y, 0.9);
-    const cameraDistance = Math.max(verticalDistance, horizontalDistance, 2.6);
+    let horizontalSpan = Math.max(size.x, size.z, 0.7);
+    let verticalSpan = Math.max(size.y, 1.4);
+    let lookTargetY = Math.max(center.y, 0.9);
+    let cameraYOffset = size.y * 0.02;
+    let cameraDistanceFloor = 2.6;
+    let horizontalPadding = 0.68;
+    let verticalPadding = 0.58;
+    let verticalBias = 0.28;
+    let depthMultiplier = 1.04;
+    let displayVisibleVerticalSpan: number | null = null;
+
+    if (isDisplayViewer) {
+      const hipsNode = avatar.vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Hips) ?? null;
+      const headNode =
+        avatar.vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head) ??
+        avatar.vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Neck) ??
+        avatar.vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.UpperChest) ??
+        avatar.vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Chest) ??
+        null;
+
+      if (hipsNode && headNode) {
+        const hipsPosition = hipsNode.getWorldPosition(new THREE.Vector3());
+        const headPosition = headNode.getWorldPosition(new THREE.Vector3());
+        const framedBottomY = hipsPosition.y - 0.06;
+        const framedTopY = Math.max(bounds.max.y, headPosition.y) + 0.12;
+        const topViewportMargin = 0.045;
+        const bottomViewportMargin = 0.02;
+        const usableViewportHeight = Math.max(1 - topViewportMargin - bottomViewportMargin, 0.1);
+
+        verticalSpan = Math.max(framedTopY - framedBottomY, 1);
+        displayVisibleVerticalSpan = verticalSpan / usableViewportHeight;
+        lookTargetY = framedBottomY + displayVisibleVerticalSpan * (0.5 - bottomViewportMargin);
+        cameraYOffset = verticalSpan * 0.015;
+      } else {
+        const topViewportMargin = 0.05;
+        const bottomViewportMargin = 0.03;
+        const usableViewportHeight = Math.max(1 - topViewportMargin - bottomViewportMargin, 0.1);
+
+        verticalSpan = Math.max(size.y * 0.62, 1);
+        displayVisibleVerticalSpan = verticalSpan / usableViewportHeight;
+        lookTargetY = bounds.min.y + displayVisibleVerticalSpan * (0.5 - bottomViewportMargin);
+        cameraYOffset = verticalSpan * 0.015;
+      }
+
+      horizontalSpan = Math.max(size.x * 0.88, size.z, 0.7);
+      cameraDistanceFloor = 2;
+      horizontalPadding = 0.62;
+      verticalPadding = 0.52;
+      verticalBias = 0.18;
+      depthMultiplier = 1;
+    }
+
+    const verticalDistance =
+      displayVisibleVerticalSpan !== null
+        ? (displayVisibleVerticalSpan * 0.5) / Math.tan(verticalHalfFovRadians)
+        : (verticalSpan * verticalPadding + verticalBias) / Math.tan(verticalHalfFovRadians);
+    const horizontalDistance = (horizontalSpan * horizontalPadding + 0.2) / Math.tan(horizontalHalfFovRadians);
+    const cameraDistance =
+      isDisplayViewer && displayVisibleVerticalSpan !== null
+        ? Math.max(
+            verticalDistance,
+            Math.min(
+              horizontalDistance,
+              verticalDistance * THREE.MathUtils.clamp(1.08 + Math.max(camera.aspect - 1, 0) * 0.08, 1.08, 1.18)
+            ),
+            cameraDistanceFloor
+          )
+        : Math.max(verticalDistance, horizontalDistance, cameraDistanceFloor);
     const lookTarget = new THREE.Vector3(center.x, lookTargetY, center.z);
 
-    camera.position.set(center.x, lookTargetY + size.y * 0.02, center.z - cameraDistance * 1.04);
+    camera.position.set(center.x, lookTargetY + cameraYOffset, center.z - cameraDistance * depthMultiplier);
 
     if (orbitControls) {
       orbitControls.target.copy(lookTarget);
       orbitControls.minDistance = 0.05;
-      orbitControls.maxDistance = Math.max(cameraDistance * 1.55, orbitControls.minDistance + 0.8);
+      orbitControls.maxDistance = Math.max(cameraDistance * (isDisplayViewer ? 1.45 : 1.55), orbitControls.minDistance + 0.8);
       orbitControls.update();
       return;
     }
@@ -1924,7 +1989,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   function frameLoadedAvatar(avatar: LoadedAvatar): void {
     avatar.vrm?.update(0);
     applyDebugProfileView(avatar);
-    fitCameraToAvatar(avatar.anchorRoot);
+    fitCameraToAvatar(avatar);
   }
 
   async function loadMountedCharacter(character: CharacterManifestSummary, requestId: number): Promise<void> {

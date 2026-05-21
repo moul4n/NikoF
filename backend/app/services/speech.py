@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -216,6 +217,7 @@ def _run_json_entrypoint(
     *,
     python_executable: str = sys.executable,
     timeout_seconds: int = 20,
+    environment: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     try:
         completed = subprocess.run(
@@ -225,6 +227,8 @@ def _run_json_entrypoint(
             text=True,
             timeout=timeout_seconds,
             check=False,
+            cwd=str(entrypoint.parent),
+            env=environment,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise SpeechAdapterInvocationError("execution-failed") from error
@@ -713,6 +717,10 @@ class FasterWhisperTranscriptionAdapter(StubSpeechTranscriptionService):
                 },
                 python_executable=binding.python_executable,
                 timeout_seconds=binding.timeout_seconds,
+                environment={
+                    **os.environ,
+                    "NIKOF_BACKEND_ROOT": str(Path(__file__).resolve().parents[2]),
+                },
             )
         except SpeechAdapterInvocationError as error:
             status = "unavailable" if str(error) == "execution-failed" else "error"
@@ -891,6 +899,10 @@ class GptSovitsSynthesisAdapter(StubSpeechSynthesisService):
                     },
                     python_executable=binding.python_executable,
                     timeout_seconds=binding.timeout_seconds,
+                    environment={
+                        **os.environ,
+                        "NIKOF_BACKEND_ROOT": str(Path(__file__).resolve().parents[2]),
+                    },
                 )
         except SpeechAdapterInvocationError as error:
             status = "unavailable" if str(error) == "execution-failed" else "error"

@@ -38,10 +38,31 @@ export interface TTSWorkerStatus {
   vram_allocated_mb: number | null;
 }
 
+export interface GpuProcessStatus {
+  pid: number;
+  process_name: string;
+  used_memory_mb: number | null;
+  gpu_uuid: string | null;
+}
+
+export interface OwnedProcessStatus {
+  pid: number;
+  parent_pid: number | null;
+  label: string;
+  process_name: string;
+  executable: string | null;
+  command: string | null;
+  status: string | null;
+  rss_mb: number | null;
+  gpu_memory_mb: number | null;
+}
+
 export interface ResourceStatusSnapshot {
   schema_version: number;
   timestamp_epoch: number;
   gpu: GpuStatus | null;
+  gpu_processes: GpuProcessStatus[];
+  owned_processes: OwnedProcessStatus[];
   system_memory: SystemMemoryStatus;
   subsystems: SubsystemStatus[];
   tts_worker: TTSWorkerStatus;
@@ -54,7 +75,7 @@ export interface ResourceMonitorState {
   error: string | null;
 }
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 10000;
 
 function resolveApiBaseUrl(): string {
   const configured = (import.meta as any).env?.VITE_BACKEND_API_BASE_URL?.trim();

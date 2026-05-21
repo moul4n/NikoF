@@ -23,16 +23,22 @@ class ApplicationShell:
 @asynccontextmanager
 async def _lifespan(app: Any) -> AsyncIterator[None]:
     """Manage async services that need startup/shutdown hooks."""
-    # TTS worker temporarily disabled for testing other systems.
-    # from app.services.tts_worker import get_tts_worker
-    # tts_worker = get_tts_worker()
-    # await tts_worker.start()
-    # logger.info("TTS worker process loop started (model loads on first request)")
+    from app.services.stt_worker import get_stt_worker
+    from app.services.tts_worker import get_tts_worker
+
+    stt_worker = get_stt_worker()
+    tts_worker = get_tts_worker()
+    await stt_worker.start()
+    logger.info("STT worker sidecar started")
+    await tts_worker.start()
+    logger.info("TTS worker process loop started (model loads on first request)")
 
     yield
 
-    # await tts_worker.stop()
-    # logger.info("TTS worker shut down")
+    await stt_worker.stop()
+    logger.info("STT worker shut down")
+    await tts_worker.stop()
+    logger.info("TTS worker shut down")
 
 
 def create_app() -> Any:

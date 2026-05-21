@@ -1,9 +1,9 @@
 # Next Steps
 
-Updated: 2026-05-18T07:31:16.8111521Z
+Updated: 2026-05-21T19:10:00Z
 
-1. Carry the landed Faster-Whisper execution seam into the eventual operator-facing audio ingest path so real STT input uses the same normalized provider contract instead of the scaffold transcript path.
-2. Broaden frontend verification around canonical TTS artifact playback now that backend `/api/session/speech-artifacts/{event_id}/audio` references are browser-playable; cover load failure, timing fallback, and operator-facing status copy.
-3. Extend the fresh-machine bootstrap pattern from the current Faster-Whisper Medium and GPT-SoVITS scaffolded lanes into the remaining speech providers and bootstrap helpers without moving model payloads or vendor config into git.
-4. Promote the current speech-safe prompt shaping on the `text_question` lane into structured emotion and animation hints without widening `POST /session/operator-command` or leaking provider response bodies.
-5. Keep frontend and stability coverage aligned with the canonical `audio_reference` contract as the remaining speech providers adopt the same backend artifact URL path and degraded-status rules.
+1. Land the missing Faster-Whisper payload and provider entrypoint under the managed local roots so backend startup can leave scaffolded STT mode and the eventual microphone ingest path can reuse the same normalized contract.
+2. Add regression coverage for the backend-owned TTS sidecar path: external-port refusal, clean degraded `unavailable` responses, and successful `audio_reference` publication through `tts_preview` and `text_question`.
+3. Broaden frontend verification around canonical TTS artifact playback and the resource monitor tables now that `/api/session/speech-artifacts/{event_id}/audio`, owned-process snapshots, and GPU-process snapshots are all live surfaces.
+4. Decide deliberately whether to keep the current GPT-SoVITS 488k lane as the development baseline or upgrade the local provider runtime to a true `v2Pro`-compatible path; the current provider code and `v2Pro/s2Gv2Pro.pth` override do not align.
+5. Improve resource telemetry where Windows GPU permissions still hide per-process memory from `nvidia-smi`, so the operator panel can report stronger per-process VRAM numbers than the current `[Insufficient Permissions]` view.

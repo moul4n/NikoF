@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -37,6 +38,22 @@ HEALTH_CHECK_TIMEOUT_SECONDS = 2.0
 SYNTHESIS_TIMEOUT_SECONDS = 30.0
 SERVER_STARTUP_TIMEOUT_SECONDS = 60.0
 SERVER_STARTUP_POLL_INTERVAL_SECONDS = 1.0
+SERVER_RECOVERY_TIMEOUT_SECONDS = 5.0
+SERVER_RECOVERY_POLL_INTERVAL_SECONDS = 0.5
+PREFERRED_SERVER_SCRIPT_CANDIDATES = ("api_v2.py", "api.py", "api_server.py")
+
+
+def _default_log_root(app_paths: AppPaths | None = None) -> Path:
+    paths = app_paths or get_app_paths()
+    return paths.local_data_root / "logs" / "tts"
+
+
+def _resolve_default_server_script(provider_root: Path) -> str:
+    for candidate in PREFERRED_SERVER_SCRIPT_CANDIDATES:
+        if (provider_root / candidate).is_file():
+            return candidate
+
+    return PREFERRED_SERVER_SCRIPT_CANDIDATES[-1]
 
 
 @dataclass(slots=True, frozen=True)
@@ -52,6 +69,7 @@ class GPTSoVITSServerConfig:
     weights_root: str = "./weights"
     reference_audio_root: str = "./reference-audio"
     speaker_manifest: str = "./speakers/default.json"
+    log_root: Path = Path(".")
 
     @property
     def base_url(self) -> str:
@@ -101,8 +119,10 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
 
     # server_script is deliberately separate from entrypoint:
     # - "entrypoint" = subprocess one-shot adapter (synthesize.py)
-    # - "server_script" = persistent HTTP server (api_server.py)
-    server_script = str(config_data.get("server_script") or "api_server.py").strip()
+    # - "server_script" = persistent HTTP server, preferring dedicated headless API
+    #   entrypoints when they exist in the provider root.
+    raw_server_script = str(config_data.get("server_script") or "").strip()
+    server_script = raw_server_script or _resolve_default_server_script(provider_root)
 
     return GPTSoVITSServerConfig(
         host=str(config_data.get("server_host", DEFAULT_SERVER_HOST)).strip() or DEFAULT_SERVER_HOST,
@@ -114,6 +134,7 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
         weights_root=str(config_data.get("weights_root", "./weights")),
         reference_audio_root=str(config_data.get("reference_audio_root", "./reference-audio")),
         speaker_manifest=str(config_data.get("speaker_manifest", "./speakers/default.json")),
+        log_root=_default_log_root(paths),
     )
 
 
@@ -164,6 +185,14 @@ class GPTSoVITSServerManager:
     _process: subprocess.Popen[str] | None = field(default=None, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _started: bool = field(default=False, init=False)
+    _stdout_log_path: Path | None = field(default=None, init=False, repr=False)
+    _stderr_log_path: Path | None = field(default=None, init=False, repr=False)
+
+    @property
+    def owner_pid(self) -> int | None:
+        if self._process is None:
+            return None
+        return self._process.pid
 
     @property
     def is_running(self) -> bool:
@@ -198,15 +227,13 @@ class GPTSoVITSServerManager:
                 self._started = True
                 return True
 
-            # Check if an external server is already running on the configured port
-            # (e.g. started manually or from a previous session)
             if self.is_healthy:
-                logger.info(
-                    f"GPT-SoVITS server already healthy on {self.config.base_url} "
-                    f"(external process)"
+                logger.error(
+                    "Refusing to attach to an external GPT-SoVITS server on %s; backend-side ownership is required.",
+                    self.config.base_url,
                 )
-                self._started = True
-                return True
+                self._started = False
+                return False
 
             if self.is_running:
                 self._kill_process()
@@ -232,15 +259,26 @@ class GPTSoVITSServerManager:
             ]
 
             logger.info(f"Starting GPT-SoVITS server: {' '.join(cmd)}")
+            self.config.log_root.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            self._stdout_log_path = self.config.log_root / f"tts-server-{timestamp}.stdout.log"
+            self._stderr_log_path = self.config.log_root / f"tts-server-{timestamp}.stderr.log"
 
             try:
-                self._process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    cwd=str(self.config.provider_root),
-                )
+                with self._stdout_log_path.open("a", encoding="utf-8") as stdout_log:
+                    with self._stderr_log_path.open("a", encoding="utf-8") as stderr_log:
+                        self._process = subprocess.Popen(
+                            cmd,
+                            stdout=stdout_log,
+                            stderr=stderr_log,
+                            text=True,
+                            cwd=str(self.config.provider_root),
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                            env={
+                                **os.environ,
+                                "NIKOF_TTS_OWNER_PID": str(os.getpid()),
+                            },
+                        )
             except OSError as exc:
                 logger.error(f"Failed to start GPT-SoVITS server: {exc}")
                 return False
@@ -305,9 +343,16 @@ class GPTSoVITSServerManager:
                 timeout=SYNTHESIS_TIMEOUT_SECONDS,
             )
         except GPTSoVITSServerError:
-            # Server may have crashed — verify health before restart
-            if self.is_healthy:
-                raise
+            # A dropped synthesis response can be transient while the sidecar is
+            # still alive. Give it a brief recovery window before tearing down a
+            # warm model and forcing a full restart.
+            if self._wait_for_recovery():
+                return _http_json_request(
+                    self.config.synthesize_url,
+                    payload=payload,
+                    method="POST",
+                    timeout=SYNTHESIS_TIMEOUT_SECONDS,
+                )
 
             logger.warning("GPT-SoVITS server appears dead, attempting restart...")
             if self.restart():
@@ -342,11 +387,11 @@ class GPTSoVITSServerManager:
         deadline = time.time() + SERVER_STARTUP_TIMEOUT_SECONDS
         while time.time() < deadline:
             if self._process is not None and self._process.poll() is not None:
-                # Process exited
-                stderr_out = ""
-                if self._process.stderr:
-                    stderr_out = self._process.stderr.read()
-                logger.error(f"GPT-SoVITS server exited during startup: {stderr_out[:500]}")
+                logger.error(
+                    "GPT-SoVITS server exited during startup (pid=%s, stderr_log=%s)",
+                    self._process.pid,
+                    self._stderr_log_path,
+                )
                 return False
 
             try:
@@ -357,6 +402,27 @@ class GPTSoVITSServerManager:
                 pass
 
             time.sleep(SERVER_STARTUP_POLL_INTERVAL_SECONDS)
+
+        return False
+
+    def _wait_for_recovery(self) -> bool:
+        """Allow brief transient request failures to recover without restart."""
+        if not self.is_running:
+            return False
+
+        deadline = time.time() + SERVER_RECOVERY_TIMEOUT_SECONDS
+        while time.time() < deadline:
+            if self._process is not None and self._process.poll() is not None:
+                return False
+
+            try:
+                response = _http_json_request(self.config.health_url, timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
+                if response.get("status") in ("ready", "ok"):
+                    return True
+            except GPTSoVITSServerError:
+                pass
+
+            time.sleep(SERVER_RECOVERY_POLL_INTERVAL_SECONDS)
 
         return False
 
@@ -386,9 +452,14 @@ _server_manager_lock = threading.Lock()
 def get_server_manager(app_paths: AppPaths | None = None) -> GPTSoVITSServerManager:
     """Get or create the global server manager."""
     global _server_manager
+    resolved_paths = app_paths or get_app_paths()
     if _server_manager is None:
         with _server_manager_lock:
             if _server_manager is None:
-                config = load_server_config(app_paths)
+                config = load_server_config(resolved_paths)
                 _server_manager = GPTSoVITSServerManager(config=config)
+    elif app_paths is not None:
+        expected_config = load_server_config(resolved_paths)
+        if _server_manager.config.provider_root != expected_config.provider_root or _server_manager.config.model_root != expected_config.model_root:
+            _server_manager = GPTSoVITSServerManager(config=expected_config)
     return _server_manager

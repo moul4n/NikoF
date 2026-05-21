@@ -30,6 +30,8 @@ from app.services.speech import (
     GptSovitsSynthesisAdapter,
     SpeechSynthesisRequest,
     SpeechTranscriptionRequest,
+    StubSpeechSynthesisService,
+    StubSpeechTranscriptionService,
 )
 
 
@@ -722,6 +724,20 @@ class OperatorCommandProviderWiringTests(unittest.TestCase):
             synthesis_contract = response.speech_lifecycle_events[1].event.synthesis
             self.assertEqual("unavailable", synthesis_contract.status)
             self.assertIsNone(synthesis_contract.audio_reference)
+
+
+class DefaultApiRuntimeServicesTests(unittest.TestCase):
+    def test_speech_lifecycle_fallback_uses_stub_speech_services(self) -> None:
+        services = build_default_api_runtime_services()
+
+        self.assertIsInstance(
+            services.speech_lifecycle_service.transcription_service,
+            StubSpeechTranscriptionService,
+        )
+        self.assertIsInstance(
+            services.speech_lifecycle_service.synthesis_service,
+            StubSpeechSynthesisService,
+        )
 
 
 if __name__ == "__main__":

@@ -135,6 +135,7 @@ Work
 
 - Integrate Faster-Whisper Medium as the default STT adapter and Faster-Whisper Small as the fallback profile.
 - Integrate GPT-SoVITS latest stable 2026 fork behind a normalized TTS contract.
+- Run GPT-SoVITS through one backend-owned sidecar process with lazy warm load, a bounded queue, and backend-only forwarding so frontend and route contracts stay provider-agnostic.
 - Stream transcription, speaking-state, synthesis status, and timing metadata to the frontend.
 - Use a bounded backend reply path, such as canned responses or a test echo mode, to validate the full audio loop before LLM coupling.
 
@@ -149,6 +150,7 @@ Acceptance Criteria
 - Audio turn flow succeeds on the target Windows hardware profile.
 - Timing metadata exists for later speech-aligned motion and lip-sync work.
 - The backend still exposes a single coherent session API instead of provider-specific routes.
+- TTS process ownership is explicit: the backend must not attach to an unrelated external listener or fall back to per-request model loads that duplicate VRAM residency.
 
 ## Stage 4: Local LLM + Memory
 

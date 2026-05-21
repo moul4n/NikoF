@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { resolveSelectedCharacterId } from "../avatar/loaders/backendCharacterFlow";
+import { DEFAULT_BASE_ANIMATION_COMMAND } from "../avatar/runtime/defaultBaseAnimation";
 import type {
   AvatarAnimationPlaybackPath,
   AvatarDebugProfileView,
@@ -214,7 +215,7 @@ export function useSurfaceShellOrchestration({
   const [devDisplayRigOverlayEnabled, setDevDisplayRigOverlayEnabled] = useState(false);
   const [devDisplayPlaybackPath, setDevDisplayPlaybackPath] = useState<AvatarAnimationPlaybackPath>("official");
   const [devDisplayAnimationOverride, setDevDisplayAnimationOverride] = useState<DevDisplayAnimationOverrideState>({
-    optionId: "backend",
+    optionId: DEFAULT_BASE_ANIMATION_COMMAND.id,
     activationKey: 0
   });
 
@@ -286,8 +287,10 @@ export function useSurfaceShellOrchestration({
     }
 
     const reconciledCharacterId = resolveSelectedCharacterId(catalog, backendLifecycleCharacterId);
+    const hasValidSelectedCharacter =
+      !!selectedCharacterId && resolveSelectedCharacterId(catalog, selectedCharacterId) === selectedCharacterId;
 
-    if (!reconciledCharacterId || reconciledCharacterId === selectedCharacterId) {
+    if (hasValidSelectedCharacter || !reconciledCharacterId || reconciledCharacterId === selectedCharacterId) {
       return;
     }
 

@@ -265,36 +265,26 @@ class TTSWorker:
                     f"(provider={self._server_manager.config.provider_root}, "
                     f"model={self._server_manager.config.model_root})"
                 )
-                # Fall back to stub for development
-                self._adapter = StubSpeechSynthesisService()
-                self._model_name = "stub (server not configured)"
+                self._adapter = GptSovitsSynthesisAdapter(app_paths=self._app_paths)
+                self._model_name = "gpt-sovits adapter"
                 self._model_loaded = True
-                self._tracker.mark_loaded("stub", vram_mb=0, ram_mb=0)
+                self._use_server = False
+                self._tracker.mark_loaded(self._model_name, vram_mb=0, ram_mb=0)
                 self._state = TTSWorkerState.READY
+                self._last_error = None
                 return True
 
             # Start the persistent server (loads model into GPU)
             if not self._server_manager.start():
                 logger.error("TTS worker: server failed to start")
-                # Fall back to subprocess adapter
-                adapter = GptSovitsSynthesisAdapter(app_paths=self._app_paths)
-                test_request = SpeechSynthesisRequest(text="", locale="en-US")
-                binding = adapter.binding_for(test_request)
-                if binding.configured:
-                    self._adapter = adapter
-                    self._model_name = f"gpt-sovits subprocess ({binding.model_root.name})"
-                    self._model_loaded = True
-                    self._tracker.mark_loaded(self._model_name, vram_mb=MODEL_ESTIMATED_VRAM_MB, ram_mb=512)
-                    self._state = TTSWorkerState.READY
-                    logger.info("TTS worker: fell back to subprocess adapter")
-                    return True
-                else:
-                    self._adapter = StubSpeechSynthesisService()
-                    self._model_name = "stub (server start failed)"
-                    self._model_loaded = True
-                    self._tracker.mark_loaded("stub", vram_mb=0, ram_mb=0)
-                    self._state = TTSWorkerState.READY
-                    return True
+                self._adapter = None
+                self._model_name = "unavailable (server start failed)"
+                self._model_loaded = False
+                self._use_server = False
+                self._tracker.mark_unloaded()
+                self._state = TTSWorkerState.ERROR
+                self._last_error = "TTS sidecar failed to start"
+                return False
 
             # Server is running — use HTTP adapter
             self._adapter = None  # We'll use _synthesize_via_server directly
@@ -494,13 +484,17 @@ _tts_worker: TTSWorker | None = None
 _tts_worker_lock = threading.Lock()
 
 
-def get_tts_worker() -> TTSWorker:
+def get_tts_worker(app_paths: AppPaths | None = None) -> TTSWorker:
     """Get or create the global TTS worker instance."""
     global _tts_worker
+    resolved_paths = app_paths or get_app_paths()
     if _tts_worker is None:
         with _tts_worker_lock:
             if _tts_worker is None:
-                _tts_worker = TTSWorker()
+                _tts_worker = TTSWorker(app_paths=resolved_paths)
+    elif app_paths is not None:
+        if _tts_worker._app_paths.providers_root != resolved_paths.providers_root or _tts_worker._app_paths.tts_models_root != resolved_paths.tts_models_root:
+            _tts_worker = TTSWorker(app_paths=resolved_paths)
     return _tts_worker
 
 
@@ -512,7 +506,7 @@ class QueuedSynthesisService:
     For async code, use the worker's enqueue() directly.
     """
 
-    def __init__(self, worker: TTSWorker | None = None, *, eager: bool = True) -> None:
+    def __init__(self, worker: TTSWorker | None = None, *, eager: bool = False) -> None:
         self._worker = worker or get_tts_worker()
         self._counter = 0
         self._counter_lock = threading.Lock()

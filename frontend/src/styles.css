@@ -51,6 +51,7 @@ select {
   display: grid;
   gap: 1.5rem;
   align-content: start;
+  min-width: 0;
 }
 
 .app-shell__header {
@@ -94,7 +95,7 @@ select {
 }
 
 .app-shell__content--control {
-  grid-template-columns: minmax(320px, 420px) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 
@@ -103,6 +104,36 @@ select {
   display: grid;
   gap: 1.5rem;
   align-content: start;
+  min-width: 0;
+}
+
+.control-layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.control-layout__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 360px);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.control-layout__workspace-main,
+.control-layout__workspace-side,
+.control-layout__diagnostics {
+  display: grid;
+  gap: 1.5rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.control-layout__audio-player {
+  width: 100%;
+}
+
+.control-layout__audio-source {
+  overflow-wrap: anywhere;
 }
 
 .app-shell__display {
@@ -174,6 +205,7 @@ select {
   border-radius: 20px;
   padding: 1.25rem;
   backdrop-filter: blur(12px);
+  min-width: 0;
 }
 
 .surface-panel--display {
@@ -208,6 +240,64 @@ select {
 .catalog-panel__message {
   margin: 0 0 1rem;
   color: #b5c2d6;
+}
+
+.catalog-panel__compact-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.catalog-panel__field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.catalog-panel__label {
+  color: #8ca0bf;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.catalog-panel__select {
+  width: 100%;
+  border: 1px solid rgba(160, 175, 200, 0.18);
+  border-radius: 14px;
+  background: rgba(12, 19, 31, 0.92);
+  color: #eef4ff;
+  padding: 0.8rem 0.9rem;
+}
+
+.catalog-panel__select:hover,
+.catalog-panel__select:focus-visible {
+  border-color: rgba(123, 211, 193, 0.72);
+  outline: none;
+}
+
+.catalog-panel__details {
+  margin: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.catalog-panel__details div {
+  border: 1px solid rgba(160, 175, 200, 0.16);
+  border-radius: 14px;
+  background: rgba(28, 39, 60, 0.5);
+  padding: 0.75rem 0.85rem;
+}
+
+.catalog-panel__details dt {
+  margin: 0;
+  color: #8ca0bf;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.catalog-panel__details dd {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .catalog-panel__message--error,
@@ -357,6 +447,49 @@ select {
   opacity: 0.72;
   cursor: progress;
   transform: none;
+}
+
+.operator-panel__stt {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(160, 175, 200, 0.16);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(20, 31, 49, 0.78), rgba(16, 24, 39, 0.92));
+}
+
+.operator-panel__stt-header {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.operator-panel__stt-status {
+  margin: 0;
+  color: #dce6f5;
+  font-size: 0.95rem;
+}
+
+.operator-panel__stt-transcript {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  background: rgba(10, 16, 27, 0.9);
+  border: 1px solid rgba(123, 211, 193, 0.18);
+}
+
+.operator-panel__stt-transcript-label {
+  margin: 0;
+  color: #8ca0bf;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.operator-panel__stt-transcript-text {
+  margin: 0;
+  color: #eef4ff;
+  min-height: 1.5rem;
 }
 
 .surface-panel__facts {
@@ -829,6 +962,7 @@ select {
   }
 
   .app-shell__content,
+  .control-layout__workspace,
   .avatar-stage__surface,
   .speech-panel__summary-list,
   .surface-panel__facts {
@@ -996,8 +1130,13 @@ select {
   margin: 0;
 }
 
+.resource-panel__table-wrap {
+  overflow-x: auto;
+}
+
 .resource-panel__table {
   width: 100%;
+  min-width: 40rem;
   border-collapse: collapse;
   font-size: 0.75rem;
 }
@@ -1013,6 +1152,11 @@ select {
 .resource-panel__table td {
   padding: 4px 6px;
   color: #cbd5e1;
+}
+
+.resource-panel__command {
+  max-width: 24rem;
+  overflow-wrap: anywhere;
 }
 
 .resource-status--ok {

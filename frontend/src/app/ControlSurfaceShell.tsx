@@ -262,59 +262,64 @@ export function ControlSurfaceShell({
       </header>
 
       <main className="app-shell__content app-shell__content--control">
-        <div className="app-shell__sidebar">
-          <CharacterCatalogPanel
-            catalog={loadState.catalog}
-            error={loadState.error}
-            isLoading={loadState.status === "loading"}
-            statusMessage={loadState.status === "ready" ? backendStatusMessage : null}
-            selectedCharacterId={selectedCharacterId}
-            onSelectCharacter={onSelectCharacter}
-          />
-          <SpeechLifecyclePanel
-            state={speechLifecycleState}
-            snapshot={speechLifecycleSnapshot}
-            message={speechLifecycleMessage}
-            characterId={speechLifecycleCharacterId}
-            canonicalTranscription={canonicalTranscription}
-            canonicalSynthesis={canonicalSynthesis}
-          />
-          <ResourceMonitorPanel resourceState={resourceState} />
-        </div>
-        <div className="app-shell__control-rail">
-          <ControlSurfaceOperatorCommandPanel
-            selectedCharacter={selectedCharacter}
-            speechLifecycleState={speechLifecycleState}
-            speechPlaybackStatus={speechPlaybackStatus}
-            onCommandPublished={onCommandPublished}
-          />
-          {speechPlaybackStatus.audioSource && (
-            <section className="surface-panel" style={{ padding: "0.75rem" }}>
-              <p style={{ margin: "0 0 0.5rem", fontWeight: "bold", fontSize: "0.85rem" }}>
-                Audio Debug Player — click play below:
-              </p>
-              <audio
-                controls
-                src={speechPlaybackStatus.audioSource}
-                style={{ width: "100%" }}
+        <section className="control-layout" aria-label="Control surface workspace">
+          <div className="control-layout__workspace">
+            <div className="control-layout__workspace-main">
+              <ControlSurfaceOperatorCommandPanel
+                selectedCharacter={selectedCharacter}
+                speechLifecycleState={speechLifecycleState}
+                speechPlaybackStatus={speechPlaybackStatus}
+                onCommandPublished={onCommandPublished}
               />
-              <p style={{ margin: "0.25rem 0 0", fontSize: "0.75rem", opacity: 0.7 }}>
-                {speechPlaybackStatus.audioSource}
-              </p>
-            </section>
-          )}
-          <ControlSurfaceSummaryPanel
-            selectedCharacter={selectedCharacter}
-            backendStatusMessage={backendStatusMessage}
-            sessionId={backendSyncState.sessionId}
-            healthPayload={backendSyncState.healthPayload}
-            speechDeliveryLabel={speechDeliveryLabel}
-            speechPlaybackStatusLabel={speechPlaybackStatusLabel}
-            speechPlaybackTransportLabel={speechPlaybackTransportLabel}
-            speechPlaybackMessage={speechPlaybackStatus.playbackKey ? speechPlaybackStatus.message : null}
-            speechLifecycleNextCursor={speechLifecycleSnapshot?.nextCursor ?? null}
-          />
-        </div>
+              {speechPlaybackStatus.audioSource && (
+                <section className="surface-panel control-layout__audio-panel">
+                  <div className="surface-panel__header">
+                    <div>
+                      <p className="eyebrow">Audio playback</p>
+                      <h2>Debug player</h2>
+                    </div>
+                  </div>
+                  <audio controls src={speechPlaybackStatus.audioSource} className="control-layout__audio-player" />
+                  <p className="surface-panel__summary control-layout__audio-source">{speechPlaybackStatus.audioSource}</p>
+                </section>
+              )}
+            </div>
+
+            <aside className="control-layout__workspace-side">
+              <CharacterCatalogPanel
+                catalog={loadState.catalog}
+                error={loadState.error}
+                isLoading={loadState.status === "loading"}
+                statusMessage={loadState.status === "ready" ? backendStatusMessage : null}
+                selectedCharacterId={selectedCharacterId}
+                onSelectCharacter={onSelectCharacter}
+              />
+              <ControlSurfaceSummaryPanel
+                selectedCharacter={selectedCharacter}
+                backendStatusMessage={backendStatusMessage}
+                sessionId={backendSyncState.sessionId}
+                healthPayload={backendSyncState.healthPayload}
+                speechDeliveryLabel={speechDeliveryLabel}
+                speechPlaybackStatusLabel={speechPlaybackStatusLabel}
+                speechPlaybackTransportLabel={speechPlaybackTransportLabel}
+                speechPlaybackMessage={speechPlaybackStatus.playbackKey ? speechPlaybackStatus.message : null}
+                speechLifecycleNextCursor={speechLifecycleSnapshot?.nextCursor ?? null}
+              />
+            </aside>
+          </div>
+
+          <div className="control-layout__diagnostics">
+            <SpeechLifecyclePanel
+              state={speechLifecycleState}
+              snapshot={speechLifecycleSnapshot}
+              message={speechLifecycleMessage}
+              characterId={speechLifecycleCharacterId}
+              canonicalTranscription={canonicalTranscription}
+              canonicalSynthesis={canonicalSynthesis}
+            />
+            <ResourceMonitorPanel resourceState={resourceState} />
+          </div>
+        </section>
       </main>
     </div>
   );

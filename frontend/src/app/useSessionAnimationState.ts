@@ -173,7 +173,9 @@ export function useSessionAnimationState({
 
           if (reconciledCharacterId) {
             setSelectedCharacterId((currentCharacterId) =>
-              currentCharacterId === reconciledCharacterId ? currentCharacterId : reconciledCharacterId
+              currentCharacterId && resolveSelectedCharacterId(catalog, currentCharacterId) === currentCharacterId
+                ? currentCharacterId
+                : reconciledCharacterId
             );
           }
         }

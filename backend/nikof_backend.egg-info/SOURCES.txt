@@ -12,8 +12,10 @@ app/api/response_builders.py
 app/api/router.py
 app/api/router_composition.py
 app/api/session_routes.py
+app/api/stt_routes.py
 app/core/__init__.py
 app/core/settings.py
+app/providers/faster_whisper_runtime.py
 app/schemas/__init__.py
 app/schemas/animation.py
 app/schemas/animation_commands.py
@@ -29,8 +31,11 @@ app/services/memory.py
 app/services/resource_monitor.py
 app/services/session.py
 app/services/speech.py
+app/services/stt_server.py
+app/services/stt_worker.py
 app/services/tts_server.py
 app/services/tts_worker.py
+app/services/turns.py
 nikof_backend.egg-info/PKG-INFO
 nikof_backend.egg-info/SOURCES.txt
 nikof_backend.egg-info/dependency_links.txt
@@ -43,3 +48,5 @@ tests/test_health_surface.py
 tests/test_operator_command_surface.py
 tests/test_provider_adapter_wiring.py
 tests/test_runtime_bindings.py
+tests/test_stt_sidecar_runtime.py
+tests/test_tts_sidecar_runtime.py

@@ -6,10 +6,13 @@ orchestrator can avoid overcommitting shared hardware resources.
 
 from __future__ import annotations
 
+import csv
 import os
+from pathlib import Path
+import subprocess
 import time
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 ModelSubsystem = Literal["llm", "tts", "stt", "embeddings"]
@@ -36,6 +39,27 @@ class SystemMemorySnapshot:
 
 
 @dataclass(slots=True, frozen=True)
+class GpuProcessSnapshot:
+    pid: int
+    process_name: str
+    used_memory_mb: float | None
+    gpu_uuid: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class OwnedProcessSnapshot:
+    pid: int
+    parent_pid: int | None
+    label: str
+    process_name: str
+    executable: str | None
+    command: str | None
+    status: str | None
+    rss_mb: float | None
+    gpu_memory_mb: float | None
+
+
+@dataclass(slots=True, frozen=True)
 class SubsystemStatus:
     subsystem: ModelSubsystem
     loaded: bool
@@ -51,6 +75,8 @@ class SubsystemStatus:
 class ResourceSnapshot:
     timestamp_epoch: float
     gpu: GpuSnapshot | None
+    gpu_processes: tuple[GpuProcessSnapshot, ...]
+    owned_processes: tuple[OwnedProcessSnapshot, ...]
     system_memory: SystemMemorySnapshot
     subsystems: tuple[SubsystemStatus, ...]
     warnings: tuple[str, ...]
@@ -147,6 +173,170 @@ def _system_memory_snapshot() -> SystemMemorySnapshot:
             )
 
 
+def _coerce_pid(raw_value: str) -> int | None:
+    try:
+        return int(raw_value.strip())
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _coerce_memory_mb(raw_value: str) -> float | None:
+    normalized = str(raw_value or "").strip()
+    if not normalized or normalized.upper() == "[N/A]":
+        return None
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
+def _gpu_processes_snapshot() -> tuple[GpuProcessSnapshot, ...]:
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=pid,process_name,used_memory,gpu_uuid",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return tuple()
+
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return tuple()
+
+    parsed_rows: list[GpuProcessSnapshot] = []
+    reader = csv.reader(completed.stdout.splitlines())
+    for row in reader:
+        if len(row) < 4:
+            continue
+        pid = _coerce_pid(row[0])
+        if pid is None:
+            continue
+        parsed_rows.append(
+            GpuProcessSnapshot(
+                pid=pid,
+                process_name=row[1].strip(),
+                used_memory_mb=_coerce_memory_mb(row[2]),
+                gpu_uuid=row[3].strip() or None,
+            )
+        )
+
+    return tuple(sorted(parsed_rows, key=lambda item: (item.used_memory_mb or -1), reverse=True))
+
+
+def _label_owned_process(command: str | None, process_name: str, *, current_pid: int, pid: int) -> str:
+    if pid == current_pid:
+        return "backend"
+
+    normalized_name = process_name.lower()
+    normalized_command = (command or "").lower()
+    if any(server_script in normalized_command for server_script in ("api_v2.py", "api.py", "api_server.py")):
+        return "tts-sidecar"
+    if "synthesize.py" in normalized_command:
+        return "tts-entrypoint"
+    if normalized_name in {"ollama.exe", "ollama"} or "ollama" in normalized_command:
+        return "llm-sidecar"
+    if "llama.cpp" in normalized_command or "llama-server" in normalized_command:
+        return "llm-sidecar"
+    if "transcribe.py" in normalized_command:
+        return "stt-sidecar"
+    if "main.py" in normalized_command and "providers\\stt\\faster-whisper" in normalized_command:
+        return "stt-sidecar"
+    if "/stt/faster-whisper" in normalized_command and "main.py" in normalized_command:
+        return "stt-sidecar"
+    if "uvicorn" in normalized_command:
+        return "backend-worker"
+    if normalized_name in {"python.exe", "python", "pwsh.exe", "pwsh"}:
+        return "backend-child"
+    return "backend-child"
+
+
+def _owned_processes_snapshot(
+    gpu_processes: tuple[GpuProcessSnapshot, ...],
+) -> tuple[OwnedProcessSnapshot, ...]:
+    try:
+        import psutil
+    except ImportError:
+        return tuple()
+
+    gpu_memory_by_pid = {
+        process.pid: process.used_memory_mb
+        for process in gpu_processes
+        if process.used_memory_mb is not None
+    }
+
+    current_process = psutil.Process()
+    process_candidates = [current_process, *current_process.children(recursive=True)]
+    owned_processes: list[OwnedProcessSnapshot] = []
+
+    for process in process_candidates:
+        try:
+            with process.oneshot():
+                pid = process.pid
+                parent = process.ppid()
+                name = process.name()
+                executable = process.exe() or None
+                command_parts = process.cmdline()
+                command = " ".join(command_parts).strip() or None
+                status = process.status()
+                memory_info = process.memory_info()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError):
+            continue
+
+        owned_processes.append(
+            OwnedProcessSnapshot(
+                pid=pid,
+                parent_pid=parent,
+                label=_label_owned_process(command, name, current_pid=current_process.pid, pid=pid),
+                process_name=name,
+                executable=executable,
+                command=command,
+                status=status,
+                rss_mb=memory_info.rss / (1024 * 1024),
+                gpu_memory_mb=gpu_memory_by_pid.get(pid),
+            )
+        )
+
+    return tuple(sorted(owned_processes, key=lambda item: (item.label != "backend", item.pid)))
+
+
+def _apply_owned_process_gpu_fallbacks(
+    owned_processes: tuple[OwnedProcessSnapshot, ...],
+    subsystems: tuple[SubsystemStatus, ...],
+) -> tuple[OwnedProcessSnapshot, ...]:
+    subsystem_by_label: dict[str, SubsystemStatus] = {}
+    for subsystem in subsystems:
+        if not subsystem.loaded or subsystem.vram_allocated_mb is None:
+            continue
+        if subsystem.subsystem == "tts":
+            subsystem_by_label["tts-sidecar"] = subsystem
+            subsystem_by_label["tts-entrypoint"] = subsystem
+        elif subsystem.subsystem == "llm":
+            subsystem_by_label["llm-sidecar"] = subsystem
+        elif subsystem.subsystem == "stt":
+            subsystem_by_label["stt-sidecar"] = subsystem
+
+    adjusted: list[OwnedProcessSnapshot] = []
+    for process in owned_processes:
+        if process.gpu_memory_mb is not None:
+            adjusted.append(process)
+            continue
+
+        subsystem = subsystem_by_label.get(process.label)
+        if subsystem is None:
+            adjusted.append(process)
+            continue
+
+        adjusted.append(replace(process, gpu_memory_mb=subsystem.vram_allocated_mb))
+
+    return tuple(adjusted)
+
+
 @dataclass
 class SubsystemTracker:
     """Mutable tracker for a single model subsystem."""
@@ -224,10 +414,14 @@ class ResourceMonitor:
                 return self._last_snapshot
 
         gpu = _try_gpu_snapshot()
+        gpu_processes = _gpu_processes_snapshot()
+        owned_processes = _owned_processes_snapshot(gpu_processes)
         system_memory = _system_memory_snapshot()
 
         with self._lock:
             subsystems = tuple(t.snapshot() for t in self._trackers.values())
+
+        owned_processes = _apply_owned_process_gpu_fallbacks(owned_processes, subsystems)
 
         warnings: list[str] = []
         if gpu is not None:
@@ -247,6 +441,8 @@ class ResourceMonitor:
         snap = ResourceSnapshot(
             timestamp_epoch=now,
             gpu=gpu,
+            gpu_processes=gpu_processes,
+            owned_processes=owned_processes,
             system_memory=system_memory,
             subsystems=subsystems,
             warnings=tuple(warnings),

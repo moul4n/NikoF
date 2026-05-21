@@ -219,6 +219,7 @@ export interface BackendAssistantMessageDocument {
 export type BackendSessionEventType =
   | "assistant.message"
   | "session.operator.text-question"
+  | "session.stt.accepted"
   | "session.operator.tts-preview"
   | "speech.synthesis"
   | "transcription.status"
@@ -286,4 +287,31 @@ export interface BackendOperatorCommandResponseDocument {
   session_event: BackendSessionEventDocument;
   next_speech_cursor: string;
   speech_lifecycle_events: BackendSpeechLifecycleEventEnvelopeDocument[];
+}
+
+export interface BackendSttInputDeviceDocument {
+  device_id: string;
+  label: string;
+  default: boolean;
+  sample_rate_hz?: number | null;
+  max_input_channels?: number | null;
+}
+
+export interface BackendSttStateDocument {
+  schema_version: number;
+  state: string;
+  available: boolean;
+  listening: boolean;
+  model_name?: string | null;
+  selected_device_id?: string | null;
+  selected_device_label?: string | null;
+  latest_confirmed_text?: string | null;
+  latest_confirmed_at?: number | null;
+  total_processed: number;
+  total_submitted: number;
+  average_latency_ms?: number | null;
+  last_error?: string | null;
+  compute_device?: string | null;
+  compute_type?: string | null;
+  next_sequence: number;
 }

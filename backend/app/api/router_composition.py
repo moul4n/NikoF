@@ -7,6 +7,7 @@ from app.api.active_character_routes import ActiveCharacterRouteServices, regist
 from app.api.operator_routes import OperatorCommandRouteServices, register_operator_command_routes
 from app.api.read_routes import ReadRouteServices, register_read_routes
 from app.api.resource_routes import register_resource_routes
+from app.api.stt_routes import register_stt_routes
 from app.api.session_routes import SessionTransportRouteServices, register_session_transport_routes
 from app.services.animation_commands import AnimationCommandTranslator
 from app.core.settings import get_app_paths
@@ -41,10 +42,13 @@ from app.services.speech import (
     SpeechSynthesisService,
     build_speech_service_registry,
     StubSpeechLifecycleSnapshotService,
+    StubSpeechSynthesisService,
     StubSpeechTranscriptionService,
     TurnPipelinePublisher,
 )
+from app.services.stt_worker import get_stt_worker
 from app.services.tts_worker import QueuedSynthesisService, get_tts_worker
+from app.services.turns import UserTurnServices
 
 
 BuildActiveCharacterResponse = Callable[..., ActiveCharacterResponse]
@@ -145,6 +149,10 @@ def build_api_route_definitions() -> list[RouteDefinition]:
         ),
         RouteDefinition(method="GET", path="/session/speech-lifecycle", name="get_speech_lifecycle"),
         RouteDefinition(method="POST", path="/session/operator-command", name="post_operator_command"),
+        RouteDefinition(method="GET", path="/session/stt", name="get_session_stt_state"),
+        RouteDefinition(method="GET", path="/session/stt/devices", name="get_session_stt_devices"),
+        RouteDefinition(method="PUT", path="/session/stt/device", name="put_session_stt_device"),
+        RouteDefinition(method="PUT", path="/session/stt/listening", name="put_session_stt_listening"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
         RouteDefinition(method="GET", path="/system/resources", name="get_system_resources"),
     ]
@@ -161,7 +169,13 @@ def build_default_session_animation_live_delivery_service() -> SessionAnimationL
 def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
     app_paths = get_app_paths()
     character_service = CharacterService(FileSystemCharacterManifestSource())
-    session_service = InMemorySessionService(default_character_id="maria")
+    character_summaries = character_service.list_character_summaries()
+    available_character_ids = [summary.character_id for summary in character_summaries]
+    default_character_id = next(
+        (character_id for character_id in ("test-vrm-01", "maria") if character_id in available_character_ids),
+        available_character_ids[0] if available_character_ids else "maria",
+    )
+    session_service = InMemorySessionService(default_character_id=default_character_id)
     speech_services = build_speech_service_registry(app_paths=app_paths)
     transcription_service = speech_services.resolve_transcription(
         SpeechTranscriptionRequest(
@@ -169,18 +183,15 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
             locale="en-US",
         )
     )
-    # TTS worker temporarily disabled for testing other systems.
-    # synthesis_service: SpeechSynthesisService = QueuedSynthesisService(get_tts_worker())
-    from app.services.speech import StubSpeechSynthesisService
-    synthesis_service: SpeechSynthesisService = StubSpeechSynthesisService()
+    synthesis_service: SpeechSynthesisService = QueuedSynthesisService(get_tts_worker(app_paths), eager=False)
     text_generation_service = build_text_generation_service_registry(app_paths=app_paths).resolve(
         TextGenerationRequest(prompt="", locale="en-US")
     )
     session_event_factory = DefaultSessionEventFactory()
     speech_lifecycle_service = StubSpeechLifecycleSnapshotService(
         event_store=session_service.event_store,
-        transcription_service=transcription_service,
-        synthesis_service=synthesis_service,
+        transcription_service=StubSpeechTranscriptionService(),
+        synthesis_service=StubSpeechSynthesisService(),
         session_event_factory=session_event_factory,
         fallback_on_empty=True,
     )
@@ -192,6 +203,15 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
         synthesis_service=synthesis_service,
         session_event_factory=session_event_factory,
         event_store=session_service.event_store,
+    )
+    get_stt_worker(app_paths).configure_turn_services(
+        UserTurnServices(
+            session_service=session_service,
+            character_service=character_service,
+            text_generation_service=text_generation_service,
+            synthesis_service=synthesis_service,
+            session_event_factory=session_event_factory,
+        )
     )
     return DefaultApiRuntimeServices(
         session_service=session_service,
@@ -467,4 +487,5 @@ def register_api_routes(
         ),
     )
 
+    register_stt_routes(router)
     register_resource_routes(router)

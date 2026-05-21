@@ -18,12 +18,17 @@ export function CharacterCatalogPanel({
   selectedCharacterId,
   onSelectCharacter
 }: CharacterCatalogPanelProps): JSX.Element {
+  const selectedEntry =
+    catalog?.entries.find((entry) => entry.summary.characterId === selectedCharacterId) ??
+    catalog?.entries[0] ??
+    null;
+
   return (
     <section className="catalog-panel" aria-labelledby="catalog-panel-title">
       <div className="catalog-panel__header">
         <div>
-          <p className="eyebrow">Character catalog</p>
-          <h2 id="catalog-panel-title">Manifest-backed packages</h2>
+          <p className="eyebrow">Character selection</p>
+          <h2 id="catalog-panel-title">Active manifest package</h2>
         </div>
         {catalog ? <span className="catalog-panel__count">{catalog.entries.length} packages</span> : null}
       </div>
@@ -33,25 +38,44 @@ export function CharacterCatalogPanel({
       {statusMessage ? <p className="catalog-panel__message">{statusMessage}</p> : null}
 
       {catalog ? (
-        <ul className="catalog-panel__list">
-          {catalog.entries.map((entry) => {
-            const isSelected = entry.summary.characterId === selectedCharacterId;
+        <div className="catalog-panel__compact-layout">
+          <label className="catalog-panel__field" htmlFor="catalog-panel-select">
+            <span className="catalog-panel__label">Character package</span>
+            <select
+              id="catalog-panel-select"
+              className="catalog-panel__select"
+              value={selectedEntry?.summary.characterId ?? ""}
+              onChange={(event: { target: { value: string } }) => onSelectCharacter(event.target.value as CharacterId)}
+            >
+              {catalog.entries.map((entry) => (
+                <option key={entry.summary.characterId} value={entry.summary.characterId}>
+                  {entry.summary.displayName} · {entry.summary.characterId}
+                </option>
+              ))}
+            </select>
+          </label>
 
-            return (
-              <li key={entry.summary.characterId}>
-                <button
-                  type="button"
-                  className={isSelected ? "catalog-panel__item catalog-panel__item--selected" : "catalog-panel__item"}
-                  onClick={() => onSelectCharacter(entry.summary.characterId)}
-                >
-                  <span className="catalog-panel__item-title">{entry.summary.displayName}</span>
-                  <span className="catalog-panel__item-meta">{entry.summary.characterId}</span>
-                  <span className="catalog-panel__item-meta">{entry.summary.supportedStates.join(", ")}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+          {selectedEntry ? (
+            <dl className="catalog-panel__details">
+              <div>
+                <dt>Name</dt>
+                <dd>{selectedEntry.summary.displayName}</dd>
+              </div>
+              <div>
+                <dt>Character id</dt>
+                <dd>{selectedEntry.summary.characterId}</dd>
+              </div>
+              <div>
+                <dt>Shared animation set</dt>
+                <dd>{selectedEntry.summary.sharedAnimationSet}</dd>
+              </div>
+              <div>
+                <dt>Supported states</dt>
+                <dd>{selectedEntry.summary.supportedStates.join(", ")}</dd>
+              </div>
+            </dl>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

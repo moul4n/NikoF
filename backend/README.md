@@ -34,11 +34,12 @@ implemented.
 
 - `app/services/speech.py` resolves speech runtimes only from the bootstrap-managed local roots in `NIKOF_STT_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, and `NIKOF_PROVIDERS_ROOT`.
 - Faster-Whisper transcription is still a normalized stub contract in the current repo slice. The backend already resolves the expected `NIKOF_STT_MODELS_ROOT` and `NIKOF_PROVIDERS_ROOT` locations for the future adapter, but real inline or provider-entrypoint execution is not landed yet.
-- GPT-SoVITS synthesis now executes through a provider-local Python entrypoint at `NIKOF_PROVIDERS_ROOT/tts/gpt-sovits/synthesize.py`, falling back to `api_server.py` only when the dedicated synth entrypoint is absent. The backend sends one JSON request over stdin and expects one JSON response over stdout.
+- GPT-SoVITS synthesis now runs through a backend-owned local sidecar started from `NIKOF_PROVIDERS_ROOT/tts/gpt-sovits/api_server.py`. The backend queues requests, keeps one warm model load, and sends normalized synthesis requests over local HTTP instead of spawning per-request model processes.
 - GPT-SoVITS request shaping now merges the active character's checked-in `voice/profile.json` defaults with machine-local `runtime.json` overrides under the configured TTS model root or provider root. Keep speaker references, prompt text, reference audio, and other vendor payload details in those local roots rather than in git.
 - Provider entrypoints must return normalized JSON fields only: `status`, `locale`, optional `transcript` or `text`, optional `confidence`, optional `audio_reference`, and optional `timing` with `utterance_duration_ms`, `segment_ranges`, `audio_format`, and optional `phoneme_slots` or `viseme_slots`.
 - GPT-SoVITS ready-state normalization now requires a real `audio_reference`. Missing local roots or entrypoints produce `unavailable`; invocation failures or malformed payloads produce `error`.
 - When the local model payload, runtime, or provider entrypoint is absent, the adapters return deterministic normalized `unavailable` or `error` contracts instead of raising raw provider failures into route payloads.
+- The backend will not attach to an unrelated external GPT-SoVITS listener on `127.0.0.1:9880`; it must own the sidecar process so process lifetime, VRAM residency, and failure logging stay deterministic.
 
 ## Quick check
 
@@ -56,5 +57,7 @@ Set-Location backend
 If port `8000` is already occupied, `app.dev_server` now fails fast with a specific message that distinguishes an already-healthy backend from a stale listener that is holding the port without answering `/health`.
 
 If required local LLM or TTS prerequisites are still missing, `app.dev_server` stays in degraded mode but now prints the exact expected path, the matching bootstrap resume hook when one exists, and the generated hint-file path for the missing prerequisite.
+
+If GPT-SoVITS sidecar startup fails after the local roots look ready, inspect `%LOCALAPPDATA%\NikoF\logs\tts\tts-server-*.stderr.log` before changing backend code. The current dev-machine-compatible pair is `s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt` with `s2G488k.pth`.
 
 `..\.venv\Scripts\python.exe -m app.main` prints a normalized contract snapshot for the current scaffold so you can inspect Stage 1 responses without FastAPI or any STT, TTS, LLM, or memory providers installed.

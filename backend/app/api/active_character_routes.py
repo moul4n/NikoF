@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from fastapi import Response
+
 from app.schemas.character import ActiveCharacterSelection
 from app.schemas.session import ActiveCharacterResponse
 from app.services.character import CharacterService, UnknownCharacterError
@@ -26,7 +28,7 @@ def register_active_character_routes(
     services: ActiveCharacterRouteServices,
     build_active_character_response: BuildActiveCharacterResponse,
 ) -> None:
-    from fastapi import Response, status
+    from fastapi import status
 
     @router.get(
         "/session/active-character",

@@ -36,6 +36,7 @@ Local storage rule:
 `Mic -> STT -> Memory -> LLM -> TTS -> Avatar`
 
 - The backend orchestrator owns the turn lifecycle and remains the only public service boundary to the frontend.
+- The frontend never talks to TTS directly. The backend owns TTS request admission, queueing, sidecar lifecycle, and artifact publication.
 - Memory retrieval happens before response generation, not as an afterthought layered on top of finished replies.
 - TTS returns timing metadata that the frontend avatar runtime can use for lip-sync and speaking-state alignment.
 
@@ -198,7 +199,9 @@ The repository structure above intentionally omits committed model payload direc
 
 - Wraps GPT-SoVITS latest stable 2026 fork or a compatible offline TTS engine.
 - Accepts normalized speech text plus voice profile settings from the character service.
+- Runs as one backend-owned local sidecar with one warm model load and a bounded FIFO request queue rather than per-request subprocess launches.
 - Returns audio artifacts and timing metadata suitable for frontend lip-sync and animation alignment.
+- Publishes only normalized backend artifacts and timing metadata back to the frontend; provider-local HTTP or process details stay inside the backend boundary.
 
 ### Memory Service
 
@@ -265,6 +268,9 @@ Current backend-owned speech seam:
 
 - `backend/app/schemas/session.py` defines provider-agnostic speech profile, transcription, synthesis, and timing shapes without committing to a live provider adapter.
 - `build_api_contract_snapshot()` publishes the current baseline speech profile ids plus canonical `transcription.status` and `speech.synthesis` session-event examples so the seam is inspectable and baselineable before streaming transport or provider invocation lands.
+
+Concrete turn orchestration planning now lives in `docs/TURN_STATE_MACHINE.md`.
+That document defines the backend-owned per-turn state machine, queue boundaries, interruption and supersede rules, canonical event taxonomy, and logging fields that the current `speech.lifecycle` seam will widen toward.
 
 ### Orchestrator To STT
 

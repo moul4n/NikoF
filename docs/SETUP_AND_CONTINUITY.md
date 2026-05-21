@@ -91,8 +91,9 @@ Current concrete local asset expectations:
 - The backend-facing Faster-Whisper wrapper lives under `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\transcribe.py` or `main.py`.
 - Machine-local Faster-Whisper runtime shaping can live in `runtime.json` under that STT model root or the matching provider root. Keep machine-specific model and execution details there rather than in repo-tracked config.
 - GPT-SoVITS payloads live under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` and remain outside git.
-- The backend-facing GPT-SoVITS wrapper lives under `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\synthesize.py` or `api_server.py`.
+- The backend-facing GPT-SoVITS wrapper lives under `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\synthesize.py` for one-shot invocation and may expose a persistent server through `api_v2.py`, `api.py`, or `api_server.py`.
 - Machine-local GPT-SoVITS runtime shaping can live in `runtime.json` under that TTS model root or the matching provider root. Keep speaker ids, reference audio paths, prompt text, and other vendor-specific payload details there rather than in repo-tracked config.
+- On the current dev machine, the working local GPT-SoVITS pair is `pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt` plus `pretrained_models/s2G488k.pth`. The attempted `pretrained_models/v2Pro/s2Gv2Pro.pth` override did not match the current provider runtime and failed during sidecar model load.
 - The local-only runtime manifests live at `NIKOF_PROVIDERS_ROOT\llm\ollama\runtime.json`, `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b\runtime.json`, `NIKOF_STT_MODELS_ROOT\faster-whisper-medium\runtime.json`, `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\runtime.json`, `NIKOF_TTS_MODELS_ROOT\gpt-sovits\runtime.json`, and `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\runtime.json`.
 - The manual Faster-Whisper acquisition checklist lives at `NIKOF_STT_MODELS_ROOT\faster-whisper-medium\install-plan.json` and is created by the `stt-manual-medium` hook.
 - The manual GPT-SoVITS acquisition checklist lives at `NIKOF_TTS_MODELS_ROOT\gpt-sovits\install-plan.json` and is created by the `tts-manual-gpt-sovits` hook.
@@ -100,6 +101,22 @@ Current concrete local asset expectations:
 Startup behavior now mirrors that contract: `backend/app/dev_server.py` warns on missing required local LLM, STT, and TTS prerequisites before Uvicorn starts, prints the expected canonical path, prints the runtime-config or install-plan path when one exists, includes the matching bootstrap resume hook command, and points at the generated hint file so a crashed or fresh session can reopen the exact remediation path.
 For Faster-Whisper Medium specifically, startup now also prints the managed acceptance targets and any still-blocked local proof so the user can see whether the remaining issue is model payload placement, provider entrypoint placement, or both.
 For GPT-SoVITS specifically, startup now also prints the managed acceptance targets and any still-blocked local proof so the user can see whether the remaining issue is payload placement, provider entrypoint placement, or both.
+The live GPT-SoVITS path now launches one backend-owned sidecar and writes sidecar stdout and stderr to `%LOCALAPPDATA%\NikoF\logs\tts\tts-server-*.log`. When TTS requests degrade to `unavailable`, inspect those log files first.
+The backend resource monitor's owned-process table depends on the backend environment matching `backend/pyproject.toml`; if `psutil` is missing from the active `.venv`, the API will return an empty `owned_processes` list until the environment is resynced.
+Current measured TTS baseline on the active dev machine, captured on 2026-05-21 after the lifecycle-fallback fix:
+
+- An 8-prompt sequential soak through `POST /session/operator-command` returned `ready` for all requests and kept the GPT-SoVITS sidecar warm throughout the run.
+- Sampled end-to-end request latency was 290.6 ms minimum, 881.0 ms average, and 1593.2 ms maximum for prompts between 12 and 117 characters.
+- Returned synthesis timing averaged 4620 ms, so the warm path is producing audio noticeably faster than real-time for this prompt mix.
+- Spot-sampled GPU usage during the soak ranged from 31% to 56% with a 49.5% average, sampled power ranged from 30.81 W to 75.79 W, and reported VRAM stayed between 4996 MiB and 5113 MiB.
+- Post-soak validation repeated `GET /session/speech-lifecycle` 10 times without moving the TTS request counter or `last_request`, which is the expected proof that idle polling is no longer driving hidden synthesis work.
+- The post-soak warm-idle sample was 37%, 31.29 W, and 5016 MiB, and the active GPU engines belonged to VS Code and Edge rather than the backend-owned GPT-SoVITS Python process. Treat that sample as a Windows desktop estimate, not a dedicated TTS profiler trace.
+- A later 30-prompt sequential soak kept that same behavior intact: 30 of 30 requests returned `ready`, the sidecar stayed loaded, measured request latency was 478.7 ms minimum, 923.1 ms average, 1480.9 ms at the 95th percentile, and 4515.8 ms maximum, and returned utterance timing averaged 4491.3 ms.
+- During that longer run, active-loop GPU spot samples ranged from 31% to 79% with a 40.5% average, sampled power averaged 71.39 W and peaked at 86.29 W, and reported VRAM ranged from 5038 MiB to 5659 MiB.
+- The first post-soak request-counter sample landed at 49 instead of the expected 50, but an immediate follow-up `GET /system/resources` read caught up to 50 and stayed flat through 10 more `GET /session/speech-lifecycle` calls, so treat that one-off as counter sampling lag rather than lost work.
+- The cleanest post-soak warm-idle tail captured so far after repeated preview traffic is 8%, 30.64 W, and 5888 MiB with no GPU engine above the 5% reporting threshold.
+- Reuse `scripts/testing/Invoke-TtsSoak.ps1` for future warm-path checks instead of rebuilding the manual command chain. The script writes a JSON artifact under `.local/monitoring/` with per-request samples, aggregate timing and GPU summaries, tail idle data, and both the raw resource-counter total plus an artifact-sequence-based completion estimate when `GET /system/resources` lags the returned `audio_reference` ids.
+- Backend default server selection now prefers dedicated headless GPT-SoVITS API entrypoints in this order: `api_v2.py`, then `api.py`, then `api_server.py`. Machines that only have the current `api_server.py` wrapper remain compatible, but newer provider installs can switch to the lighter headless API path without additional repo changes.
 
 ## Squad Continuity Expectations
 
