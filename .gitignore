@@ -36,6 +36,7 @@ __pycache__/
 # Frontend install and build outputs
 frontend/node_modules/
 frontend/dist/
+frontend/display/vrm-animation-debug/node_modules/
 
 # Machine-local Unity export workspace spillover
 .tmp-unity-temp/
