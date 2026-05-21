@@ -26,7 +26,6 @@
 
 .EXAMPLE
     .\Invoke-VrmaExport.ps1 -SemanticId idle.default -SourceClip assets/animations/raw/idle.anim
-    .\Invoke-VrmaExport.ps1 -SemanticId idle.tired -SourceClip "assets/animations/raw/Tired Idle.anim"
 #>
 param(
     [Parameter(Mandatory = $true)]

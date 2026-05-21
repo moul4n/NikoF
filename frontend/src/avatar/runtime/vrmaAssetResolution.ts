@@ -84,7 +84,11 @@ export async function probeVrmaAsset(
   for (const candidate of candidates) {
     try {
       const response = await fetch(candidate.url, { method: "HEAD" });
-      if (response.ok) {
+      const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+
+      // Vite's SPA fallback can return index.html for missing /assets/* paths.
+      // Treat HTML responses as missing assets so callers can fall back cleanly.
+      if (response.ok && !contentType.includes("text/html")) {
         return candidate;
       }
     } catch {

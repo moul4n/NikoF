@@ -17,7 +17,9 @@ function serveRepoAssets() {
     configureServer(server: { middlewares: { use: (fn: Function) => void } }) {
       server.middlewares.use((req: { url?: string }, res: { setHeader: (k: string, v: string) => void } & NodeJS.WritableStream, next: () => void) => {
         if (req.url && req.url.startsWith("/assets/")) {
-          const filePath = path.join(assetsRoot, req.url.slice("/assets/".length));
+          const requestPath = req.url.split("?")[0];
+          const decodedAssetPath = decodeURIComponent(requestPath.slice("/assets/".length));
+          const filePath = path.join(assetsRoot, decodedAssetPath);
           if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
             const ext = path.extname(filePath).toLowerCase();
             const mimeTypes: Record<string, string> = {

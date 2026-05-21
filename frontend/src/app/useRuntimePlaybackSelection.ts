@@ -31,13 +31,15 @@ export function useRuntimePlaybackSelection({
   sessionAnimationState
 }: UseRuntimePlaybackSelectionOptions): UseRuntimePlaybackSelectionResult {
   const isDisplayOverrideSurface = surfaceMode === "display" && isDevAnimationSwitcherEnabled;
+  const selectedOption = resolveDevDisplayAnimationOption(devDisplayAnimationOverride.optionId);
 
   return {
     devDisplayAnimationActivationKey: devDisplayAnimationOverride.activationKey,
-    selectedOption: resolveDevDisplayAnimationOption(devDisplayAnimationOverride.optionId),
+    selectedOption,
     activeAnimationSnapshot: sessionAnimationState.snapshot,
     shouldWaitForDisplayRuntimeReady: isDisplayOverrideSurface && !isDisplayRuntimeReady,
-    shouldUseDevDisplayAnimationOverride: isDisplayOverrideSurface && isDisplayRuntimeReady,
+    shouldUseDevDisplayAnimationOverride:
+      isDisplayOverrideSurface && isDisplayRuntimeReady && selectedOption.behavior !== "backend",
     shouldUseOfflineIdleFallback: sessionAnimationState.status === "offline"
   };
 }

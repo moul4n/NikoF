@@ -388,7 +388,7 @@ class OperatorCommandSurfaceTests(unittest.TestCase):
         self.assertEqual(list(initial_snapshot.keys()), list(updated_snapshot.keys()))
         self.assertEqual(list(initial_snapshot.keys()), list(refreshed_snapshot.keys()))
         self.assertEqual("idle", initial_snapshot["lifecycle_state"])
-        self.assertEqual("idle.default", initial_snapshot["command"]["semantic_id"])
+        self.assertEqual("idle.neutral", initial_snapshot["command"]["semantic_id"])
         self.assertEqual("speak", updated_snapshot["lifecycle_state"])
         self.assertEqual("speak.loop", updated_snapshot["command"]["semantic_id"])
         self.assertEqual(updated_snapshot, refreshed_snapshot)

@@ -31,8 +31,6 @@ $exportScript = Join-Path $scriptDir 'Invoke-VrmaExport.ps1'
 # Format: @{ SemanticId = RelativePathFromRepoRoot }
 $clips = [ordered]@{
     'idle.default'       = 'assets/animations/raw/idle.anim'
-    'idle.tired'         = 'assets/animations/raw/Tired Idle.anim'
-    'idle.combat-ready'  = 'assets/animations/raw/Action Idle To Fight Idle.anim'
 }
 
 # ─── Run ──────────────────────────────────────────────────────────────────────

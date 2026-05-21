@@ -12,7 +12,11 @@ import type {
   CharacterManifestSummary,
   CharacterRuntimeState
 } from "../../shared/types/character";
-import { resolveSharedSemanticAnimationPayload, DEFAULT_BASE_ANIMATION_COMMAND } from "./defaultBaseAnimation";
+import {
+  resolveCanonicalSharedSemanticAnimationId,
+  resolveSharedSemanticAnimationPayload,
+  DEFAULT_BASE_ANIMATION_COMMAND
+} from "./defaultBaseAnimation";
 import {
   type HumanoidChannelPlayback,
   type HumanoidChannelPlaybackDebugPoseSnapshot
@@ -22,8 +26,13 @@ import {
   resolveAvatarRuntimePlayback,
   type AvatarRuntimeResolvedPlayback
 } from "./avatarRuntimePlaybackRoute";
-import { createVrmaPlayback, type VrmaPlaybackBridge } from "./vrmaPlayback";
-import { resolveVrmaAssetCandidates } from "./vrmaAssetResolution";
+import { createVrmaPlayback, type VrmaPlaybackBridge, type VrmaPlaybackDebugSnapshot } from "./vrmaPlayback";
+import {
+  createOfficialMixamoPlayback,
+  type OfficialMixamoPlaybackBridge,
+  type OfficialMixamoPlaybackDebugSnapshot
+} from "./officialMixamoPlayback";
+import { probeVrmaAsset } from "./vrmaAssetResolution";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
 import { createPassiveBlinkController, type PassiveBlinkController } from "./passiveBlink";
 import { createPassiveMouthController, type PassiveMouthController } from "./passiveMouth";
@@ -38,15 +47,34 @@ type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
 type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
 type AvatarOverlayChannelId = "speech";
 type AvatarOverlaySource = "backend.speech.lifecycle";
-type VrmaCorrectionMode = "grounded" | "plain";
-export type AvatarAnimationPlaybackPath = "mixer" | "feetAnchored" | "vrma";
+export type AvatarAnimationPlaybackPath = "mixer" | "vrma" | "official";
 export type AvatarRuntimeEmotionName = PassiveEmotionName;
 type VRMHumanBoneNameValue = (typeof VRMHumanBoneName)[keyof typeof VRMHumanBoneName];
+type AvatarLowerBodyRotationBoneName =
+  | "hips"
+  | "leftUpperLeg"
+  | "leftLowerLeg"
+  | "leftFoot"
+  | "rightUpperLeg"
+  | "rightLowerLeg"
+  | "rightFoot";
 
 type AvatarRuntimeListener = () => void;
 
 const VRM_MOUTH_EXPRESSION_NAMES = ["aa", "ih", "ou", "ee", "oh"] as const;
 const VRM_MOUTH_EXPRESSION_NAME_SET = new Set<string>(VRM_MOUTH_EXPRESSION_NAMES);
+const LOWER_BODY_ROTATION_BONES: Array<{
+  debugName: AvatarLowerBodyRotationBoneName;
+  vrmBoneName: VRMHumanBoneNameValue;
+}> = [
+  { debugName: "hips", vrmBoneName: VRMHumanBoneName.Hips },
+  { debugName: "leftUpperLeg", vrmBoneName: VRMHumanBoneName.LeftUpperLeg },
+  { debugName: "leftLowerLeg", vrmBoneName: VRMHumanBoneName.LeftLowerLeg },
+  { debugName: "leftFoot", vrmBoneName: VRMHumanBoneName.LeftFoot },
+  { debugName: "rightUpperLeg", vrmBoneName: VRMHumanBoneName.RightUpperLeg },
+  { debugName: "rightLowerLeg", vrmBoneName: VRMHumanBoneName.RightLowerLeg },
+  { debugName: "rightFoot", vrmBoneName: VRMHumanBoneName.RightFoot }
+];
 const VRM_MOUTH_EXPRESSION_ALIASES: Record<string, (typeof VRM_MOUTH_EXPRESSION_NAMES)[number]> = {
   a: "aa",
   aa: "aa",
@@ -88,14 +116,6 @@ interface LoadedAvatar {
   frontProfileQuaternion: THREE.Quaternion;
   root: THREE.Object3D;
   vrm: VRM | null;
-  footAnchorBaseline: AvatarFootAnchorBaseline | null;
-  modelCompatibilityBaseline: AvatarModelCompatibilityPoseSnapshot | null;
-  pelvisPrepassOffsetY: number;
-}
-
-interface AvatarFootAnchorBaseline {
-  leftFootLocalPosition: THREE.Vector3;
-  rightFootLocalPosition: THREE.Vector3;
 }
 
 interface RigOverlaySegmentDefinition {
@@ -143,22 +163,6 @@ interface ActiveBaseAnimationState {
   baselineQuaternion: THREE.Quaternion;
   humanoidPlayback: HumanoidChannelPlayback | null;
   elapsedSeconds: number;
-  vrmaFootLocks: VrmaFootLockState | null;
-}
-
-interface VrmaFootLockEntry {
-  locked: boolean;
-  lockPosition: THREE.Vector3;
-  previousPosition: THREE.Vector3;
-  hasPreviousPosition: boolean;
-  contactFrames: number;
-  releaseFrames: number;
-}
-
-interface VrmaFootLockState {
-  frameIndex: number;
-  left: VrmaFootLockEntry;
-  right: VrmaFootLockEntry;
 }
 
 interface AvatarHumanoidPlaybackDebugSnapshot {
@@ -202,73 +206,69 @@ interface AvatarProfileOrientationSnapshot {
   anchorAngularErrorDegrees: number | null;
 }
 
-interface VrmaRetargetDiagnosticSample {
-  hipY: number | null;
-  leftKneeY: number | null;
-  rightKneeY: number | null;
-  leftFootY: number | null;
-  rightFootY: number | null;
-  leftToesY: number | null;
-  rightToesY: number | null;
+interface AvatarLowerBodyDebugSnapshot {
+  elapsedSeconds: number | null;
+  rootPosition: [number, number, number] | null;
+  anchorPosition: [number, number, number] | null;
+  hipsPosition: [number, number, number] | null;
   leftFootPosition: [number, number, number] | null;
   rightFootPosition: [number, number, number] | null;
-  leftTargetErrorXZ: number | null;
-  rightTargetErrorXZ: number | null;
-  leftTargetErrorY: number | null;
-  rightTargetErrorY: number | null;
+  leftToesPosition: [number, number, number] | null;
+  rightToesPosition: [number, number, number] | null;
 }
 
-interface VrmaRetargetDiagnosticsSnapshot {
-  mode: VrmaCorrectionMode;
-  characterId: CharacterId | null;
-  semanticId: string | null;
+interface AvatarLowerBodyRangeDebugSnapshot {
+  sampleCount: number;
+  hipsY: { min: number; max: number; range: number } | null;
+  leftFootY: { min: number; max: number; range: number } | null;
+  rightFootY: { min: number; max: number; range: number } | null;
+  leftToesY: { min: number; max: number; range: number } | null;
+  rightToesY: { min: number; max: number; range: number } | null;
+}
+
+interface AvatarLowerBodyRotationBoneSnapshot {
+  localQuaternion: [number, number, number, number] | null;
+  worldQuaternion: [number, number, number, number] | null;
+}
+
+interface AvatarLowerBodyRotationDebugSnapshot {
   elapsedSeconds: number | null;
-  leftFootTarget: [number, number, number] | null;
-  rightFootTarget: [number, number, number] | null;
-  preCorrection: VrmaRetargetDiagnosticSample | null;
-  postCorrection: VrmaRetargetDiagnosticSample | null;
+  bones: Record<AvatarLowerBodyRotationBoneName, AvatarLowerBodyRotationBoneSnapshot>;
 }
 
-interface AvatarModelCompatibilityLegSnapshot {
-  hipPosition: [number, number, number] | null;
-  kneePosition: [number, number, number] | null;
-  footPosition: [number, number, number] | null;
-  toesPosition: [number, number, number] | null;
-  upperLegLength: number | null;
-  lowerLegLength: number | null;
-  footLength: number | null;
-  kneeOffset: [number, number, number] | null;
-  kneeOffsetMagnitude: number | null;
-  kneeOffsetDotForward: number | null;
-  footDirection: [number, number, number] | null;
-  footDirectionDotForward: number | null;
-  footDirectionDotUp: number | null;
+interface AvatarLowerBodyRotationAngleRangeMetric {
+  maxAngleDeltaDeg: number | null;
+  currentAngleDeltaDeg: number | null;
 }
 
-interface AvatarModelCompatibilityPoseSnapshot {
-  humanoidForward: [number, number, number] | null;
-  rootUp: [number, number, number] | null;
-  footSpan: [number, number, number] | null;
-  left: AvatarModelCompatibilityLegSnapshot | null;
-  right: AvatarModelCompatibilityLegSnapshot | null;
+interface AvatarLowerBodyRotationRangeBoneSnapshot {
+  local: AvatarLowerBodyRotationAngleRangeMetric;
+  world: AvatarLowerBodyRotationAngleRangeMetric;
 }
 
-interface AvatarModelCompatibilitySnapshot {
-  characterId: CharacterId | null;
-  mode: VrmaCorrectionMode;
-  baseline: AvatarModelCompatibilityPoseSnapshot | null;
-  current: AvatarModelCompatibilityPoseSnapshot | null;
+interface AvatarLowerBodyRotationRangeDebugSnapshot {
+  sampleCount: number;
+  bones: Record<AvatarLowerBodyRotationBoneName, AvatarLowerBodyRotationRangeBoneSnapshot>;
+}
+
+interface AvatarPlaybackProgressDebugSnapshot {
+  renderFrameCount: number;
+  lowerBodySampleCount: number;
+  activeAnimationId: string | null;
+  playbackPath: AvatarAnimationPlaybackPath | null;
+  elapsedSeconds: number | null;
+  vrma: VrmaPlaybackDebugSnapshot | null;
+  official: OfficialMixamoPlaybackDebugSnapshot | null;
 }
 
 interface AvatarRuntimeDebugApi {
   getProfileOrientationSnapshot: () => AvatarProfileOrientationSnapshot | null;
   getHumanoidPlayback: () => AvatarHumanoidPlaybackDebugSnapshot;
-  getVrmaCorrectionMode: () => VrmaCorrectionMode;
-  setVrmaCorrectionMode: (mode: VrmaCorrectionMode) => void;
-  getVrmaRetargetDiagnostics: () => VrmaRetargetDiagnosticsSnapshot | null;
-  logVrmaRetargetDiagnostics: () => VrmaRetargetDiagnosticsSnapshot | null;
-  getModelCompatibilitySnapshot: () => AvatarModelCompatibilitySnapshot | null;
-  logModelCompatibilitySnapshot: () => AvatarModelCompatibilitySnapshot | null;
+  getLowerBodySnapshot: () => AvatarLowerBodyDebugSnapshot | null;
+  getLowerBodyRange: (sampleCount?: number) => AvatarLowerBodyRangeDebugSnapshot;
+  getLowerBodyRotationSnapshot: () => AvatarLowerBodyRotationDebugSnapshot | null;
+  getLowerBodyRotationRange: (sampleCount?: number) => AvatarLowerBodyRotationRangeDebugSnapshot;
+  getPlaybackProgress: () => AvatarPlaybackProgressDebugSnapshot;
 }
 
 type ResolvedAnimationPlayback = AvatarRuntimeResolvedPlayback;
@@ -335,49 +335,7 @@ const RIG_OVERLAY_SEGMENTS = [
   { startBoneName: VRMHumanBoneName.RightFoot, endBoneName: VRMHumanBoneName.RightToes, color: 0xf1d35b }
 ] as const satisfies readonly RigOverlaySegmentDefinition[];
 
-const FLOOR_GROUNDING_BONE_NAMES = [
-  VRMHumanBoneName.LeftFoot,
-  VRMHumanBoneName.RightFoot,
-  VRMHumanBoneName.LeftToes,
-  VRMHumanBoneName.RightToes
-] as const satisfies readonly VRMHumanBoneNameValue[];
-const FLOOR_GROUNDING_FOOT_BONE_NAMES = [
-  VRMHumanBoneName.LeftFoot,
-  VRMHumanBoneName.RightFoot
-] as const satisfies readonly VRMHumanBoneNameValue[];
-const VRMA_FOOT_LOCK_CONTACT_HEIGHT_THRESHOLD = 0.03;
-const VRMA_FOOT_LOCK_VERTICAL_SPEED_THRESHOLD = 0.12;
-const VRMA_FOOT_LOCK_HORIZONTAL_SPEED_THRESHOLD = 0.08;
-const VRMA_FOOT_LOCK_CONTACT_FRAMES = 2;
-const VRMA_FOOT_LOCK_RELEASE_FRAMES = 3;
-const PELVIS_PREPASS_UPWARD_MAX_DELTA = 0.035;
-const PELVIS_PREPASS_UPWARD_COMPLIANCE = 0.45;
-const PELVIS_PREPASS_OFFSET_RESPONSE = 8;
-const PELVIS_PREPASS_TARGET_MAX_BIAS = 0.65;
-
 export function createAvatarRuntime(): AvatarRuntimeBridge {
-  function createVrmaFootLockEntry(): VrmaFootLockEntry {
-    return {
-      locked: false,
-      lockPosition: new THREE.Vector3(),
-      previousPosition: new THREE.Vector3(),
-      hasPreviousPosition: false,
-      contactFrames: 0,
-      releaseFrames: 0
-    };
-  }
-
-  function createVrmaFootLockState(): VrmaFootLockState {
-    return {
-      frameIndex: 0,
-      left: createVrmaFootLockEntry(),
-      right: createVrmaFootLockEntry()
-    };
-  }
-
-  function isVrmaIdleCommand(command: SemanticAnimationCommand): boolean {
-    return command.id.toLowerCase().startsWith("idle");
-  }
 
   function resolveFinalFrameElapsedSeconds(payload: SemanticAnimationRuntimePayload): number {
     const lastSampleTime = payload.sampling?.timesS[payload.sampling.timesS.length - 1];
@@ -457,6 +415,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let rigOverlayState: RigOverlayState | null = null;
   let animationPlaybackPath: AvatarAnimationPlaybackPath = "vrma";
   let vrmaPlayback: VrmaPlaybackBridge | null = null;
+  let officialPlayback: OfficialMixamoPlaybackBridge | null = null;
   let passiveBlink: PassiveBlinkController | null = null;
   let passiveMouth: PassiveMouthController | null = null;
   let passiveEyeDrift: PassiveEyeDriftController | null = null;
@@ -466,9 +425,20 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let activeLoadPromise: Promise<void> | null = null;
   let speechReactionTimeoutIds: number[] = [];
   let activeSpeechExpressionName: string | null = null;
-  let vrmaCorrectionMode: VrmaCorrectionMode = "grounded";
-  let latestVrmaRetargetDiagnostics: VrmaRetargetDiagnosticsSnapshot | null = null;
-  let lastVrmaDiagnosticLogTimeMs = 0;
+  let renderFrameCount = 0;
+  const lowerBodyDebugHistory: Array<{
+    elapsedSeconds: number;
+    hipsY: number | null;
+    leftFootY: number | null;
+    rightFootY: number | null;
+    leftToesY: number | null;
+    rightToesY: number | null;
+  }> = [];
+  const lowerBodyRotationDebugHistory: Array<{
+    elapsedSeconds: number;
+    bones: Record<AvatarLowerBodyRotationBoneName, AvatarLowerBodyRotationBoneSnapshot>;
+  }> = [];
+  const maxLowerBodyDebugHistory = 360;
   const listeners = new Set<AvatarRuntimeListener>();
   const clock = new THREE.Clock();
   const debugFrontProfileTargetForward = new THREE.Vector3(0, 0, 1);
@@ -479,192 +449,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
   function roundVector3(vector: THREE.Vector3): [number, number, number] {
     return [roundComparisonNumber(vector.x), roundComparisonNumber(vector.y), roundComparisonNumber(vector.z)];
-  }
-
-  function resolveRootLocalDirection(root: THREE.Object3D, worldDirection: THREE.Vector3): THREE.Vector3 | null {
-    if (worldDirection.lengthSq() <= 1e-6) {
-      return null;
-    }
-
-    const inverseRootQuaternion = root.getWorldQuaternion(new THREE.Quaternion()).invert();
-    const localDirection = worldDirection.clone().applyQuaternion(inverseRootQuaternion);
-
-    if (localDirection.lengthSq() <= 1e-6) {
-      return null;
-    }
-
-    return localDirection.normalize();
-  }
-
-  function resolveRootLocalPosition(root: THREE.Object3D, node: THREE.Object3D): THREE.Vector3 {
-    return root.worldToLocal(node.getWorldPosition(new THREE.Vector3()));
-  }
-
-  function measureModelCompatibilityLegSnapshot(
-    root: THREE.Object3D,
-    vrm: VRM,
-    boneNames: {
-      hip: VRMHumanBoneNameValue;
-      knee: VRMHumanBoneNameValue;
-      foot: VRMHumanBoneNameValue;
-      toes: VRMHumanBoneNameValue;
-    },
-    humanoidForwardLocal: THREE.Vector3 | null,
-    rootUpLocal: THREE.Vector3 | null,
-  ): AvatarModelCompatibilityLegSnapshot | null {
-    const hipNode = resolveRigOverlayBoneNode(vrm, boneNames.hip);
-    const kneeNode = resolveRigOverlayBoneNode(vrm, boneNames.knee);
-    const footNode = resolveRigOverlayBoneNode(vrm, boneNames.foot);
-    const toesNode = resolveRigOverlayBoneNode(vrm, boneNames.toes);
-
-    if (!hipNode || !kneeNode || !footNode || !toesNode) {
-      return null;
-    }
-
-    const hipPosition = resolveRootLocalPosition(root, hipNode);
-    const kneePosition = resolveRootLocalPosition(root, kneeNode);
-    const footPosition = resolveRootLocalPosition(root, footNode);
-    const toesPosition = resolveRootLocalPosition(root, toesNode);
-
-    const upperLeg = kneePosition.clone().sub(hipPosition);
-    const lowerLeg = footPosition.clone().sub(kneePosition);
-    const footVector = toesPosition.clone().sub(footPosition);
-    const hipToFoot = footPosition.clone().sub(hipPosition);
-
-    let kneeOffset: THREE.Vector3 | null = null;
-    if (hipToFoot.lengthSq() > 1e-6) {
-      const lineDirection = hipToFoot.clone().normalize();
-      const projectedLength = THREE.MathUtils.clamp(
-        kneePosition.clone().sub(hipPosition).dot(lineDirection),
-        0,
-        hipToFoot.length(),
-      );
-      const closestPoint = hipPosition.clone().add(lineDirection.multiplyScalar(projectedLength));
-      kneeOffset = kneePosition.clone().sub(closestPoint);
-    }
-
-    const footDirection = footVector.lengthSq() > 1e-6 ? footVector.clone().normalize() : null;
-
-    return {
-      hipPosition: roundVector3(hipPosition),
-      kneePosition: roundVector3(kneePosition),
-      footPosition: roundVector3(footPosition),
-      toesPosition: roundVector3(toesPosition),
-      upperLegLength: upperLeg.lengthSq() > 1e-6 ? roundComparisonNumber(upperLeg.length()) : null,
-      lowerLegLength: lowerLeg.lengthSq() > 1e-6 ? roundComparisonNumber(lowerLeg.length()) : null,
-      footLength: footVector.lengthSq() > 1e-6 ? roundComparisonNumber(footVector.length()) : null,
-      kneeOffset: kneeOffset ? roundVector3(kneeOffset) : null,
-      kneeOffsetMagnitude: kneeOffset ? roundComparisonNumber(kneeOffset.length()) : null,
-      kneeOffsetDotForward:
-        kneeOffset && humanoidForwardLocal && kneeOffset.lengthSq() > 1e-6
-          ? roundComparisonNumber(kneeOffset.clone().normalize().dot(humanoidForwardLocal))
-          : null,
-      footDirection: footDirection ? roundVector3(footDirection) : null,
-      footDirectionDotForward:
-        footDirection && humanoidForwardLocal ? roundComparisonNumber(footDirection.dot(humanoidForwardLocal)) : null,
-      footDirectionDotUp:
-        footDirection && rootUpLocal ? roundComparisonNumber(footDirection.dot(rootUpLocal)) : null,
-    };
-  }
-
-  function measureModelCompatibilityPoseSnapshot(
-    root: THREE.Object3D,
-    vrm: VRM | null,
-  ): AvatarModelCompatibilityPoseSnapshot | null {
-    if (!vrm) {
-      return null;
-    }
-
-    root.updateWorldMatrix(true, true);
-
-    const humanoidForwardWorld = resolveHumanoidHorizontalForward(vrm);
-    const humanoidForwardLocal = humanoidForwardWorld ? resolveRootLocalDirection(root, humanoidForwardWorld) : null;
-    const rootUpLocal = resolveRootLocalDirection(root, new THREE.Vector3(0, 1, 0));
-    const left = measureModelCompatibilityLegSnapshot(
-      root,
-      vrm,
-      {
-        hip: VRMHumanBoneName.LeftUpperLeg,
-        knee: VRMHumanBoneName.LeftLowerLeg,
-        foot: VRMHumanBoneName.LeftFoot,
-        toes: VRMHumanBoneName.LeftToes,
-      },
-      humanoidForwardLocal,
-      rootUpLocal,
-    );
-    const right = measureModelCompatibilityLegSnapshot(
-      root,
-      vrm,
-      {
-        hip: VRMHumanBoneName.RightUpperLeg,
-        knee: VRMHumanBoneName.RightLowerLeg,
-        foot: VRMHumanBoneName.RightFoot,
-        toes: VRMHumanBoneName.RightToes,
-      },
-      humanoidForwardLocal,
-      rootUpLocal,
-    );
-
-    let footSpan: [number, number, number] | null = null;
-    if (left?.footPosition && right?.footPosition) {
-      footSpan = [
-        roundComparisonNumber(right.footPosition[0] - left.footPosition[0]),
-        roundComparisonNumber(right.footPosition[1] - left.footPosition[1]),
-        roundComparisonNumber(right.footPosition[2] - left.footPosition[2]),
-      ];
-    }
-
-    return {
-      humanoidForward: humanoidForwardLocal ? roundVector3(humanoidForwardLocal) : null,
-      rootUp: rootUpLocal ? roundVector3(rootUpLocal) : null,
-      footSpan,
-      left,
-      right,
-    };
-  }
-
-  function setVrmaCorrectionMode(mode: VrmaCorrectionMode): void {
-    vrmaCorrectionMode = mode;
-    console.info(`[vrma:mode] correctionMode=${mode}`);
-  }
-
-  function getVrmaRetargetDiagnostics(): VrmaRetargetDiagnosticsSnapshot | null {
-    return latestVrmaRetargetDiagnostics;
-  }
-
-  function logVrmaRetargetDiagnostics(): VrmaRetargetDiagnosticsSnapshot | null {
-    if (!latestVrmaRetargetDiagnostics) {
-      console.info("[vrma:diag] No VRMA retarget diagnostics captured yet.");
-      return null;
-    }
-
-    console.info("[vrma:diag] snapshot", latestVrmaRetargetDiagnostics);
-    return latestVrmaRetargetDiagnostics;
-  }
-
-  function getModelCompatibilitySnapshot(): AvatarModelCompatibilitySnapshot | null {
-    if (!currentAvatar) {
-      return null;
-    }
-
-    return {
-      characterId: currentCharacter?.characterId ?? null,
-      mode: vrmaCorrectionMode,
-      baseline: currentAvatar.modelCompatibilityBaseline,
-      current: measureModelCompatibilityPoseSnapshot(currentAvatar.root, currentAvatar.vrm),
-    };
-  }
-
-  function logModelCompatibilitySnapshot(): AvatarModelCompatibilitySnapshot | null {
-    const snapshot = getModelCompatibilitySnapshot();
-
-    if (!snapshot) {
-      console.info("[vrma:model] No model compatibility snapshot available yet.");
-      return null;
-    }
-
-    console.info("[vrma:model] snapshot", snapshot);
-    return snapshot;
   }
 
   function roundQuaternionValues(quaternion: THREE.Quaternion): [number, number, number, number] {
@@ -832,6 +616,231 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       .clone()
       .premultiply(new THREE.Quaternion().setFromUnitVectors(measuredForward, debugFrontProfileTargetForward))
       .normalize();
+  }
+
+  function roundWorldPosition(node: THREE.Object3D | null | undefined): [number, number, number] | null {
+    if (!node) {
+      return null;
+    }
+
+    return roundVector3(node.getWorldPosition(new THREE.Vector3()));
+  }
+
+  function roundQuaternionObject(quaternion: THREE.Quaternion | null | undefined): [number, number, number, number] | null {
+    if (!quaternion) {
+      return null;
+    }
+
+    return [
+      roundComparisonNumber(quaternion.x),
+      roundComparisonNumber(quaternion.y),
+      roundComparisonNumber(quaternion.z),
+      roundComparisonNumber(quaternion.w)
+    ];
+  }
+
+  function createEmptyLowerBodyRotationBoneRecord(): Record<AvatarLowerBodyRotationBoneName, AvatarLowerBodyRotationBoneSnapshot> {
+    return {
+      hips: { localQuaternion: null, worldQuaternion: null },
+      leftUpperLeg: { localQuaternion: null, worldQuaternion: null },
+      leftLowerLeg: { localQuaternion: null, worldQuaternion: null },
+      leftFoot: { localQuaternion: null, worldQuaternion: null },
+      rightUpperLeg: { localQuaternion: null, worldQuaternion: null },
+      rightLowerLeg: { localQuaternion: null, worldQuaternion: null },
+      rightFoot: { localQuaternion: null, worldQuaternion: null }
+    };
+  }
+
+  function collectLowerBodyDebugSnapshot(): AvatarLowerBodyDebugSnapshot | null {
+    if (!currentAvatar) {
+      return null;
+    }
+
+    const vrm = currentAvatar.vrm;
+    const hipsNode = vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Hips) ?? null;
+    const leftFootNode = vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftFoot) ?? null;
+    const rightFootNode = vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightFoot) ?? null;
+    const leftToesNode = vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftToes) ?? null;
+    const rightToesNode = vrm?.humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightToes) ?? null;
+
+    return {
+      elapsedSeconds: activeBaseAnimation?.elapsedSeconds ?? null,
+      rootPosition: roundWorldPosition(currentAvatar.root),
+      anchorPosition: roundWorldPosition(currentAvatar.anchorRoot),
+      hipsPosition: roundWorldPosition(hipsNode),
+      leftFootPosition: roundWorldPosition(leftFootNode),
+      rightFootPosition: roundWorldPosition(rightFootNode),
+      leftToesPosition: roundWorldPosition(leftToesNode),
+      rightToesPosition: roundWorldPosition(rightToesNode)
+    };
+  }
+
+  function collectLowerBodyRotationDebugSnapshot(): AvatarLowerBodyRotationDebugSnapshot | null {
+    if (!currentAvatar?.vrm) {
+      return null;
+    }
+
+    const bones = createEmptyLowerBodyRotationBoneRecord();
+
+    for (const { debugName, vrmBoneName } of LOWER_BODY_ROTATION_BONES) {
+      const node = currentAvatar.vrm.humanoid.getNormalizedBoneNode(vrmBoneName) ?? null;
+      const worldQuaternion = node?.getWorldQuaternion(new THREE.Quaternion()) ?? null;
+      bones[debugName] = {
+        localQuaternion: roundQuaternionObject(node?.quaternion),
+        worldQuaternion: roundQuaternionObject(worldQuaternion)
+      };
+    }
+
+    return {
+      elapsedSeconds: activeBaseAnimation?.elapsedSeconds ?? null,
+      bones
+    };
+  }
+
+  function recordLowerBodyDebugSample(): void {
+    const snapshot = collectLowerBodyDebugSnapshot();
+    const rotationSnapshot = collectLowerBodyRotationDebugSnapshot();
+
+    if (!snapshot) {
+      lowerBodyDebugHistory.length = 0;
+      lowerBodyRotationDebugHistory.length = 0;
+      return;
+    }
+
+    lowerBodyDebugHistory.push({
+      elapsedSeconds: snapshot.elapsedSeconds ?? 0,
+      hipsY: snapshot.hipsPosition?.[1] ?? null,
+      leftFootY: snapshot.leftFootPosition?.[1] ?? null,
+      rightFootY: snapshot.rightFootPosition?.[1] ?? null,
+      leftToesY: snapshot.leftToesPosition?.[1] ?? null,
+      rightToesY: snapshot.rightToesPosition?.[1] ?? null
+    });
+
+    if (rotationSnapshot) {
+      lowerBodyRotationDebugHistory.push({
+        elapsedSeconds: rotationSnapshot.elapsedSeconds ?? 0,
+        bones: rotationSnapshot.bones
+      });
+    }
+
+    if (lowerBodyDebugHistory.length > maxLowerBodyDebugHistory) {
+      lowerBodyDebugHistory.splice(0, lowerBodyDebugHistory.length - maxLowerBodyDebugHistory);
+    }
+
+    if (lowerBodyRotationDebugHistory.length > maxLowerBodyDebugHistory) {
+      lowerBodyRotationDebugHistory.splice(0, lowerBodyRotationDebugHistory.length - maxLowerBodyDebugHistory);
+    }
+  }
+
+  function buildLowerBodyRangeSnapshot(values: Array<number | null>): { min: number; max: number; range: number } | null {
+    const numericValues = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+
+    if (numericValues.length === 0) {
+      return null;
+    }
+
+    const min = Math.min(...numericValues);
+    const max = Math.max(...numericValues);
+    return {
+      min: roundComparisonNumber(min),
+      max: roundComparisonNumber(max),
+      range: roundComparisonNumber(max - min)
+    };
+  }
+
+  function getLowerBodyRangeDebugSnapshot(sampleCount = 120): AvatarLowerBodyRangeDebugSnapshot {
+    const clampedSampleCount = Math.max(1, Math.floor(sampleCount));
+    const recentSamples = lowerBodyDebugHistory.slice(-clampedSampleCount);
+
+    return {
+      sampleCount: recentSamples.length,
+      hipsY: buildLowerBodyRangeSnapshot(recentSamples.map((sample) => sample.hipsY)),
+      leftFootY: buildLowerBodyRangeSnapshot(recentSamples.map((sample) => sample.leftFootY)),
+      rightFootY: buildLowerBodyRangeSnapshot(recentSamples.map((sample) => sample.rightFootY)),
+      leftToesY: buildLowerBodyRangeSnapshot(recentSamples.map((sample) => sample.leftToesY)),
+      rightToesY: buildLowerBodyRangeSnapshot(recentSamples.map((sample) => sample.rightToesY))
+    };
+  }
+
+  function buildLowerBodyRotationAngleRangeMetric(
+    values: Array<[number, number, number, number] | null>
+  ): AvatarLowerBodyRotationAngleRangeMetric {
+    const firstValue = values.find((value): value is [number, number, number, number] => value !== null);
+    const currentValue = [...values].reverse().find((value): value is [number, number, number, number] => value !== null);
+
+    if (!firstValue || !currentValue) {
+      return {
+        maxAngleDeltaDeg: null,
+        currentAngleDeltaDeg: null
+      };
+    }
+
+    const firstQuaternion = new THREE.Quaternion(...firstValue);
+    let maxAngleDeltaDeg = 0;
+
+    for (const value of values) {
+      if (!value) {
+        continue;
+      }
+
+      const angleDeltaDeg = THREE.MathUtils.radToDeg(firstQuaternion.angleTo(new THREE.Quaternion(...value)));
+      if (angleDeltaDeg > maxAngleDeltaDeg) {
+        maxAngleDeltaDeg = angleDeltaDeg;
+      }
+    }
+
+    return {
+      maxAngleDeltaDeg: roundComparisonNumber(maxAngleDeltaDeg),
+      currentAngleDeltaDeg: roundComparisonNumber(
+        THREE.MathUtils.radToDeg(firstQuaternion.angleTo(new THREE.Quaternion(...currentValue)))
+      )
+    };
+  }
+
+  function createEmptyLowerBodyRotationRangeBoneRecord(): Record<AvatarLowerBodyRotationBoneName, AvatarLowerBodyRotationRangeBoneSnapshot> {
+    return {
+      hips: { local: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null }, world: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null } },
+      leftUpperLeg: { local: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null }, world: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null } },
+      leftLowerLeg: { local: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null }, world: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null } },
+      leftFoot: { local: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null }, world: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null } },
+      rightUpperLeg: { local: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null }, world: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null } },
+      rightLowerLeg: { local: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null }, world: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null } },
+      rightFoot: { local: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null }, world: { maxAngleDeltaDeg: null, currentAngleDeltaDeg: null } }
+    };
+  }
+
+  function getLowerBodyRotationRangeDebugSnapshot(sampleCount = 120): AvatarLowerBodyRotationRangeDebugSnapshot {
+    const clampedSampleCount = Math.max(1, Math.floor(sampleCount));
+    const recentSamples = lowerBodyRotationDebugHistory.slice(-clampedSampleCount);
+    const bones = createEmptyLowerBodyRotationRangeBoneRecord();
+
+    for (const { debugName } of LOWER_BODY_ROTATION_BONES) {
+      bones[debugName] = {
+        local: buildLowerBodyRotationAngleRangeMetric(
+          recentSamples.map((sample) => sample.bones[debugName].localQuaternion)
+        ),
+        world: buildLowerBodyRotationAngleRangeMetric(
+          recentSamples.map((sample) => sample.bones[debugName].worldQuaternion)
+        )
+      };
+    }
+
+    return {
+      sampleCount: recentSamples.length,
+      bones
+    };
+  }
+
+  function getPlaybackProgressDebugSnapshot(): AvatarPlaybackProgressDebugSnapshot {
+    return {
+      renderFrameCount,
+      lowerBodySampleCount: lowerBodyDebugHistory.length,
+      activeAnimationId: activeBaseAnimation?.command.id ?? null,
+      playbackPath: activeBaseAnimation?.playbackPath ?? null,
+      elapsedSeconds: activeBaseAnimation?.elapsedSeconds ?? null,
+      vrma: activeBaseAnimation?.playbackPath === "vrma" ? vrmaPlayback?.getDebugSnapshot() ?? null : null,
+      official: activeBaseAnimation?.playbackPath === "official" ? officialPlayback?.getDebugSnapshot() ?? null : null,
+    };
   }
 
   function createCharacterLoadTargetKey(character: CharacterManifestSummary): string {
@@ -1007,876 +1016,32 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return vrm.humanoid.getRawBoneNode(boneName) ?? vrm.humanoid.getNormalizedBoneNode(boneName);
   }
 
-  function measureAvatarFootAnchorBaseline(
-    root: THREE.Object3D,
-    vrm: VRM | null,
-    debugLabel?: string
-  ): AvatarFootAnchorBaseline | null {
-    if (!vrm) {
-      return null;
-    }
-
-    const leftFoot = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.LeftFoot);
-    const rightFoot = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.RightFoot);
-
-    if (!leftFoot || !rightFoot) {
-      return null;
-    }
-
-    root.updateWorldMatrix(true, true);
-
-    const leftFootLocalPosition = root.worldToLocal(leftFoot.getWorldPosition(new THREE.Vector3()));
-    const rightFootLocalPosition = root.worldToLocal(rightFoot.getWorldPosition(new THREE.Vector3()));
-    const label = debugLabel ?? "unknown";
-
-    console.log(
-      `[ground:${label}] footAnchorBaseline left=(${leftFootLocalPosition.x.toFixed(6)}, ${leftFootLocalPosition.y.toFixed(6)}, ${leftFootLocalPosition.z.toFixed(6)}) right=(${rightFootLocalPosition.x.toFixed(6)}, ${rightFootLocalPosition.y.toFixed(6)}, ${rightFootLocalPosition.z.toFixed(6)})`
-    );
-
-    return {
-      leftFootLocalPosition,
-      rightFootLocalPosition,
-    };
-  }
-
-  function resolveAvatarFootAnchorTargets(
-    root: THREE.Object3D,
-    baseline: AvatarFootAnchorBaseline
-  ): {
-    leftFootTarget: THREE.Vector3;
-    rightFootTarget: THREE.Vector3;
-  } {
-    root.updateWorldMatrix(true, true);
-
-    return {
-      leftFootTarget: root.localToWorld(baseline.leftFootLocalPosition.clone()),
-      rightFootTarget: root.localToWorld(baseline.rightFootLocalPosition.clone()),
-    };
-  }
-
-  function measureVrmaRetargetDiagnosticSample(
-    root: THREE.Object3D,
-    vrm: VRM,
-    targets?: {
-      leftFootTarget: THREE.Vector3 | null;
-      rightFootTarget: THREE.Vector3 | null;
-    } | null,
-  ): VrmaRetargetDiagnosticSample {
-    root.updateWorldMatrix(true, true);
-
-    const hipsNode = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.Hips);
-    const leftKneeNode = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.LeftLowerLeg);
-    const rightKneeNode = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.RightLowerLeg);
-    const leftFootNode = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.LeftFoot);
-    const rightFootNode = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.RightFoot);
-    const leftToesNode = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.LeftToes);
-    const rightToesNode = resolveRigOverlayBoneNode(vrm, VRMHumanBoneName.RightToes);
-
-    const leftFootPosition = leftFootNode?.getWorldPosition(new THREE.Vector3()) ?? null;
-    const rightFootPosition = rightFootNode?.getWorldPosition(new THREE.Vector3()) ?? null;
-
-    return {
-      hipY: hipsNode ? roundComparisonNumber(hipsNode.getWorldPosition(new THREE.Vector3()).y) : null,
-      leftKneeY: leftKneeNode ? roundComparisonNumber(leftKneeNode.getWorldPosition(new THREE.Vector3()).y) : null,
-      rightKneeY: rightKneeNode ? roundComparisonNumber(rightKneeNode.getWorldPosition(new THREE.Vector3()).y) : null,
-      leftFootY: leftFootPosition ? roundComparisonNumber(leftFootPosition.y) : null,
-      rightFootY: rightFootPosition ? roundComparisonNumber(rightFootPosition.y) : null,
-      leftToesY: leftToesNode ? roundComparisonNumber(leftToesNode.getWorldPosition(new THREE.Vector3()).y) : null,
-      rightToesY: rightToesNode ? roundComparisonNumber(rightToesNode.getWorldPosition(new THREE.Vector3()).y) : null,
-      leftFootPosition: leftFootPosition ? roundVector3(leftFootPosition) : null,
-      rightFootPosition: rightFootPosition ? roundVector3(rightFootPosition) : null,
-      leftTargetErrorXZ:
-        leftFootPosition && targets?.leftFootTarget
-          ? roundComparisonNumber(
-              Math.hypot(
-                leftFootPosition.x - targets.leftFootTarget.x,
-                leftFootPosition.z - targets.leftFootTarget.z,
-              )
-            )
-          : null,
-      rightTargetErrorXZ:
-        rightFootPosition && targets?.rightFootTarget
-          ? roundComparisonNumber(
-              Math.hypot(
-                rightFootPosition.x - targets.rightFootTarget.x,
-                rightFootPosition.z - targets.rightFootTarget.z,
-              )
-            )
-          : null,
-      leftTargetErrorY:
-        leftFootPosition && targets?.leftFootTarget
-          ? roundComparisonNumber(leftFootPosition.y - targets.leftFootTarget.y)
-          : null,
-      rightTargetErrorY:
-        rightFootPosition && targets?.rightFootTarget
-          ? roundComparisonNumber(rightFootPosition.y - targets.rightFootTarget.y)
-          : null,
-    };
-  }
-
-  function updateVrmaRetargetDiagnostics(
-    semanticId: string | null,
-    elapsedSeconds: number | null,
-    targets: {
-      leftFootTarget: THREE.Vector3 | null;
-      rightFootTarget: THREE.Vector3 | null;
-    } | null,
-    preCorrection: VrmaRetargetDiagnosticSample | null,
-    postCorrection: VrmaRetargetDiagnosticSample | null,
-  ): void {
-    latestVrmaRetargetDiagnostics = {
-      mode: vrmaCorrectionMode,
-      characterId: snapshot.currentCharacterId,
-      semanticId,
-      elapsedSeconds: elapsedSeconds === null ? null : roundComparisonNumber(elapsedSeconds),
-      leftFootTarget: targets?.leftFootTarget ? roundVector3(targets.leftFootTarget) : null,
-      rightFootTarget: targets?.rightFootTarget ? roundVector3(targets.rightFootTarget) : null,
-      preCorrection,
-      postCorrection,
-    };
-
-    (window as any).__vrmaRetargetDiag = latestVrmaRetargetDiagnostics;
-
-    if (!import.meta.env.DEV) {
-      return;
-    }
-
-    const now = performance.now();
-    if (now - lastVrmaDiagnosticLogTimeMs < 1200) {
-      return;
-    }
-
-    lastVrmaDiagnosticLogTimeMs = now;
-    console.debug("[vrma:diag]", latestVrmaRetargetDiagnostics);
-  }
-
   function groundAvatarRootToFloor(root: THREE.Object3D, vrm: VRM | null, debugLabel?: string): void {
-    const label = debugLabel ?? "unknown";
     root.updateWorldMatrix(true, true);
-    const boundsMinY = new THREE.Box3().setFromObject(root).min.y;
 
-    const groundedBoneHeights = vrm
-      ? FLOOR_GROUNDING_BONE_NAMES.map((boneName) => {
-          const node = resolveRigOverlayBoneNode(vrm, boneName);
-          if (node) {
-            const y = node.getWorldPosition(new THREE.Vector3()).y;
-            console.log(`[ground:${label}] bone=${boneName} worldY=${y.toFixed(6)}`);
-            return y;
-          }
-          return null;
-        })
-          .filter((h): h is number => h !== null && Number.isFinite(h))
-      : [];
-    const groundedFootHeights = vrm
-      ? FLOOR_GROUNDING_FOOT_BONE_NAMES.map((boneName) => {
-          const node = resolveRigOverlayBoneNode(vrm, boneName);
-          if (node) {
-            const y = node.getWorldPosition(new THREE.Vector3()).y;
-            console.log(`[ground:${label}] footBone=${boneName} worldY=${y.toFixed(6)}`);
-            return y;
-          }
-          return null;
-        })
+    // Use toes as the ground contact point (not ankle bones which sit ~90mm above floor).
+    // This matches how the reference three-vrm examples handle grounding — the toe bones
+    // are the lowest point of the skeleton and represent actual floor contact.
+    const toeBoneNames = [VRMHumanBoneName.LeftToes, VRMHumanBoneName.RightToes] as const;
+    const toeHeights = vrm
+      ? toeBoneNames
+          .map((boneName) => {
+            const node = resolveRigOverlayBoneNode(vrm, boneName);
+            return node ? node.getWorldPosition(new THREE.Vector3()).y : null;
+          })
           .filter((h): h is number => h !== null && Number.isFinite(h))
       : [];
 
-    const supportBoneMinY = groundedBoneHeights.length > 0 ? Math.min(...groundedBoneHeights) : Number.NaN;
-    const floorHeight =
-      Number.isFinite(supportBoneMinY)
-        ? supportBoneMinY
-        : groundedFootHeights.length > 0
-        ? Math.min(...groundedFootHeights)
-        : boundsMinY;
-
-    console.log(`[ground:${label}] boundsMinY=${boundsMinY.toFixed(6)} supportBoneMinY=${supportBoneMinY.toFixed(6)} floorHeight=${floorHeight.toFixed(6)} root.position.y=${root.position.y.toFixed(6)} threshold=${1e-4}`);
+    const floorHeight = toeHeights.length > 0
+      ? Math.min(...toeHeights)
+      : new THREE.Box3().setFromObject(root).min.y;
 
     if (!Number.isFinite(floorHeight) || Math.abs(floorHeight) <= 1e-4) {
-      console.log(`[ground:${label}] SKIPPED (below threshold or NaN)`);
       return;
     }
 
     root.position.y -= floorHeight;
-    console.log(`[ground:${label}] APPLIED => root.position.y=${root.position.y.toFixed(6)}`);
     root.updateWorldMatrix(true, true);
-  }
-
-  /**
-   * Per-frame floor grounding: two-phase approach equivalent to Unity's "Foot IK".
-   * Phase 1: Root Y clamp — lowers the whole skeleton so the lowest foot reaches Y=0.
-   * Phase 2: Per-leg IK — swings each UpperLeg to plant any remaining lifted foot at Y=0.
-   * Phase 3: Toe-out correction — applies retargeting compensation so feet splay outward
-   *          matching the source animation's visual intent on the original skeleton.
-   * Runs generically on all animations; compensates for proportion mismatch without
-   * modifying animation data.
-   */
-  const _floorVec = new THREE.Vector3();
-  const _floorVec2 = new THREE.Vector3();
-
-  // Toe-out angles (degrees) to apply as retargeting compensation.
-  // The source animation (XBot) shows ~7° toe-out on both feet in the idle pose.
-  // Our VRM model's leg chain orientation absorbs most of this, so we re-add it.
-  const TOE_OUT_LEFT_DEG = 5;
-  const TOE_OUT_RIGHT_DEG = 7;
-
-  function updateVrmaFootLockEntry(
-    entry: VrmaFootLockEntry,
-    currentPosition: THREE.Vector3,
-    deltaSeconds: number
-  ): {
-    verticalSpeed: number;
-    horizontalSpeed: number;
-    contactCandidate: boolean;
-  } {
-    let verticalSpeed = 0;
-    let horizontalSpeed = 0;
-
-    if (entry.hasPreviousPosition && deltaSeconds > 1e-5) {
-      const deltaX = currentPosition.x - entry.previousPosition.x;
-      const deltaY = currentPosition.y - entry.previousPosition.y;
-      const deltaZ = currentPosition.z - entry.previousPosition.z;
-      verticalSpeed = Math.abs(deltaY) / deltaSeconds;
-      horizontalSpeed = Math.hypot(deltaX, deltaZ) / deltaSeconds;
-    }
-
-    const contactCandidate =
-      Math.abs(currentPosition.y) <= VRMA_FOOT_LOCK_CONTACT_HEIGHT_THRESHOLD
-      && verticalSpeed <= VRMA_FOOT_LOCK_VERTICAL_SPEED_THRESHOLD
-      && horizontalSpeed <= VRMA_FOOT_LOCK_HORIZONTAL_SPEED_THRESHOLD;
-
-    if (contactCandidate) {
-      entry.contactFrames += 1;
-      entry.releaseFrames = 0;
-
-      if (!entry.locked && entry.contactFrames >= VRMA_FOOT_LOCK_CONTACT_FRAMES) {
-        entry.locked = true;
-        entry.lockPosition.set(currentPosition.x, 0, currentPosition.z);
-      }
-    } else {
-      entry.contactFrames = 0;
-
-      if (entry.locked) {
-        entry.releaseFrames += 1;
-        if (entry.releaseFrames >= VRMA_FOOT_LOCK_RELEASE_FRAMES) {
-          entry.locked = false;
-          entry.releaseFrames = 0;
-        }
-      }
-    }
-
-    entry.previousPosition.copy(currentPosition);
-    entry.hasPreviousPosition = true;
-
-    return {
-      verticalSpeed,
-      horizontalSpeed,
-      contactCandidate
-    };
-  }
-
-  function updateVrmaFootLocks(
-    footLocks: VrmaFootLockState,
-    root: THREE.Object3D,
-    vrm: VRM,
-    deltaSeconds: number
-  ): {
-    leftFootTarget: THREE.Vector3 | null;
-    rightFootTarget: THREE.Vector3 | null;
-  } {
-    const leftFoot = vrm.humanoid.getRawBoneNode(VRMHumanBoneName.LeftFoot);
-    const rightFoot = vrm.humanoid.getRawBoneNode(VRMHumanBoneName.RightFoot);
-
-    if (!leftFoot || !rightFoot) {
-      return {
-        leftFootTarget: null,
-        rightFootTarget: null
-      };
-    }
-
-    footLocks.frameIndex += 1;
-
-    const leftPosition = leftFoot.getWorldPosition(new THREE.Vector3());
-    const rightPosition = rightFoot.getWorldPosition(new THREE.Vector3());
-    const leftDiag = updateVrmaFootLockEntry(footLocks.left, leftPosition, deltaSeconds);
-    const rightDiag = updateVrmaFootLockEntry(footLocks.right, rightPosition, deltaSeconds);
-
-    console.log(
-      `[vrma:footLock] frame=${footLocks.frameIndex} leftLocked=${footLocks.left.locked} rightLocked=${footLocks.right.locked} leftY=${leftPosition.y.toFixed(4)} rightY=${rightPosition.y.toFixed(4)} rootY=${root.position.y.toFixed(4)} leftVy=${leftDiag.verticalSpeed.toFixed(4)} leftHz=${leftDiag.horizontalSpeed.toFixed(4)} rightVy=${rightDiag.verticalSpeed.toFixed(4)} rightHz=${rightDiag.horizontalSpeed.toFixed(4)}`
-    );
-
-    (window as any).__vrmaFootLockDiag = {
-      frame: footLocks.frameIndex,
-      leftLocked: footLocks.left.locked,
-      rightLocked: footLocks.right.locked,
-      leftY: leftPosition.y,
-      rightY: rightPosition.y,
-      rootY: root.position.y,
-      leftLockPosition: footLocks.left.locked ? footLocks.left.lockPosition.clone() : null,
-      rightLockPosition: footLocks.right.locked ? footLocks.right.lockPosition.clone() : null,
-      leftContactCandidate: leftDiag.contactCandidate,
-      rightContactCandidate: rightDiag.contactCandidate,
-      leftVerticalSpeed: leftDiag.verticalSpeed,
-      rightVerticalSpeed: rightDiag.verticalSpeed,
-      leftHorizontalSpeed: leftDiag.horizontalSpeed,
-      rightHorizontalSpeed: rightDiag.horizontalSpeed,
-    };
-
-    return {
-      leftFootTarget: footLocks.left.locked ? footLocks.left.lockPosition : null,
-      rightFootTarget: footLocks.right.locked ? footLocks.right.lockPosition : null
-    };
-  }
-
-  function resolveAnimatedHipHeightCandidate(
-    hipWorldPosition: THREE.Vector3,
-    upperNode: THREE.Object3D | null,
-    lowerNode: THREE.Object3D | null,
-    footNode: THREE.Object3D | null,
-    footTarget: THREE.Vector3 | null
-  ): number | null {
-    if (!upperNode || !lowerNode || !footNode || !footTarget) {
-      return null;
-    }
-
-    const kneeWorldPosition = lowerNode.getWorldPosition(new THREE.Vector3());
-    const footWorldPosition = footNode.getWorldPosition(new THREE.Vector3());
-    const upperLength = hipWorldPosition.distanceTo(kneeWorldPosition);
-    const lowerLength = kneeWorldPosition.distanceTo(footWorldPosition);
-    const maxReach = Math.max(upperLength + lowerLength - 1e-4, 1e-4);
-    const minReach = Math.max(Math.abs(upperLength - lowerLength) + 1e-4, 1e-4);
-    const desiredDistance = THREE.MathUtils.clamp(
-      hipWorldPosition.distanceTo(footWorldPosition),
-      minReach,
-      maxReach,
-    );
-
-    const horizontalDistanceSquared =
-      (hipWorldPosition.x - footTarget.x) * (hipWorldPosition.x - footTarget.x)
-      + (hipWorldPosition.z - footTarget.z) * (hipWorldPosition.z - footTarget.z);
-    const verticalDistanceSquared = Math.max(desiredDistance * desiredDistance - horizontalDistanceSquared, 0);
-    const verticalDistance = Math.sqrt(verticalDistanceSquared);
-
-    return footTarget.y + verticalDistance;
-  }
-
-  function applyPreIkPelvisHeightSolve(
-    vrm: VRM,
-    resolvePlaybackBoneNode: (boneName: VRMHumanBoneNameValue) => THREE.Object3D | null,
-    leftFootTarget: THREE.Vector3 | null,
-    rightFootTarget: THREE.Vector3 | null,
-    pelvisPrepassState?: { pelvisPrepassOffsetY: number } | null,
-    deltaSeconds = 0,
-  ): {
-    applied: boolean;
-    deltaY: number;
-    hipYBefore: number;
-    hipYAfter: number;
-    desiredHipY: number | null;
-  } {
-    const hipsNode = resolvePlaybackBoneNode(VRMHumanBoneName.Hips);
-
-    if (!hipsNode || (!leftFootTarget && !rightFootTarget)) {
-      return {
-        applied: false,
-        deltaY: 0,
-        hipYBefore: 0,
-        hipYAfter: 0,
-        desiredHipY: null,
-      };
-    }
-
-    const hipWorldPosition = hipsNode.getWorldPosition(new THREE.Vector3());
-    const leftHipHeight = resolveAnimatedHipHeightCandidate(
-      hipWorldPosition,
-      resolvePlaybackBoneNode(VRMHumanBoneName.LeftUpperLeg),
-      resolvePlaybackBoneNode(VRMHumanBoneName.LeftLowerLeg),
-      resolvePlaybackBoneNode(VRMHumanBoneName.LeftFoot),
-      leftFootTarget,
-    );
-    const rightHipHeight = resolveAnimatedHipHeightCandidate(
-      hipWorldPosition,
-      resolvePlaybackBoneNode(VRMHumanBoneName.RightUpperLeg),
-      resolvePlaybackBoneNode(VRMHumanBoneName.RightLowerLeg),
-      resolvePlaybackBoneNode(VRMHumanBoneName.RightFoot),
-      rightFootTarget,
-    );
-    const desiredHipY = [leftHipHeight, rightHipHeight].filter((value): value is number => value !== null && Number.isFinite(value));
-
-    if (desiredHipY.length === 0) {
-      return {
-        applied: false,
-        deltaY: 0,
-        hipYBefore: hipWorldPosition.y,
-        hipYAfter: hipWorldPosition.y,
-        desiredHipY: null,
-      };
-    }
-
-    // Preserve planted feet, but allow a small amount of upward pelvis give so grounded
-    // playback can absorb authored weight-shifts instead of forcing all correction into
-    // knee compression. Keep the upward motion capped and partially compliant.
-    const desiredHipYMax = Math.max(...desiredHipY);
-    const desiredHipYMean = desiredHipY.reduce((sum, value) => sum + value, 0) / desiredHipY.length;
-    const desiredHipYTarget = THREE.MathUtils.lerp(desiredHipYMean, desiredHipYMax, PELVIS_PREPASS_TARGET_MAX_BIAS);
-    const upwardGap = Math.max(0, desiredHipYTarget - hipWorldPosition.y);
-    const upwardDelta = Math.min(
-      upwardGap * PELVIS_PREPASS_UPWARD_COMPLIANCE,
-      PELVIS_PREPASS_UPWARD_MAX_DELTA,
-    );
-    const resolvedHipY = desiredHipYTarget <= hipWorldPosition.y
-      ? desiredHipYTarget
-      : hipWorldPosition.y + upwardDelta;
-    const targetOffsetY = resolvedHipY - hipWorldPosition.y;
-    const smoothingAlpha = deltaSeconds > 0
-      ? 1 - Math.exp(-PELVIS_PREPASS_OFFSET_RESPONSE * deltaSeconds)
-      : 1;
-    const smoothedOffsetY = pelvisPrepassState
-      ? THREE.MathUtils.lerp(pelvisPrepassState.pelvisPrepassOffsetY, targetOffsetY, smoothingAlpha)
-      : targetOffsetY;
-
-    if (pelvisPrepassState) {
-      pelvisPrepassState.pelvisPrepassOffsetY = smoothedOffsetY;
-    }
-
-    const deltaY = smoothedOffsetY;
-    const hipYAfter = hipWorldPosition.y + deltaY;
-
-    if (Math.abs(deltaY) <= 1e-4) {
-      return {
-        applied: false,
-        deltaY,
-        hipYBefore: hipWorldPosition.y,
-        hipYAfter,
-        desiredHipY: resolvedHipY,
-      };
-    }
-
-    const targetHipWorldPosition = hipWorldPosition.clone().add(new THREE.Vector3(0, deltaY, 0));
-    if (hipsNode.parent) {
-      hipsNode.position.copy(hipsNode.parent.worldToLocal(targetHipWorldPosition));
-    } else {
-      hipsNode.position.copy(targetHipWorldPosition);
-    }
-    hipsNode.updateWorldMatrix(false, true);
-
-    return {
-      applied: true,
-      deltaY,
-      hipYBefore: hipWorldPosition.y,
-      hipYAfter,
-      desiredHipY: resolvedHipY,
-    };
-  }
-
-  function applyFloorGrounding(
-    root: THREE.Object3D,
-    vrm: VRM,
-    options?: {
-      clampRoot?: boolean;
-      applyLegOverrides?: boolean;
-      leftFootTarget?: THREE.Vector3 | null;
-      rightFootTarget?: THREE.Vector3 | null;
-      useNormalizedRig?: boolean;
-      pelvisPrepassState?: { pelvisPrepassOffsetY: number } | null;
-      deltaSeconds?: number;
-    }
-  ): void {
-    root.updateMatrixWorld(true);
-
-    const useNormalizedRig = options?.useNormalizedRig ?? false;
-    const resolvePlaybackBoneNode = (boneName: VRMHumanBoneNameValue): THREE.Object3D | null =>
-      useNormalizedRig
-        ? vrm.humanoid.getNormalizedBoneNode(boneName) ?? vrm.humanoid.getRawBoneNode(boneName)
-        : vrm.humanoid.getRawBoneNode(boneName) ?? vrm.humanoid.getNormalizedBoneNode(boneName);
-
-    const leftFoot = resolvePlaybackBoneNode(VRMHumanBoneName.LeftFoot);
-    const rightFoot = resolvePlaybackBoneNode(VRMHumanBoneName.RightFoot);
-
-    if (!leftFoot || !rightFoot) return;
-
-    const clampRoot = options?.clampRoot ?? true;
-    const applyLegOverrides = options?.applyLegOverrides ?? true;
-    const leftFootY = leftFoot.getWorldPosition(_floorVec).y;
-    const rightFootY = rightFoot.getWorldPosition(_floorVec2).y;
-    const highestFootY = Math.max(leftFootY, rightFootY);
-
-    if (clampRoot && Number.isFinite(highestFootY) && Math.abs(highestFootY) > 0.0005) {
-      root.position.y -= highestFootY;
-      root.updateMatrixWorld(true);
-    }
-
-    // For in-place VRMA playback, keep the world root fixed and only use the
-    // leg correction pass to keep authored foot contact near the floor.
-    if (!applyLegOverrides) {
-      (window as any).__floorClampDiag = {
-        highestFootY,
-        rootY: root.position.y,
-        leftFootY,
-        rightFootY,
-        mode: clampRoot ? "root-only" : "none",
-      };
-      return;
-    }
-
-    const hipSolveDiagnostics = applyPreIkPelvisHeightSolve(
-      vrm,
-      resolvePlaybackBoneNode,
-      options?.leftFootTarget ?? null,
-      options?.rightFootTarget ?? null,
-      options?.pelvisPrepassState ?? null,
-      options?.deltaSeconds ?? 0,
-    );
-    root.updateMatrixWorld(true);
-
-    // --- Phase 2: Per-leg IK (bring any foot that's below OR above Y=0 back to Y=0) ---
-    // Run a short reverse-order convergence pass so one leg does not consistently
-    // "win" the shared pelvis correction and perturb the first solved leg.
-    applyLegSwingIK(
-      vrm,
-      VRMHumanBoneName.LeftUpperLeg,
-      VRMHumanBoneName.LeftFoot,
-      options?.leftFootTarget ?? null,
-      useNormalizedRig
-    );
-    applyLegSwingIK(
-      vrm,
-      VRMHumanBoneName.RightUpperLeg,
-      VRMHumanBoneName.RightFoot,
-      options?.rightFootTarget ?? null,
-      useNormalizedRig
-    );
-    applyLegSwingIK(
-      vrm,
-      VRMHumanBoneName.RightUpperLeg,
-      VRMHumanBoneName.RightFoot,
-      options?.rightFootTarget ?? null,
-      useNormalizedRig
-    );
-    applyLegSwingIK(
-      vrm,
-      VRMHumanBoneName.LeftUpperLeg,
-      VRMHumanBoneName.LeftFoot,
-      options?.leftFootTarget ?? null,
-      useNormalizedRig
-    );
-
-    // --- Phase 3: Toe-out retargeting correction ---
-    // The source skeleton shows visible toe-out that the VRM chain doesn't reproduce.
-    // Apply a Y-axis rotation to each foot bone to match the original visual intent.
-    const leftToeOutRad = (TOE_OUT_LEFT_DEG * Math.PI) / 180;
-    leftFoot.quaternion.multiply(
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), leftToeOutRad)
-    );
-    leftFoot.updateWorldMatrix(false, true);
-
-    const rightToeOutRad = (TOE_OUT_RIGHT_DEG * Math.PI) / 180;
-    rightFoot.quaternion.multiply(
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -rightToeOutRad)
-    );
-    rightFoot.updateWorldMatrix(false, true);
-
-    if (useNormalizedRig) {
-      vrm.update(0);
-      root.updateMatrixWorld(true);
-    }
-
-    // Expose VRM for debug inspection
-    (window as any).__vrm = vrm;
-
-    // Diagnostic (re-measure after IK)
-    const _diagLQ = new THREE.Quaternion();
-    const _diagRQ = new THREE.Quaternion();
-    leftFoot.getWorldQuaternion(_diagLQ);
-    rightFoot.getWorldQuaternion(_diagRQ);
-    // Foot forward = local -Z in world space (VRM T-pose faces -Z)
-    const lFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_diagLQ);
-    const rFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_diagRQ);
-    // Toe-out angle: atan2 of XZ projection relative to world -Z
-    const lToeOut = Math.atan2(-lFwd.x, -lFwd.z) * 180 / Math.PI;
-    const rToeOut = Math.atan2(rFwd.x, -rFwd.z) * 180 / Math.PI;
-
-    // Knee world positions for tracking direction
-    const leftKnee = resolvePlaybackBoneNode(VRMHumanBoneName.LeftLowerLeg);
-    const rightKnee = resolvePlaybackBoneNode(VRMHumanBoneName.RightLowerLeg);
-    const lKneePos = leftKnee ? leftKnee.getWorldPosition(new THREE.Vector3()) : null;
-    const rKneePos = rightKnee ? rightKnee.getWorldPosition(new THREE.Vector3()) : null;
-
-    (window as any).__floorClampDiag = {
-      highestFootY,
-      rootY: root.position.y,
-      leftFootY: leftFoot.getWorldPosition(_floorVec).y,
-      rightFootY: rightFoot.getWorldPosition(_floorVec2).y,
-      hipSolve: hipSolveDiagnostics,
-      leftToeOutDeg: lToeOut,
-      rightToeOutDeg: rToeOut,
-      leftFootFwd: { x: lFwd.x.toFixed(4), z: lFwd.z.toFixed(4) },
-      rightFootFwd: { x: rFwd.x.toFixed(4), z: rFwd.z.toFixed(4) },
-      leftKneeWorldPos: lKneePos ? { x: lKneePos.x.toFixed(4), y: lKneePos.y.toFixed(4), z: lKneePos.z.toFixed(4) } : null,
-      rightKneeWorldPos: rKneePos ? { x: rKneePos.x.toFixed(4), y: rKneePos.y.toFixed(4), z: rKneePos.z.toFixed(4) } : null,
-    };
-  }
-
-  /**
-   * Two-bone IK solver for leg grounding. Adjusts UpperLeg and LowerLeg rotations
-   * to plant the foot at Y=0 while keeping the knee pointing forward via pole constraint.
-   *
-   * Algorithm:
-   *  1. Compute target knee position using law of cosines + pole direction
-   *  2. Swing upper leg to point at new knee position
-   *  3. Apply pole constraint: twist upper leg around its axis so knee faces forward
-   *  4. Swing lower leg to point at foot target
-   *  5. Restore foot world orientation (toe-out preservation)
-   */
-  function applyLegSwingIK(
-    vrm: VRM,
-    upperBoneName: VRMHumanBoneNameValue,
-    footBoneName: VRMHumanBoneNameValue,
-    targetWorldPosition?: THREE.Vector3 | null,
-    useNormalizedRig = false
-  ): void {
-    const lowerBoneName = upperBoneName === VRMHumanBoneName.LeftUpperLeg
-      ? VRMHumanBoneName.LeftLowerLeg
-      : VRMHumanBoneName.RightLowerLeg;
-
-    const resolvePlaybackBoneNode = (boneName: VRMHumanBoneNameValue): THREE.Object3D | null =>
-      useNormalizedRig
-        ? vrm.humanoid.getNormalizedBoneNode(boneName) ?? vrm.humanoid.getRawBoneNode(boneName)
-        : vrm.humanoid.getRawBoneNode(boneName) ?? vrm.humanoid.getNormalizedBoneNode(boneName);
-
-    const upperNode = resolvePlaybackBoneNode(upperBoneName);
-    const lowerNode = resolvePlaybackBoneNode(lowerBoneName);
-    const footNode = resolvePlaybackBoneNode(footBoneName);
-
-    if (!upperNode || !lowerNode || !footNode) return;
-
-    const hipPos = new THREE.Vector3();
-    const kneePos = new THREE.Vector3();
-    const footPos = new THREE.Vector3();
-    upperNode.getWorldPosition(hipPos);
-    lowerNode.getWorldPosition(kneePos);
-    footNode.getWorldPosition(footPos);
-
-    // Only fix if foot is meaningfully away from floor (in either direction)
-    if (Math.abs(footPos.y) <= 0.001) return;
-
-    // Capture foot world orientation BEFORE IK so we can restore it after
-    const footWorldQuatBefore = new THREE.Quaternion();
-    footNode.getWorldQuaternion(footWorldQuatBefore);
-
-    // --- Bend-plane hint from the animated leg ---
-    // Use the knee offset from the animated hip->foot chain instead of an XZ-only
-    // projection. The XZ hint loses the actual bend plane on Maria's right leg and
-    // lets the grounded solve fall back to the native backward bend.
-    const animatedHipToFoot = footPos.clone().sub(hipPos);
-    const animPoleDir = kneePos.clone().sub(hipPos);
-
-    if (animatedHipToFoot.lengthSq() > 0.0001) {
-      const animatedChainAxis = animatedHipToFoot.clone().normalize();
-      animPoleDir.sub(animatedChainAxis.multiplyScalar(animPoleDir.dot(animatedChainAxis)));
-    }
-
-    if (animPoleDir.lengthSq() < 0.0001) {
-      // Degenerate animated bend plane — use world forward as fallback.
-      animPoleDir.set(0, 0, -1);
-    }
-    animPoleDir.normalize();
-
-    // Target: same X/Z, Y=0
-    const targetPos = targetWorldPosition
-      ? targetWorldPosition.clone()
-      : new THREE.Vector3(footPos.x, 0, footPos.z);
-
-    // Bone lengths
-    const upperLen = hipPos.distanceTo(kneePos);
-    const lowerLen = kneePos.distanceTo(footPos);
-    const chainLen = upperLen + lowerLen;
-
-    // Distance from hip to target
-    const targetDist = hipPos.distanceTo(targetPos);
-
-    // --- Unreachable: fully extend toward target ---
-    if (targetDist >= chainLen * 0.9999) {
-      const hipToTarget = targetPos.clone().sub(hipPos).normalize();
-      const currentHipToFoot = footPos.clone().sub(hipPos).normalize();
-      if (currentHipToFoot.distanceTo(hipToTarget) > 0.0001) {
-        const swing = new THREE.Quaternion().setFromUnitVectors(currentHipToFoot, hipToTarget);
-        applyWorldRotationToLocal(upperNode, swing);
-        upperNode.updateWorldMatrix(false, true);
-      }
-      // Straighten knee toward target
-      lowerNode.getWorldPosition(kneePos);
-      footNode.getWorldPosition(footPos);
-      const kneeToFoot = footPos.clone().sub(kneePos).normalize();
-      const kneeToTarget = targetPos.clone().sub(kneePos).normalize();
-      if (kneeToFoot.distanceTo(kneeToTarget) > 0.0001) {
-        const lowerSwing = new THREE.Quaternion().setFromUnitVectors(kneeToFoot, kneeToTarget);
-        applyWorldRotationToLocal(lowerNode, lowerSwing);
-        lowerNode.updateWorldMatrix(false, true);
-      }
-      restoreFootOrientation(footNode, footWorldQuatBefore);
-      (window as any).__ikDebug = { path: "unreachable", targetDist, chainLen };
-      return;
-    }
-
-    // --- Too close: bail ---
-    if (targetDist < Math.abs(upperLen - lowerLen) + 0.001) {
-      (window as any).__ikDebug = { bail: "tooClose", upperLen, lowerLen, targetDist };
-      return;
-    }
-
-    // --- Solve knee position using law of cosines ---
-    const cosHipAngle = (upperLen * upperLen + targetDist * targetDist - lowerLen * lowerLen)
-      / (2 * upperLen * targetDist);
-    const hipAngle = Math.acos(Math.max(-1, Math.min(1, cosHipAngle)));
-
-    // Direction from hip to target
-    const hipToTarget = targetPos.clone().sub(hipPos).normalize();
-
-    // Pole direction perpendicular to hip→target axis.
-    // Project animPoleDir onto the plane perpendicular to hipToTarget.
-    const poleDot = animPoleDir.dot(hipToTarget);
-    const poleDir = animPoleDir.clone().sub(
-      hipToTarget.clone().multiplyScalar(poleDot)
-    );
-    if (poleDir.lengthSq() < 0.0001) {
-      // Degenerate (pole aligned with target direction) — use world forward
-      poleDir.set(0, 0, -1);
-      const d = poleDir.dot(hipToTarget);
-      poleDir.sub(hipToTarget.clone().multiplyScalar(d));
-    }
-    poleDir.normalize();
-
-    // New knee position
-    const newKneePos = hipPos.clone()
-      .add(hipToTarget.clone().multiplyScalar(Math.cos(hipAngle) * upperLen))
-      .add(poleDir.clone().multiplyScalar(Math.sin(hipAngle) * upperLen));
-
-    // --- Step 1: Swing upper leg to point at new knee position ---
-    const currentHipToKnee = kneePos.clone().sub(hipPos).normalize();
-    const desiredHipToKnee = newKneePos.clone().sub(hipPos).normalize();
-
-    if (currentHipToKnee.distanceTo(desiredHipToKnee) > 0.0001) {
-      const upperSwing = new THREE.Quaternion().setFromUnitVectors(currentHipToKnee, desiredHipToKnee);
-      applyWorldRotationToLocal(upperNode, upperSwing);
-      upperNode.updateWorldMatrix(false, true);
-    }
-
-    // --- Step 2: Swing lower leg to point at target ---
-    lowerNode.getWorldPosition(kneePos);
-    footNode.getWorldPosition(footPos);
-
-    const currentKneeToFoot = footPos.clone().sub(kneePos).normalize();
-    const desiredKneeToFoot = targetPos.clone().sub(kneePos).normalize();
-
-    if (currentKneeToFoot.distanceTo(desiredKneeToFoot) > 0.0001) {
-      const lowerSwing = new THREE.Quaternion().setFromUnitVectors(currentKneeToFoot, desiredKneeToFoot);
-      applyWorldRotationToLocal(lowerNode, lowerSwing);
-      lowerNode.updateWorldMatrix(false, true);
-    }
-
-    // --- Step 3: Restore foot orientation ---
-    restoreFootOrientation(footNode, footWorldQuatBefore);
-
-    // Debug
-    const finalFootPos = new THREE.Vector3();
-    footNode.getWorldPosition(finalFootPos);
-    (window as any).__ikDebug = {
-      applied: true,
-      leg: upperBoneName === VRMHumanBoneName.RightUpperLeg ? "right" : "left",
-      footAfterY: finalFootPos.y,
-      targetDist,
-      chainLen,
-      hipAngleDeg: hipAngle * 180 / Math.PI,
-    };
-  }
-
-  /**
-   * Pole constraint: twists the upper leg bone around its own axis so that
-   * the knee (child bone) points in the desired forward direction.
-   * This prevents knee pop-out caused by setFromUnitVectors introducing unwanted roll.
-   */
-  function applyPoleConstraint(
-    upperNode: THREE.Object3D,
-    lowerNode: THREE.Object3D,
-    footNode: THREE.Object3D,
-    hipPos: THREE.Vector3,
-    desiredPoleDir: THREE.Vector3
-  ): void {
-    // Measure knee bend around the leg-chain axis (hip -> foot), not hip -> knee.
-    // Using hip -> knee as the axis collapses the projected knee offset to zero,
-    // which makes the pole correction a no-op.
-    const currentKneePos = new THREE.Vector3();
-    const currentFootPos = new THREE.Vector3();
-    lowerNode.getWorldPosition(currentKneePos);
-    footNode.getWorldPosition(currentFootPos);
-
-    const chainAxis = currentFootPos.clone().sub(hipPos);
-
-    if (chainAxis.lengthSq() < 0.00001) {
-      return;
-    }
-
-    chainAxis.normalize();
-
-    // Project the current knee offset onto the plane perpendicular to the leg chain.
-    const hipToKnee = currentKneePos.clone().sub(hipPos);
-    const axisProj = chainAxis.clone().multiplyScalar(hipToKnee.dot(chainAxis));
-    const currentPoleVec = hipToKnee.clone().sub(axisProj);
-
-    // Project desired pole direction onto the same perpendicular plane
-    const desiredProj = desiredPoleDir.clone().sub(
-      chainAxis.clone().multiplyScalar(desiredPoleDir.dot(chainAxis))
-    );
-
-    if (currentPoleVec.lengthSq() < 0.00001 || desiredProj.lengthSq() < 0.00001) {
-      // Leg is perfectly straight or pole is along bone axis — no correction possible
-      return;
-    }
-
-    currentPoleVec.normalize();
-    desiredProj.normalize();
-
-    // Compute the twist angle between current and desired pole direction
-    const dot = Math.max(-1, Math.min(1, currentPoleVec.dot(desiredProj)));
-    if (dot > 0.9999) return; // Already aligned
-
-    // Determine twist direction using cross product
-    const cross = currentPoleVec.clone().cross(desiredProj);
-    const sign = Math.sign(cross.dot(chainAxis));
-    const angle = sign * Math.acos(dot);
-
-    // Apply twist around the bone axis (in world space)
-    const twistQuat = new THREE.Quaternion().setFromAxisAngle(chainAxis, angle);
-    applyWorldRotationToLocal(upperNode, twistQuat);
-    upperNode.updateWorldMatrix(false, true);
-  }
-
-  /** Converts a world-space rotation to local space and premultiplies onto the bone. */
-  function applyWorldRotationToLocal(bone: THREE.Object3D, worldRot: THREE.Quaternion): void {
-    const parentWorldQuat = new THREE.Quaternion();
-    if (bone.parent) {
-      bone.parent.getWorldQuaternion(parentWorldQuat);
-    }
-    const parentInv = parentWorldQuat.clone().invert();
-    // localSwing = inv(parentWorld) * worldRot * parentWorld
-    const localSwing = parentInv.multiply(worldRot).multiply(parentWorldQuat);
-    bone.quaternion.premultiply(localSwing);
-  }
-
-  /**
-   * After leg IK adjusts upper/lower leg, the foot's world orientation drifts because
-   * it's a child of the rotated chain. This restores the foot's original world orientation
-   * (preserving toe-out angle from the animation).
-   */
-  function restoreFootOrientation(footNode: THREE.Object3D, targetWorldQuat: THREE.Quaternion): void {
-    const currentWorldQuat = new THREE.Quaternion();
-    footNode.getWorldQuaternion(currentWorldQuat);
-
-    // World-space correction: from current → target
-    const correction = currentWorldQuat.clone().invert().premultiply(targetWorldQuat);
-    // correction = targetWorldQuat * inv(currentWorldQuat) — applied in world space
-
-    // Convert to local space and apply
-    applyWorldRotationToLocal(footNode, correction);
   }
 
   function createRigOverlayState(avatar: LoadedAvatar): RigOverlayState | null {
@@ -2098,12 +1263,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const debugApi: AvatarRuntimeDebugApi = Object.freeze({
       getProfileOrientationSnapshot: () => getProfileOrientationSnapshot(),
       getHumanoidPlayback: () => getHumanoidPlaybackDebugSnapshot(),
-      getVrmaCorrectionMode: () => vrmaCorrectionMode,
-      setVrmaCorrectionMode: (mode: VrmaCorrectionMode) => setVrmaCorrectionMode(mode),
-      getVrmaRetargetDiagnostics: () => getVrmaRetargetDiagnostics(),
-      logVrmaRetargetDiagnostics: () => logVrmaRetargetDiagnostics(),
-      getModelCompatibilitySnapshot: () => getModelCompatibilitySnapshot(),
-      logModelCompatibilitySnapshot: () => logModelCompatibilitySnapshot(),
+      getLowerBodySnapshot: () => collectLowerBodyDebugSnapshot(),
+      getLowerBodyRange: (sampleCount?: number) => getLowerBodyRangeDebugSnapshot(sampleCount),
+      getLowerBodyRotationSnapshot: () => collectLowerBodyRotationDebugSnapshot(),
+      getLowerBodyRotationRange: (sampleCount?: number) => getLowerBodyRotationRangeDebugSnapshot(sampleCount),
+      getPlaybackProgress: () => getPlaybackProgressDebugSnapshot(),
     });
 
     Object.defineProperty(window, "__NIKOF_AVATAR_DEBUG__", {
@@ -2113,7 +1277,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     });
 
     console.info(
-      "[vrma:debug] Use window.__NIKOF_AVATAR_DEBUG__.setVrmaCorrectionMode('plain'|'grounded'), window.__NIKOF_AVATAR_DEBUG__.logVrmaRetargetDiagnostics(), and window.__NIKOF_AVATAR_DEBUG__.logModelCompatibilitySnapshot()"
+      "[vrma:debug] Debug API available at window.__NIKOF_AVATAR_DEBUG__"
     );
   }
 
@@ -2339,22 +1503,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
   function resolveBaseAnimationPayload(command: SemanticAnimationCommand): SemanticAnimationRuntimePayload | null {
     const payload = resolveSharedSemanticAnimationPayload(command);
-    if (payload) return payload;
-
-    // For VRMA-only animations (no JSON sidecar), create a synthetic payload
-    // if the VRMA path is active and the asset URL resolves.
-    if (animationPlaybackPath === "vrma") {
-      const candidates = resolveVrmaAssetCandidates(command.id);
-      if (candidates.length > 0) {
-        return {
-          semanticId: command.id,
-          playback: command.playback ?? "loop",
-          durationMs: 0 // Duration handled by VRMA mixer internally
-        };
-      }
-    }
-
-    return null;
+    return payload ?? null;
   }
 
   function resolveHumanoidPlayback(
@@ -2373,6 +1522,14 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   function stopBaseAnimation(): void {
     if (!activeBaseAnimation) {
       return;
+    }
+
+    if (activeBaseAnimation.playbackPath === "vrma") {
+      vrmaPlayback?.stopAll();
+    }
+
+    if (activeBaseAnimation.playbackPath === "official") {
+      officialPlayback?.stopAll();
     }
 
     restoreBaseAnimationPose(activeBaseAnimation);
@@ -2397,6 +1554,18 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return;
     }
 
+    if (activeBaseAnimation.playbackPath === "official" && officialPlayback) {
+      if (activeBaseAnimation.command.playback === "loop") {
+        activeBaseAnimation.elapsedSeconds += deltaSeconds;
+      } else {
+        const cycleDurationSeconds = Math.max(resolveFinalFrameElapsedSeconds(activeBaseAnimation.payload), 1 / 30);
+        activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds);
+      }
+
+      officialPlayback.update(deltaSeconds);
+      return;
+    }
+
     if (activeBaseAnimation.command.playback === "loop") {
       // Let elapsed time grow continuously; the mixer's LoopRepeat handles wrapping internally.
       activeBaseAnimation.elapsedSeconds += deltaSeconds;
@@ -2409,16 +1578,23 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   }
 
   function activateBaseAnimation(command: SemanticAnimationCommand): void {
-    const resolvedPayload = resolveBaseAnimationPayload(command);
+    const canonicalCommand =
+      command.source === "shared"
+        ? {
+            ...command,
+            id: resolveCanonicalSharedSemanticAnimationId(command.id)
+          }
+        : command;
+    const resolvedPayload = resolveBaseAnimationPayload(canonicalCommand);
 
     if (!resolvedPayload || !currentAvatar) {
       stopBaseAnimation();
       updateSnapshot({
-        pendingAnimation: command,
-        baseAnimation: resolvedPayload ? command : snapshot.baseAnimation,
+        pendingAnimation: canonicalCommand,
+        baseAnimation: resolvedPayload ? canonicalCommand : snapshot.baseAnimation,
         error: resolvedPayload
           ? null
-          : `Semantic animation '${command.id}' is not yet backed by a web runtime payload.`
+          : `Semantic animation '${canonicalCommand.id}' is not yet backed by a web runtime payload.`
       });
       return;
     }
@@ -2426,7 +1602,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     stopBaseAnimation();
     const resolvedPlayback = resolveHumanoidPlayback(currentAvatar.vrm, resolvedPayload);
     activeBaseAnimation = {
-      command,
+      command: canonicalCommand,
       payload: resolvedPayload,
       playbackPath: resolvedPlayback.playbackPath,
       root: currentAvatar.root,
@@ -2434,42 +1610,100 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       baselineQuaternion: currentAvatar.root.quaternion.clone(),
       humanoidPlayback: resolvedPlayback.playback,
       elapsedSeconds: 0,
-      vrmaFootLocks: resolvedPlayback.playbackPath === "vrma" && isVrmaIdleCommand(command)
-        ? createVrmaFootLockState()
-        : null
     };
+
+    if (resolvedPlayback.playbackPath === "official" && officialPlayback) {
+      const playbackBridge = officialPlayback;
+      const expectedCommandId = canonicalCommand.id;
+      const sourcePath = resolvedPayload.sourceAsset?.path?.trim() ?? "";
+      const sourceUrl = sourcePath.startsWith("/") ? sourcePath : `/${sourcePath}`;
+
+      const fallbackToMixer = (): void => {
+        if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
+          return;
+        }
+
+        const fallbackPlayback = resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer");
+        activeBaseAnimation.playbackPath = fallbackPlayback.playbackPath;
+        activeBaseAnimation.humanoidPlayback = fallbackPlayback.playback;
+        activeBaseAnimation.humanoidPlayback?.apply(0);
+        activeBaseAnimation.root.updateMatrixWorld(true);
+        activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+      };
+
+      if (!sourcePath.toLowerCase().endsWith(".fbx")) {
+        fallbackToMixer();
+        return;
+      }
+
+      playbackBridge.loadClip(sourceUrl, canonicalCommand.id).then(() => {
+        if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId) {
+          return;
+        }
+
+        playbackBridge.play(canonicalCommand.id, {
+          loop: canonicalCommand.playback === "loop"
+        });
+      }).catch((err) => {
+        console.warn(`[activateBase] Official Mixamo load failed for ${canonicalCommand.id}:`, err);
+        fallbackToMixer();
+      });
+
+      return;
+    }
 
     // VRMA path: load and play the .vrma file via three-vrm-animation
     if (resolvedPlayback.playbackPath === "vrma" && vrmaPlayback) {
-      const candidates = resolveVrmaAssetCandidates(command.id);
-      const vrmaUrl = candidates[0]?.url;
-      if (vrmaUrl) {
-        const expectedCommandId = command.id;
-        vrmaPlayback.loadVrma(vrmaUrl, command.id).then(() => {
+      const playbackBridge = vrmaPlayback;
+      const expectedCommandId = canonicalCommand.id;
+
+      const fallbackToMixer = (): void => {
+        if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
+          return;
+        }
+
+        const fallbackPlayback = resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer");
+        activeBaseAnimation.playbackPath = fallbackPlayback.playbackPath;
+        activeBaseAnimation.humanoidPlayback = fallbackPlayback.playback;
+        activeBaseAnimation.humanoidPlayback?.apply(0);
+        activeBaseAnimation.root.updateMatrixWorld(true);
+        activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+      };
+
+      probeVrmaAsset(canonicalCommand.id, snapshot.currentCharacterId ?? undefined).then((resolution) => {
+        if (!resolution) {
+          console.warn(`[activateBase] No VRMA asset found for ${canonicalCommand.id}; falling back to mixer playback.`);
+          fallbackToMixer();
+          return;
+        }
+
+        playbackBridge.loadVrma(resolution.url, canonicalCommand.id).then(() => {
           if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
             return;
           }
 
-          vrmaPlayback!.play(command.id, {
-            loop: command.playback === "loop"
+          playbackBridge.play(canonicalCommand.id, {
+            loop: canonicalCommand.playback === "loop"
           });
 
           // For in-place VRMA clips, preserve the load-time ground offset.
           // Re-grounding after frame 0 would treat authored hip/foot motion as
           // world motion and lift the entire avatar.
-          vrmaPlayback!.update(0);
+          playbackBridge.update(0);
           currentAvatar.vrm?.update(0);
           activeBaseAnimation.root.updateMatrixWorld(true);
         }).catch((err) => {
-          console.warn(`[activateBase] VRMA load failed for ${command.id}:`, err);
+          console.warn(`[activateBase] VRMA load failed for ${canonicalCommand.id}:`, err);
+          fallbackToMixer();
         });
-      }
+      }).catch(() => {
+        fallbackToMixer();
+      });
     } else {
-      // Mixer/feetAnchored path: apply frame 0 so skeleton is in posed position, then ground
-      activeBaseAnimation.humanoidPlayback?.apply(0);
-      activeBaseAnimation.root.updateMatrixWorld(true);
-      groundAvatarRootToFloor(activeBaseAnimation.root, currentAvatar.vrm, "animStart");
-      activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+      // Mixer path: apply frame 0 so skeleton is in posed position
+      activeBaseAnimation!.humanoidPlayback?.apply(0);
+      activeBaseAnimation!.root.updateMatrixWorld(true);
+      activeBaseAnimation!.baselinePosition.copy(activeBaseAnimation!.root.position);
     }
 
     updateBaseAnimation(0);
@@ -2496,6 +1730,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       removeRigOverlayHelper();
       stopBaseAnimation();
       if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
+      if (officialPlayback) { officialPlayback.dispose(); officialPlayback = null; }
       if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
       if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
       if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
@@ -2507,6 +1742,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     removeRigOverlayHelper();
     stopBaseAnimation();
     if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
+    if (officialPlayback) { officialPlayback.dispose(); officialPlayback = null; }
     if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
     if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
     if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
@@ -2561,6 +1797,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     const renderFrame = (): void => {
       animationFrameId = window.requestAnimationFrame(renderFrame);
+      renderFrameCount += 1;
 
       const deltaSeconds = clock.getDelta();
 
@@ -2580,56 +1817,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       if (currentAvatar?.vrm) {
         currentAvatar.vrm.update(deltaSeconds);
-      }
-
-      // Mixer paths use root clamp + IK. In-place VRMA keeps the world root
-      // fixed and uses only the leg correction pass for floor contact.
-      if (currentAvatar?.vrm && activeBaseAnimation) {
-        const isVrmaPlayback = activeBaseAnimation.playbackPath === "vrma";
-        const vrmaFootTargets = isVrmaPlayback
-          ? currentAvatar.footAnchorBaseline
-            ? resolveAvatarFootAnchorTargets(currentAvatar.root, currentAvatar.footAnchorBaseline)
-            : activeBaseAnimation.vrmaFootLocks
-            ? updateVrmaFootLocks(activeBaseAnimation.vrmaFootLocks, currentAvatar.root, currentAvatar.vrm, deltaSeconds)
-            : null
-          : null;
-
-        const preCorrectionDiagnostics = isVrmaPlayback
-          ? measureVrmaRetargetDiagnosticSample(currentAvatar.root, currentAvatar.vrm, vrmaFootTargets)
-          : null;
-
-        if (isVrmaPlayback) {
-          if (vrmaCorrectionMode === "grounded") {
-            applyFloorGrounding(
-              currentAvatar.root,
-              currentAvatar.vrm,
-              {
-                clampRoot: false,
-                applyLegOverrides: true,
-                leftFootTarget: vrmaFootTargets?.leftFootTarget ?? null,
-                rightFootTarget: vrmaFootTargets?.rightFootTarget ?? null,
-                useNormalizedRig: true,
-                pelvisPrepassState: currentAvatar,
-                deltaSeconds,
-              }
-            );
-          }
-
-          const postCorrectionDiagnostics = measureVrmaRetargetDiagnosticSample(currentAvatar.root, currentAvatar.vrm, vrmaFootTargets);
-          updateVrmaRetargetDiagnostics(
-            activeBaseAnimation.command.id,
-            activeBaseAnimation.elapsedSeconds,
-            vrmaFootTargets,
-            preCorrectionDiagnostics,
-            postCorrectionDiagnostics,
-          );
-        } else {
-          applyFloorGrounding(
-            currentAvatar.root,
-            currentAvatar.vrm,
-            undefined
-          );
-        }
+        recordLowerBodyDebugSample();
       }
 
       if (rigOverlayEnabled) {
@@ -2766,14 +1954,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       const vrm = (gltf.userData.vrm as VRM | undefined) ?? null;
       const root = vrm?.scene ?? gltf.scene;
       const anchorRoot = new THREE.Group();
-      let footAnchorBaseline: AvatarFootAnchorBaseline | null = null;
 
       vrm?.update(0);
 
       anchorRoot.name = root.name ? `${root.name}_anchor` : "avatar_anchor";
       anchorRoot.add(root);
       groundAvatarRootToFloor(root, vrm, "load");
-      footAnchorBaseline = measureAvatarFootAnchorBaseline(root, vrm, "load");
 
       clearCurrentAvatar();
       activeScene.add(anchorRoot);
@@ -2789,9 +1975,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         frontProfileQuaternion,
         root,
         vrm,
-        footAnchorBaseline,
-        modelCompatibilityBaseline: measureModelCompatibilityPoseSnapshot(root, vrm),
-        pelvisPrepassOffsetY: 0,
       };
 
       // Create VRMA playback bridge for this VRM
@@ -2799,8 +1982,13 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         vrmaPlayback.dispose();
         vrmaPlayback = null;
       }
+      if (officialPlayback) {
+        officialPlayback.dispose();
+        officialPlayback = null;
+      }
       if (vrm) {
         vrmaPlayback = createVrmaPlayback(vrm, root);
+        officialPlayback = createOfficialMixamoPlayback(vrm);
       }
 
       // Create passive blink controller for this VRM

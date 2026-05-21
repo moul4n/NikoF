@@ -100,6 +100,62 @@ namespace NikoF.AnimationTools
             { "rightLittleDistal", HumanBodyBones.RightLittleDistal },
         };
 
+        private static readonly Dictionary<string, string> BoneNameToSourceTransformName = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "hips", "mixamorig:Hips" },
+            { "spine", "mixamorig:Spine" },
+            { "chest", "mixamorig:Spine1" },
+            { "upperChest", "mixamorig:Spine2" },
+            { "neck", "mixamorig:Neck" },
+            { "head", "mixamorig:Head" },
+            { "leftShoulder", "mixamorig:LeftShoulder" },
+            { "leftUpperArm", "mixamorig:LeftArm" },
+            { "leftLowerArm", "mixamorig:LeftForeArm" },
+            { "leftHand", "mixamorig:LeftHand" },
+            { "rightShoulder", "mixamorig:RightShoulder" },
+            { "rightUpperArm", "mixamorig:RightArm" },
+            { "rightLowerArm", "mixamorig:RightForeArm" },
+            { "rightHand", "mixamorig:RightHand" },
+            { "leftUpperLeg", "mixamorig:LeftUpLeg" },
+            { "leftLowerLeg", "mixamorig:LeftLeg" },
+            { "leftFoot", "mixamorig:LeftFoot" },
+            { "leftToes", "mixamorig:LeftToeBase" },
+            { "rightUpperLeg", "mixamorig:RightUpLeg" },
+            { "rightLowerLeg", "mixamorig:RightLeg" },
+            { "rightFoot", "mixamorig:RightFoot" },
+            { "rightToes", "mixamorig:RightToeBase" },
+            { "leftThumbMetacarpal", "mixamorig:LeftHandThumb1" },
+            { "leftThumbProximal", "mixamorig:LeftHandThumb2" },
+            { "leftThumbDistal", "mixamorig:LeftHandThumb3" },
+            { "leftIndexProximal", "mixamorig:LeftHandIndex1" },
+            { "leftIndexIntermediate", "mixamorig:LeftHandIndex2" },
+            { "leftIndexDistal", "mixamorig:LeftHandIndex3" },
+            { "leftMiddleProximal", "mixamorig:LeftHandMiddle1" },
+            { "leftMiddleIntermediate", "mixamorig:LeftHandMiddle2" },
+            { "leftMiddleDistal", "mixamorig:LeftHandMiddle3" },
+            { "leftRingProximal", "mixamorig:LeftHandRing1" },
+            { "leftRingIntermediate", "mixamorig:LeftHandRing2" },
+            { "leftRingDistal", "mixamorig:LeftHandRing3" },
+            { "leftLittleProximal", "mixamorig:LeftHandPinky1" },
+            { "leftLittleIntermediate", "mixamorig:LeftHandPinky2" },
+            { "leftLittleDistal", "mixamorig:LeftHandPinky3" },
+            { "rightThumbMetacarpal", "mixamorig:RightHandThumb1" },
+            { "rightThumbProximal", "mixamorig:RightHandThumb2" },
+            { "rightThumbDistal", "mixamorig:RightHandThumb3" },
+            { "rightIndexProximal", "mixamorig:RightHandIndex1" },
+            { "rightIndexIntermediate", "mixamorig:RightHandIndex2" },
+            { "rightIndexDistal", "mixamorig:RightHandIndex3" },
+            { "rightMiddleProximal", "mixamorig:RightHandMiddle1" },
+            { "rightMiddleIntermediate", "mixamorig:RightHandMiddle2" },
+            { "rightMiddleDistal", "mixamorig:RightHandMiddle3" },
+            { "rightRingProximal", "mixamorig:RightHandRing1" },
+            { "rightRingIntermediate", "mixamorig:RightHandRing2" },
+            { "rightRingDistal", "mixamorig:RightHandRing3" },
+            { "rightLittleProximal", "mixamorig:RightHandPinky1" },
+            { "rightLittleIntermediate", "mixamorig:RightHandPinky2" },
+            { "rightLittleDistal", "mixamorig:RightHandPinky3" },
+        };
+
         // Parent index for each bone (-1 = root)
         private static readonly int[] ParentIndices =
         {
@@ -150,11 +206,12 @@ namespace NikoF.AnimationTools
 
             AssetDatabase.Refresh();
 
-            // Ensure the FBX is imported as Humanoid so we get a valid Avatar
+            // Humanoid import strips the source transform curves we need for parity with the
+            // official Mixamo retarget. Force Generic so the raw hierarchy animation is preserved.
             var importer = AssetImporter.GetAtPath(sourceAssetPath) as ModelImporter;
-            if (importer != null && importer.animationType != ModelImporterAnimationType.Human)
+            if (importer != null && importer.animationType != ModelImporterAnimationType.Generic)
             {
-                importer.animationType = ModelImporterAnimationType.Human;
+                importer.animationType = ModelImporterAnimationType.Generic;
                 importer.SaveAndReimport();
                 AssetDatabase.Refresh();
             }
@@ -165,10 +222,16 @@ namespace NikoF.AnimationTools
                 throw new InvalidOperationException($"Unable to load AnimationClip at asset path '{sourceAssetPath}'.");
             }
 
-            // Export bone local rotations (same approach as the working v2 pipeline).
-            // With identity VRMA rests, retargeting is pass-through. The library's VRM 0.x
-            // compensation converts the track to the correct normalized bone value.
-            ExportClipAsVrma(clip, semanticId, vrmaOutput);
+            if (importer != null)
+            {
+                ExportFbxClipAsVrma(clip, sourceAssetPath, semanticId, vrmaOutput);
+            }
+            else
+            {
+                // Plain .anim clips do not carry a model avatar, so keep the synthetic export
+                // path for those sources.
+                ExportClipAsVrma(clip, semanticId, vrmaOutput);
+            }
 
             Debug.Log($"[VrmaExporter] Exported '{semanticId}' to '{vrmaOutput}'");
             EditorApplication.Exit(0);
@@ -187,25 +250,161 @@ namespace NikoF.AnimationTools
             return null;
         }
 
+        private struct QuaternionCurveSet
+        {
+            public AnimationCurve X;
+            public AnimationCurve Y;
+            public AnimationCurve Z;
+            public AnimationCurve W;
+
+            public bool IsComplete => X != null && Y != null && Z != null && W != null;
+
+            public Quaternion Evaluate(float time)
+            {
+                var quaternion = new Quaternion(X.Evaluate(time), Y.Evaluate(time), Z.Evaluate(time), W.Evaluate(time));
+                quaternion.Normalize();
+                return quaternion;
+            }
+        }
+
+        private struct VectorCurveSet
+        {
+            public AnimationCurve X;
+            public AnimationCurve Y;
+            public AnimationCurve Z;
+
+            public bool IsComplete => X != null && Y != null && Z != null;
+
+            public Vector3 Evaluate(float time)
+            {
+                return new Vector3(X.Evaluate(time), Y.Evaluate(time), Z.Evaluate(time));
+            }
+        }
+
+        private static string CalculateRelativeTransformPath(Transform node, Transform root)
+        {
+            if (node == null || node == root)
+                return string.Empty;
+
+            var segments = new Stack<string>();
+            var cursor = node;
+            while (cursor != null && cursor != root)
+            {
+                segments.Push(cursor.name);
+                cursor = cursor.parent;
+            }
+
+            return string.Join("/", segments.ToArray());
+        }
+
+        private static Dictionary<string, QuaternionCurveSet> BuildLocalRotationCurveMap(AnimationClip clip)
+        {
+            var curves = new Dictionary<string, QuaternionCurveSet>(StringComparer.Ordinal);
+            foreach (var binding in AnimationUtility.GetCurveBindings(clip))
+            {
+                if (binding.propertyName != "m_LocalRotation.x" &&
+                    binding.propertyName != "m_LocalRotation.y" &&
+                    binding.propertyName != "m_LocalRotation.z" &&
+                    binding.propertyName != "m_LocalRotation.w")
+                {
+                    continue;
+                }
+
+                var curve = AnimationUtility.GetEditorCurve(clip, binding);
+                if (curve == null)
+                    continue;
+
+                var path = binding.path ?? string.Empty;
+                curves.TryGetValue(path, out var curveSet);
+
+                switch (binding.propertyName)
+                {
+                    case "m_LocalRotation.x":
+                        curveSet.X = curve;
+                        break;
+                    case "m_LocalRotation.y":
+                        curveSet.Y = curve;
+                        break;
+                    case "m_LocalRotation.z":
+                        curveSet.Z = curve;
+                        break;
+                    case "m_LocalRotation.w":
+                        curveSet.W = curve;
+                        break;
+                }
+
+                curves[path] = curveSet;
+            }
+
+            return curves;
+        }
+
+        private static Dictionary<string, VectorCurveSet> BuildLocalPositionCurveMap(AnimationClip clip)
+        {
+            var curves = new Dictionary<string, VectorCurveSet>(StringComparer.Ordinal);
+            foreach (var binding in AnimationUtility.GetCurveBindings(clip))
+            {
+                if (binding.propertyName != "m_LocalPosition.x" &&
+                    binding.propertyName != "m_LocalPosition.y" &&
+                    binding.propertyName != "m_LocalPosition.z")
+                {
+                    continue;
+                }
+
+                var curve = AnimationUtility.GetEditorCurve(clip, binding);
+                if (curve == null)
+                    continue;
+
+                var path = binding.path ?? string.Empty;
+                curves.TryGetValue(path, out var curveSet);
+
+                switch (binding.propertyName)
+                {
+                    case "m_LocalPosition.x":
+                        curveSet.X = curve;
+                        break;
+                    case "m_LocalPosition.y":
+                        curveSet.Y = curve;
+                        break;
+                    case "m_LocalPosition.z":
+                        curveSet.Z = curve;
+                        break;
+                }
+
+                curves[path] = curveSet;
+            }
+
+            return curves;
+        }
+
+        private static Dictionary<string, Transform> BuildTransformMap(Transform root)
+        {
+            var transforms = new Dictionary<string, Transform>(StringComparer.Ordinal);
+            CollectTransformsRecursive(root, transforms);
+            return transforms;
+        }
+
+        private static void CollectTransformsRecursive(Transform transform, Dictionary<string, Transform> transforms)
+        {
+            if (!transforms.ContainsKey(transform.name))
+                transforms.Add(transform.name, transform);
+
+            for (var i = 0; i < transform.childCount; i++)
+                CollectTransformsRecursive(transform.GetChild(i), transforms);
+        }
+
         /// <summary>
-        /// Export using the FBX model's own Avatar via HumanPoseHandler.
-        /// This uses the FBX skeleton's real bone axes for muscle→rotation conversion,
-        /// and captures the source skeleton's REAL rest-pose rotations in the VRMA nodes.
-        /// three-vrm's createVRMAnimationClip then computes:
-        ///   delta = track * inverse(sourceRest)
-        ///   result = vrmRest * delta
-        /// which properly retargets the animation to any VRM model.
+        /// Export by sampling the imported FBX model's actual skeleton transforms directly.
+        /// This mirrors the official Mixamo->three-vrm flow more closely than reconstructing
+        /// the pose from humanoid muscles, especially for hips translation.
         /// </summary>
         public static void ExportFbxClipAsVrma(AnimationClip clip, string sourceAssetPath, string semanticId, string outputPath)
         {
             var allAssets = AssetDatabase.LoadAllAssetsAtPath(sourceAssetPath);
-            Avatar fbxAvatar = null;
             GameObject fbxModelPrefab = null;
 
             foreach (var asset in allAssets)
             {
-                if (asset is Avatar a && a.isValid && a.isHuman)
-                    fbxAvatar = a;
                 if (asset is GameObject go && go.transform.parent == null)
                 {
                     if (fbxModelPrefab == null)
@@ -213,163 +412,107 @@ namespace NikoF.AnimationTools
                 }
             }
 
-            if (fbxAvatar == null || fbxModelPrefab == null)
+            if (fbxModelPrefab == null)
             {
-                Debug.LogWarning($"[VrmaExporter] No humanoid Avatar in FBX '{sourceAssetPath}', falling back to synthetic-rig export.");
+                Debug.LogWarning($"[VrmaExporter] No model prefab in FBX '{sourceAssetPath}', falling back to synthetic-rig export.");
                 ExportClipAsVrma(clip, semanticId, outputPath);
                 return;
             }
 
-            // Instantiate the FBX model so we have its real skeleton hierarchy
+            // Instantiate the FBX model so we can sample its real source skeleton hierarchy.
             var instance = UnityEngine.Object.Instantiate(fbxModelPrefab);
             instance.hideFlags = HideFlags.HideAndDontSave;
-            HumanPoseHandler poseHandler = null;
 
             try
             {
-                var animator = instance.GetComponent<Animator>();
-                if (animator == null)
-                    animator = instance.AddComponent<Animator>();
-                animator.avatar = fbxAvatar;
-                animator.applyRootMotion = false;
-                animator.Rebind();
-                animator.Update(0f);
-
-                poseHandler = new HumanPoseHandler(fbxAvatar, instance.transform);
-
                 var durationSeconds = Mathf.Max(0f, clip.length);
                 var sampleCount = Mathf.Max(2, Mathf.RoundToInt(durationSeconds * FrameRate) + 1);
                 var times = new float[sampleCount];
                 for (var i = 0; i < sampleCount; i++)
                     times[i] = i < sampleCount - 1 ? i / (float)FrameRate : durationSeconds;
 
+                var localRotationCurvesByPath = BuildLocalRotationCurveMap(clip);
+                var localPositionCurvesByPath = BuildLocalPositionCurveMap(clip);
+                var sourceTransformsByName = BuildTransformMap(instance.transform);
+
                 var boneCount = HumanoidBoneNames.Length;
-
-                // Extract muscle curves from the clip.
-                // For FBX Humanoid clips, property names are direct muscle names like
-                // "Left Upper Leg Front-Back" (no "Muscle" prefix). Accept all curves
-                // bound to the Animator on the root path (these are muscle/root-motion curves).
-                var muscleValues = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
-                var bindings = AnimationUtility.GetCurveBindings(clip);
-                foreach (var binding in bindings)
-                {
-                    var prop = binding.propertyName;
-                    // Skip transform curves (position/rotation/scale on specific paths)
-                    if (!string.IsNullOrEmpty(binding.path))
-                        continue;
-
-                    var curve = AnimationUtility.GetEditorCurve(clip, binding);
-                    if (curve == null) continue;
-
-                    var samples = new float[sampleCount];
-                    for (var i = 0; i < sampleCount; i++)
-                        samples[i] = curve.Evaluate(times[i]);
-
-                    muscleValues[NormalizeMusclePropertyName(prop)] = samples;
-                }
-
-                // Build muscle name → index map
-                var muscleNameToIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                for (var i = 0; i < HumanTrait.MuscleCount; i++)
-                {
-                    muscleNameToIndex[NormalizeMusclePropertyName(HumanTrait.MuscleName[i])] = i;
-                }
-
-                // Sample each frame using HumanPoseHandler on the FBX skeleton
                 var boneRotations = new Quaternion[boneCount][];
                 var hipsTranslations = new Vector3[sampleCount];
                 for (var b = 0; b < boneCount; b++)
                     boneRotations[b] = new Quaternion[sampleCount];
 
-                var humanPose = new HumanPose();
-
-                // Pre-extract root motion curves (may or may not exist)
-                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootT.x"), out var rootTxSamples);
-                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootT.y"), out var rootTySamples);
-                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootT.z"), out var rootTzSamples);
-                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.x"), out var rootQxSamples);
-                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.y"), out var rootQySamples);
-                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.z"), out var rootQzSamples);
-                muscleValues.TryGetValue(NormalizeMusclePropertyName("RootQ.w"), out var rootQwSamples);
-
-                // Initialize humanPose struct once
-                poseHandler.GetHumanPose(ref humanPose);
-
-                for (var frame = 0; frame < sampleCount; frame++)
-                {
-                    // Zero all muscles then set from curves
-                    for (var m = 0; m < humanPose.muscles.Length && m < HumanTrait.MuscleCount; m++)
-                        humanPose.muscles[m] = 0f;
-
-                    foreach (var kvp in muscleValues)
-                    {
-                        if (muscleNameToIndex.TryGetValue(kvp.Key, out var muscleIdx))
-                        {
-                            humanPose.muscles[muscleIdx] = kvp.Value[frame];
-                        }
-                    }
-
-                    // ALWAYS set body position/rotation to ensure consistency with rest pose.
-                    // Default to identity/neutral when no root motion curves exist.
-                    humanPose.bodyPosition = new Vector3(
-                        rootTxSamples != null ? rootTxSamples[frame] : 0f,
-                        rootTySamples != null ? rootTySamples[frame] : 1f,
-                        rootTzSamples != null ? rootTzSamples[frame] : 0f);
-                    humanPose.bodyRotation = new Quaternion(
-                        rootQxSamples != null ? rootQxSamples[frame] : 0f,
-                        rootQySamples != null ? rootQySamples[frame] : 0f,
-                        rootQzSamples != null ? rootQzSamples[frame] : 0f,
-                        rootQwSamples != null ? rootQwSamples[frame] : 1f);
-
-                    poseHandler.SetHumanPose(ref humanPose);
-
-                    // Read bone rotations from the FBX skeleton
-                    for (var b = 0; b < boneCount; b++)
-                    {
-                        if (!BoneNameToHumanBodyBone.TryGetValue(HumanoidBoneNames[b], out var hbb))
-                        {
-                            boneRotations[b][frame] = Quaternion.identity;
-                            continue;
-                        }
-                        var bt = animator.GetBoneTransform(hbb);
-                        boneRotations[b][frame] = bt != null ? bt.localRotation : Quaternion.identity;
-
-                        if (hbb == HumanBodyBones.Hips && bt != null)
-                            hipsTranslations[frame] = bt.localPosition;
-                    }
-                }
-
-                // Capture REST pose (all muscles zeroed) — these become the VRMA node rotations
-                var restRotations = new Quaternion[boneCount];
+                var sourceBones = new Transform[boneCount];
+                var sourceRestLocalRotations = new Quaternion[boneCount];
+                var sourceBonePaths = new string[boneCount];
                 var restHipsY = 1f;
-
-                for (var m = 0; m < humanPose.muscles.Length; m++)
-                    humanPose.muscles[m] = 0f;
-                // Reset body to default T-pose position
-                humanPose.bodyPosition = new Vector3(0f, 1f, 0f);
-                humanPose.bodyRotation = Quaternion.identity;
-                poseHandler.SetHumanPose(ref humanPose);
 
                 for (var b = 0; b < boneCount; b++)
                 {
-                    if (!BoneNameToHumanBodyBone.TryGetValue(HumanoidBoneNames[b], out var hbb))
+                    if (!BoneNameToSourceTransformName.TryGetValue(HumanoidBoneNames[b], out var sourceTransformName) ||
+                        !sourceTransformsByName.TryGetValue(sourceTransformName, out var sourceBone))
                     {
-                        restRotations[b] = Quaternion.identity;
+                        sourceRestLocalRotations[b] = Quaternion.identity;
+                        sourceBonePaths[b] = string.Empty;
                         continue;
                     }
-                    var bt = animator.GetBoneTransform(hbb);
-                    restRotations[b] = bt != null ? bt.localRotation : Quaternion.identity;
-                    if (hbb == HumanBodyBones.Hips && bt != null)
-                        restHipsY = bt.position.y;
+
+                    sourceBones[b] = sourceBone;
+                    sourceRestLocalRotations[b] = sourceBone.localRotation;
+                    sourceBonePaths[b] = CalculateRelativeTransformPath(sourceBone, instance.transform);
+                    if (HumanoidBoneNames[b] == "hips")
+                        restHipsY = sourceBone.localPosition.y;
+                }
+
+                AnimationMode.StartAnimationMode();
+                try
+                {
+                    for (var frame = 0; frame < sampleCount; frame++)
+                    {
+                        AnimationMode.SampleAnimationClip(instance, clip, times[frame]);
+
+                        for (var b = 0; b < boneCount; b++)
+                        {
+                            var sourceBone = sourceBones[b];
+                            if (sourceBone == null)
+                            {
+                                boneRotations[b][frame] = Quaternion.identity;
+                                continue;
+                            }
+
+                            if (localRotationCurvesByPath.TryGetValue(sourceBonePaths[b], out var localRotationCurveSet) && localRotationCurveSet.IsComplete)
+                            {
+                                boneRotations[b][frame] = localRotationCurveSet.Evaluate(times[frame]);
+                            }
+                            else
+                            {
+                                boneRotations[b][frame] = sourceBone.localRotation;
+                            }
+
+                            if (HumanoidBoneNames[b] == "hips")
+                            {
+                                if (localPositionCurvesByPath.TryGetValue(sourceBonePaths[b], out var localPositionCurveSet) && localPositionCurveSet.IsComplete)
+                                {
+                                    hipsTranslations[frame] = localPositionCurveSet.Evaluate(times[frame]);
+                                }
+                                else
+                                {
+                                    hipsTranslations[frame] = sourceBone.localPosition;
+                                }
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    AnimationMode.StopAnimationMode();
                 }
 
                 var clipSettings = AnimationUtility.GetAnimationClipSettings(clip);
-                WriteGlb(outputPath, semanticId, times, boneRotations, hipsTranslations, restRotations, restHipsY,
+                WriteGlb(outputPath, semanticId, times, boneRotations, hipsTranslations, sourceRestLocalRotations, restHipsY,
                     clipSettings.loopTime || semanticId.StartsWith("idle.", StringComparison.Ordinal) || semanticId.EndsWith(".loop", StringComparison.Ordinal));
             }
             finally
             {
-                if (poseHandler != null) poseHandler.Dispose();
                 UnityEngine.Object.DestroyImmediate(instance);
             }
         }

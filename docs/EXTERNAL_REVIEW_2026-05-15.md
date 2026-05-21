@@ -5,6 +5,8 @@
 **Scope:** Full project audit — codebase, architecture, animation pipeline, future integration planning  
 **Project age at review:** ~1.5 days (created 2026-05-14)
 
+Historical note from 2026-05-21: this review remains useful as an early architecture snapshot, but its animation-specific details predate the current stable playback model. For current animation behavior, use `docs/BACKEND_ANIMATION_CONTRACT.md`, `docs/ANIMATION_DSL_SCHEMA.md`, and `docs/ANIMATION_DSL_WORKFLOW.md`.
+
 ---
 
 ## Executive Summary

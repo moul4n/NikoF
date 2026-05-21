@@ -62,9 +62,9 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Switch Stage 5
 
-- [ ] Implement animation playback against semantic ids rather than file paths.
+- [x] Implement animation playback against semantic ids rather than file paths.
 - [ ] Resolve per-character overrides through manifest data returned by the backend.
-- [ ] Add safe fallback handling when a shared or override animation asset is missing.
+- [x] Add safe fallback handling when a shared or override animation asset is missing.
 
 ### Switch Stage 6
 
@@ -108,7 +108,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 
 ### Tank Stage 7
 
-- [ ] Implement semantic animation resolution order: shared clip, declared override, safe fallback.
+- [x] Implement semantic animation resolution order: shared clip, declared override, safe fallback.
 - [ ] Keep AI-generated motion references behind semantic animation ids and manifest declarations.
 - [ ] Expose package summaries and active-character transitions without leaking filesystem quirks to the frontend.
 

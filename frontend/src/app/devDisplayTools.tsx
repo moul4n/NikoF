@@ -1,12 +1,26 @@
 import React from "react";
+import {
+  DEFAULT_BASE_ANIMATION_COMMAND,
+  listSharedSemanticAnimationPayloads
+} from "../avatar/runtime/defaultBaseAnimation";
 import type { AvatarAnimationPlaybackPath, AvatarDebugProfileView } from "../avatar/runtime/avatarRuntime";
-import type { SemanticAnimationCommand } from "../shared/types/animation";
+import type { SemanticAnimationCommand, SemanticAnimationRuntimePayload } from "../shared/types/animation";
 
-const DEV_DISPLAY_ANIMATION_OPTIONS = [
+type DevDisplayAnimationOptionBehavior = "backend" | "neutral" | "command";
+
+type DevDisplayAnimationOption = {
+  id: string;
+  label: string;
+  description: string;
+  behavior: DevDisplayAnimationOptionBehavior;
+  semanticCommand?: SemanticAnimationCommand;
+};
+
+const DEV_DISPLAY_ACTION_OPTIONS: ReadonlyArray<DevDisplayAnimationOption> = [
   {
     id: "backend",
-    label: "Backend live",
-    description: "Use the backend-selected session animation, or the local idle fallback when backend delivery is offline.",
+    label: "Switch to default backend",
+    description: "Return the display surface to backend-driven animation selection, including the local fallback idle when delivery is offline.",
     behavior: "backend"
   },
   {
@@ -16,38 +30,54 @@ const DEV_DISPLAY_ANIMATION_OPTIONS = [
       "Clear all base animation playback and hold the VRM's normalized baseline standing pose with no authored or procedural root motion.",
     behavior: "neutral"
   },
-  {
-    id: "idle.default",
-    label: "Force idle.default",
-    description: "Loop the refreshed shared idle clip directly in the display window.",
+];
+
+function formatSemanticAnimationLabel(semanticId: string): string {
+  return semanticId
+    .split(/[._-]+/)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function describeRuntimeAdapter(payload: SemanticAnimationRuntimePayload): string {
+  if (payload.playbackAdapter === "official_mixamo_fbx") {
+    return "Uses the official Mixamo FBX runtime path.";
+  }
+
+  if (payload.playbackAdapter === "vrma") {
+    return "Uses the VRMA runtime path.";
+  }
+
+  if (payload.playbackAdapter === "mixer") {
+    return "Uses the mixer keyframe runtime path.";
+  }
+
+  return "Uses the generated runtime payload path.";
+}
+
+function buildSharedAnimationOption(payload: SemanticAnimationRuntimePayload): DevDisplayAnimationOption {
+  const label = payload.semanticId === DEFAULT_BASE_ANIMATION_COMMAND.id ? "Idle Neutral" : formatSemanticAnimationLabel(payload.semanticId);
+  const playbackVerb = payload.playback === "once" ? "Play" : "Loop";
+
+  return {
+    id: payload.semanticId,
+    label,
+    description: `${playbackVerb} ${label} on the local display surface. ${describeRuntimeAdapter(payload)}`,
     behavior: "command",
     semanticCommand: {
-      id: "idle.default",
+      id: payload.semanticId,
       source: "shared",
-      playback: "loop"
+      playback: payload.playback
     }
-  },
-  {
-    id: "idle1",
-    label: "Force idle1",
-    description: "Loop the idle1 hip-sway clip extracted from FBX.",
-    behavior: "command",
-    semanticCommand: {
-      id: "idle1",
-      source: "shared",
-      playback: "loop"
-    }
-  },
+  };
+}
 
-] as const satisfies ReadonlyArray<{
-  id: string;
-  label: string;
-  description: string;
-  behavior: "backend" | "neutral" | "command";
-  semanticCommand?: SemanticAnimationCommand;
-}>;
+const DEV_DISPLAY_SHARED_ANIMATION_OPTIONS: ReadonlyArray<DevDisplayAnimationOption> = listSharedSemanticAnimationPayloads().map(
+  buildSharedAnimationOption
+);
 
-export type DevDisplayAnimationOptionId = (typeof DEV_DISPLAY_ANIMATION_OPTIONS)[number]["id"];
+export type DevDisplayAnimationOptionId = string;
 
 export type DevDisplayAnimationOverrideState = {
   optionId: DevDisplayAnimationOptionId;
@@ -73,6 +103,11 @@ const DEV_DISPLAY_PROFILE_OPTIONS = [
 
 const DEV_DISPLAY_PLAYBACK_PATH_OPTIONS = [
   {
+    id: "official",
+    label: "Official Mixamo adapter",
+    description: "Loads raw FBX animation sources and applies the official ThreeVRM Mixamo retarget path in the display runtime. Non-FBX semantics fall back to the legacy mixer."
+  },
+  {
     id: "mixer",
     label: "Mixer (quaternion keyframes)",
     description: "Feeds bone quaternion keyframes directly to THREE.AnimationMixer. No manual scaling or Euler decomposition."
@@ -89,7 +124,11 @@ const DEV_DISPLAY_PLAYBACK_PATH_OPTIONS = [
 }>;
 
 export function resolveDevDisplayAnimationOption(optionId: DevDisplayAnimationOptionId) {
-  return DEV_DISPLAY_ANIMATION_OPTIONS.find((option) => option.id === optionId) ?? DEV_DISPLAY_ANIMATION_OPTIONS[0];
+  return (
+    DEV_DISPLAY_ACTION_OPTIONS.find((option) => option.id === optionId) ??
+    DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.find((option) => option.id === optionId) ??
+    DEV_DISPLAY_ACTION_OPTIONS[0]
+  );
 }
 
 interface DevAnimationSwitcherPanelProps {
@@ -207,6 +246,8 @@ export function DevAnimationSwitcherPanel({
   controlsEnabled,
   onSelectOption
 }: DevAnimationSwitcherPanelProps): JSX.Element {
+  const selectedSharedAnimationOption = DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.find((option) => option.id === selectedOptionId) ?? null;
+
   return (
     <section className="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-animation-switcher-title">
       <div className="surface-panel__header">
@@ -217,7 +258,7 @@ export function DevAnimationSwitcherPanel({
       </div>
 
       <p className="surface-panel__summary">
-        This panel is dev-only and only affects the local display window. Neutral stance clears animation entirely; click the punch option again to replay the one-shot clip.
+        This panel is dev-only and only affects the local display window. Switch back to the backend default, hold a neutral T-pose, or pick any generated shared animation from the dropdown.
       </p>
       <p className="surface-panel__message">
         Backend snapshot: {backendAnimationId ?? "Unavailable, so the local idle fallback will be used when override is off."}
@@ -226,8 +267,38 @@ export function DevAnimationSwitcherPanel({
         <p className="surface-panel__message">Display runtime is still mounting the avatar. Local animation overrides unlock once the first model load is ready.</p>
       ) : null}
 
+      <div className="dev-animation-panel__field">
+        <label className="dev-animation-panel__label" htmlFor="dev-display-animation-select">
+          Generated animation
+        </label>
+        <select
+          id="dev-display-animation-select"
+          className="dev-animation-panel__select"
+          value={selectedSharedAnimationOption?.id ?? ""}
+          disabled={!controlsEnabled || DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.length === 0}
+          onChange={(event: { currentTarget: HTMLSelectElement }) => {
+            const optionId = event.currentTarget.value.trim();
+
+            if (optionId) {
+              onSelectOption(optionId);
+            }
+          }}
+        >
+          <option value="">Select a generated animation...</option>
+          {DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="dev-animation-panel__selected-summary">
+        {selectedSharedAnimationOption?.description ??
+          "Choose a generated animation from the dropdown to preview it locally in the display surface."}
+      </p>
+
       <div className="dev-animation-panel__list" role="group" aria-label="Display animation override">
-        {DEV_DISPLAY_ANIMATION_OPTIONS.map((option) => {
+        {DEV_DISPLAY_ACTION_OPTIONS.map((option) => {
           const isActive = option.id === selectedOptionId;
 
           return (

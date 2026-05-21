@@ -1,0 +1,36 @@
+{
+  "dsl_version": "1.0.0",
+  "kind": "semantic_animation_asset",
+  "semantic_id": "idle.neutral",
+  "scope": "shared",
+  "base": {
+    "clip_ref": {
+      "path": "assets/animations/library/shared/idle.neutral.vrma"
+    },
+    "runtime_adapter": "official_mixamo_fbx",
+    "source_asset": {
+      "kind": "mixamo_fbx",
+      "path": "assets/animations/raw/IdleNeutral.fbx"
+    },
+    "playback": "loop",
+    "body_scope": "full_body",
+    "root_motion": "in_place",
+    "timing": {
+      "duration_ms": 16633,
+      "fade_in_ms": 200,
+      "fade_out_ms": 200
+    },
+    "retarget_profile": "shared_humanoid_v1"
+  },
+  "layers": {
+    "speech": {
+      "supported": false
+    },
+    "expression": {
+      "supported": false
+    }
+  },
+  "fallback": {
+    "semantic_id": "idle.neutral"
+  }
+}

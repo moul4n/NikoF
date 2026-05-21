@@ -1,5 +1,6 @@
 export const semanticAnimationIds = [
   "idle.default",
+  "idle.neutral",
   "idle.focused",
   "listen.loop",
   "speak.loop",
@@ -93,6 +94,14 @@ export interface SemanticAnimationRuntimeExportAudit {
   boneTransformComparison?: SemanticAnimationRuntimeBoneTransformComparison;
 }
 
+export interface SemanticAnimationRuntimeSourceAsset {
+  kind?: string;
+  path: string;
+  sourceAssetPath?: string;
+}
+
+export type SemanticAnimationRuntimePlaybackAdapter = "mixer" | "vrma" | "official_mixamo_fbx";
+
 export interface SemanticAnimationRuntimePayload {
   semanticId: SemanticAnimationId;
   playback: SemanticAnimationPlaybackMode;
@@ -102,6 +111,8 @@ export interface SemanticAnimationRuntimePayload {
   sampling?: SemanticAnimationRuntimeSampling;
   channels?: SemanticAnimationRuntimeChannel[];
   exportAudit?: SemanticAnimationRuntimeExportAudit;
+  sourceAsset?: SemanticAnimationRuntimeSourceAsset;
+  playbackAdapter?: SemanticAnimationRuntimePlaybackAdapter;
 }
 
 export interface BackendAnimationTimingHintDocument {

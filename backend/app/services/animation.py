@@ -19,6 +19,7 @@ from app.services.session import InvalidEventCursor
 DEFAULT_SHARED_ANIMATION_IDS = frozenset(
     {
         DEFAULT_FALLBACK_SEMANTIC_ID,
+        "idle.default",
         "listen.attentive.loop",
         "listen.loop",
         "speak.loop",
@@ -39,6 +40,12 @@ SESSION_LIFECYCLE_TO_SEMANTIC_ID = {
 
 DEFAULT_PLAYBACK_LIBRARY = {
     DEFAULT_FALLBACK_SEMANTIC_ID: AnimationPlayback(
+        mode="loop",
+        blend_hint="base_full_body",
+        expected_duration_ms=16633,
+        loop=True,
+    ),
+    "idle.default": AnimationPlayback(
         mode="loop",
         blend_hint="base_full_body",
         expected_duration_ms=8333,

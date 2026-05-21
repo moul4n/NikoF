@@ -942,7 +942,7 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
         payload = _serialize_dataclass_payload(response)
         self.assertEqual("session-scaffold-01", payload["session_id"])
         self.assertEqual("idle", payload["lifecycle_state"])
-        self.assertEqual("idle.default", payload["command"]["semantic_id"])
+        self.assertEqual("idle.neutral", payload["command"]["semantic_id"])
         self.assertEqual("selected", payload["command"]["resolved_state"])
 
     def test_route_returns_sse_frames_with_existing_cursor_and_snapshot_shape(self) -> None:
@@ -1074,12 +1074,12 @@ class SessionAnimationRouteTransportTests(unittest.TestCase):
         self.assertEqual(SESSION_ANIMATION_STREAM, messages[0]["event"])
         self.assertNotIn("id", messages[0])
         self.assertEqual("session-scaffold-01", json.loads(messages[0]["data"])["session_id"])
-        self.assertEqual("idle.default", json.loads(messages[0]["data"])["command"]["semantic_id"])
+        self.assertEqual("idle.neutral", json.loads(messages[0]["data"])["command"]["semantic_id"])
         # Verify animation.command event emitted alongside
         self.assertEqual(1, len(command_messages))
         cmd_data = json.loads(command_messages[0]["data"])
         self.assertEqual("play_animation", cmd_data["command"]["command"])
-        self.assertEqual("idle.default", cmd_data["command"]["clip_id"])
+        self.assertEqual("idle.neutral", cmd_data["command"]["clip_id"])
 
     def test_route_rejects_invalid_cursor_before_transport_negotiation(self) -> None:
         animation_endpoint, _lifecycle_endpoint, _live_delivery = build_session_animation_route_endpoints()

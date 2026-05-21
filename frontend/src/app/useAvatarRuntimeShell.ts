@@ -33,12 +33,6 @@ export function useAvatarRuntimeSnapshot({
     });
   }, [runtime]);
 
-  useEffect(() => {
-    return () => {
-      runtime.unmount();
-    };
-  }, [runtime]);
-
   return avatarRuntimeSnapshot;
 }
 

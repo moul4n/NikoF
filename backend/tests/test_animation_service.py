@@ -150,11 +150,12 @@ class DefaultAnimationServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(command.semantic_id, "idle.default")
+        self.assertEqual(command.semantic_id, "idle.neutral")
         self.assertEqual(command.resolution.selected_source, "shared_library")
-        self.assertEqual(command.resolution.selected_asset_id, "idle.default")
+        self.assertEqual(command.resolution.selected_asset_id, "idle.neutral")
         self.assertEqual(command.resolved_state, "selected")
         self.assertEqual(command.playback.mode, "loop")
+        self.assertEqual(command.playback.expected_duration_ms, 16633)
         self.assertEqual(command.parameters["session_state"], "idle")
         self.assertEqual(
             command.intent_id,
@@ -216,10 +217,10 @@ class SessionAnimationContractSnapshotTests(unittest.TestCase):
 
         self.assertEqual("session-scaffold-01", response["session_id"])
         self.assertEqual("idle", response["lifecycle_state"])
-        self.assertEqual("test-vrm-01", response["active_character_id"])
-        self.assertEqual("idle.default", response["command"]["semantic_id"])
+        self.assertEqual("maria", response["active_character_id"])
+        self.assertEqual("idle.neutral", response["command"]["semantic_id"])
         self.assertEqual("shared_library", response["command"]["resolution"]["selected_source"])
-        self.assertEqual("idle.default", response["command"]["resolution"]["selected_asset_id"])
+        self.assertEqual("idle.neutral", response["command"]["resolution"]["selected_asset_id"])
         self.assertEqual("selected", response["command"]["resolved_state"])
 
     def test_contract_snapshot_exposes_session_lifecycle_update_response(self) -> None:

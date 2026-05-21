@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 
 ANIMATION_SCHEMA_VERSION = 1
-DEFAULT_FALLBACK_SEMANTIC_ID = "idle.default"
+DEFAULT_FALLBACK_SEMANTIC_ID = "idle.neutral"
 
 
 @dataclass(slots=True, frozen=True)

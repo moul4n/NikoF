@@ -6,21 +6,23 @@ import type {
   SemanticAnimationPlaybackMode,
   SemanticAnimationRuntimeChannel,
   SemanticAnimationRuntimeExportAudit,
+  SemanticAnimationRuntimePlaybackAdapter,
   SemanticAnimationRuntimePayload,
   SemanticAnimationRuntimeQuaternion,
   SemanticAnimationRuntimeQuaternionSampleSeries,
+  SemanticAnimationRuntimeSourceAsset,
   SemanticAnimationRuntimeSampling
 } from "../../shared/types/animation";
-import idleDefaultRuntime from "../../../../assets/animations/generated/shared/idle.default/idle.default.runtime.json";
-import idle1Runtime from "../../../../assets/animations/generated/shared/idle1/idle1.runtime.json";
-import idle1v2Runtime from "../../../../assets/animations/generated/shared/idle1v2/idle1v2.runtime.json";
-
-import listenLoopRuntime from "../../../../assets/animations/generated/shared/listen.loop/listen.loop.runtime.json";
-import speakLoopRuntime from "../../../../assets/animations/generated/shared/speak.loop/speak.loop.runtime.json";
 
 export interface SharedAnimationRuntimeSidecarDocument {
   semantic_id?: string;
   channel_space?: string;
+  runtime_adapter?: string;
+  source?: {
+    kind?: string;
+    path?: string;
+    source_asset_path?: string;
+  };
   export_audit?: {
     limb_rotation_space?: string;
     lower_arm_rotation_hint_source?: string;
@@ -91,27 +93,62 @@ type SharedAnimationRuntimeSidecarModule = {
   default: SharedAnimationRuntimeSidecarDocument;
 };
 
-const sharedAnimationRuntimeSidecarModules: Record<string, SharedAnimationRuntimeSidecarModule> = {
-  "idle.default": {
-    default: idleDefaultRuntime as SharedAnimationRuntimeSidecarDocument
-  },
-  "idle1": {
-    default: idle1Runtime as SharedAnimationRuntimeSidecarDocument
-  },
-  "idle1v2": {
-    default: idle1v2Runtime as SharedAnimationRuntimeSidecarDocument
-  },
-
-  "listen.loop": {
-    default: listenLoopRuntime as SharedAnimationRuntimeSidecarDocument
-  },
-  "speak.loop": {
-    default: speakLoopRuntime as SharedAnimationRuntimeSidecarDocument
-  }
+const sharedSemanticAnimationPlaybackAdapterOverrides: Partial<Record<string, SemanticAnimationRuntimePlaybackAdapter>> = {
+  "idle.default": "vrma",
+  "idle.neutral": "official_mixamo_fbx",
+  "listen.loop": "vrma",
+  "speak.loop": "vrma"
 };
 
+const legacySharedSemanticAnimationAliases: Readonly<Record<string, string>> = {
+  idle1v3: "idle.neutral"
+};
+
+const sharedAnimationRuntimeSidecarModules = Object.values(
+  import.meta.glob<SharedAnimationRuntimeSidecarModule>(
+    "../../../../assets/animations/generated/shared/*/*.runtime.json",
+    { eager: true }
+  )
+).reduce<Record<string, SharedAnimationRuntimeSidecarModule>>((modules, runtimeModule) => {
+  const semanticId = runtimeModule.default.semantic_id?.trim();
+
+  if (semanticId) {
+    modules[semanticId] = runtimeModule;
+  }
+
+  return modules;
+}, {});
+
+function resolveRuntimeSourceAsset(
+  runtimeDocument: SharedAnimationRuntimeSidecarDocument
+): SemanticAnimationRuntimeSourceAsset | undefined {
+  const path = runtimeDocument.source?.path?.trim();
+
+  if (!path) {
+    return undefined;
+  }
+
+  return {
+    kind: runtimeDocument.source?.kind?.trim() || undefined,
+    path,
+    sourceAssetPath: runtimeDocument.source?.source_asset_path?.trim() || undefined
+  };
+}
+
+function resolveRuntimePlaybackAdapter(
+  runtimeDocument: SharedAnimationRuntimeSidecarDocument
+): SemanticAnimationRuntimePlaybackAdapter | undefined {
+  const runtimeAdapter = runtimeDocument.runtime_adapter?.trim();
+
+  if (runtimeAdapter === "mixer" || runtimeAdapter === "vrma" || runtimeAdapter === "official_mixamo_fbx") {
+    return runtimeAdapter;
+  }
+
+  return undefined;
+}
+
 export const DEFAULT_BASE_ANIMATION_COMMAND: SemanticAnimationCommand = {
-  id: "idle1v3",
+  id: "idle.neutral",
   source: "shared",
   playback: "loop"
 };
@@ -440,6 +477,8 @@ export function buildSharedSemanticAnimationPayloadCatalogFromRuntimeDocuments(
     const sampling = resolveRuntimeSampling(runtimeDocument);
     const channels = resolveRuntimeChannels(runtimeDocument, sampling);
     const exportAudit = resolveRuntimeExportAudit(runtimeDocument, sampling);
+    const sourceAsset = resolveRuntimeSourceAsset(runtimeDocument);
+    const playbackAdapter = resolveRuntimePlaybackAdapter(runtimeDocument);
     const existingPayload = semanticId ? catalog.get(semanticId) : null;
 
     if (!semanticId || !playback || typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) {
@@ -454,7 +493,12 @@ export function buildSharedSemanticAnimationPayloadCatalogFromRuntimeDocuments(
       channelSpace: runtimeDocument.channel_space ?? existingPayload?.channelSpace,
       sampling: sampling ?? existingPayload?.sampling,
       channels: channels ?? existingPayload?.channels,
-      exportAudit: exportAudit ?? existingPayload?.exportAudit
+      exportAudit: exportAudit ?? existingPayload?.exportAudit,
+      sourceAsset: sourceAsset ?? existingPayload?.sourceAsset,
+      playbackAdapter:
+        playbackAdapter ??
+        (semanticId ? sharedSemanticAnimationPlaybackAdapterOverrides[semanticId] : undefined) ??
+        existingPayload?.playbackAdapter
     });
   });
 
@@ -467,6 +511,23 @@ function buildSharedSemanticAnimationPayloadCatalog(): Map<string, SemanticAnima
   );
 }
 
+function compareSharedSemanticAnimationPayloads(
+  left: SemanticAnimationRuntimePayload,
+  right: SemanticAnimationRuntimePayload
+): number {
+  const defaultSemanticId = DEFAULT_BASE_ANIMATION_COMMAND.id;
+
+  if (left.semanticId === defaultSemanticId && right.semanticId !== defaultSemanticId) {
+    return -1;
+  }
+
+  if (right.semanticId === defaultSemanticId && left.semanticId !== defaultSemanticId) {
+    return 1;
+  }
+
+  return left.semanticId.localeCompare(right.semanticId);
+}
+
 function resolveSharedSemanticAnimationPayloadFromCatalog(
   command: SemanticAnimationCommand,
   catalog: Map<string, SemanticAnimationRuntimePayload>
@@ -475,7 +536,7 @@ function resolveSharedSemanticAnimationPayloadFromCatalog(
     return null;
   }
 
-  const resolvedPayload = catalog.get(command.id);
+  const resolvedPayload = catalog.get(command.id) ?? catalog.get(legacySharedSemanticAnimationAliases[command.id] ?? "");
 
   if (!resolvedPayload) {
     return null;
@@ -489,7 +550,9 @@ function resolveSharedSemanticAnimationPayloadFromCatalog(
     channelSpace: resolvedPayload.channelSpace,
     sampling: resolvedPayload.sampling,
     channels: resolvedPayload.channels,
-    exportAudit: resolvedPayload.exportAudit
+    exportAudit: resolvedPayload.exportAudit,
+    sourceAsset: resolvedPayload.sourceAsset,
+    playbackAdapter: resolvedPayload.playbackAdapter
   };
 }
 
@@ -497,6 +560,14 @@ export function cloneDefaultBaseAnimationCommand(): SemanticAnimationCommand {
   return {
     ...DEFAULT_BASE_ANIMATION_COMMAND
   };
+}
+
+export function resolveCanonicalSharedSemanticAnimationId(semanticId: string): string {
+  return legacySharedSemanticAnimationAliases[semanticId] ?? semanticId;
+}
+
+export function listSharedSemanticAnimationPayloads(): SemanticAnimationRuntimePayload[] {
+  return [...sharedSemanticAnimationPayloadCatalog.values()].sort(compareSharedSemanticAnimationPayloads);
 }
 
 export function resolveSharedSemanticAnimationPayload(

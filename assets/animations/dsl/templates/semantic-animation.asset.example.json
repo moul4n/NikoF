@@ -7,6 +7,7 @@
     "clip_ref": {
       "path": "assets/animations/library/shared/idle.default/idle.default.vrma"
     },
+    "runtime_adapter": "vrma",
     "playback": "loop",
     "body_scope": "full_body",
     "root_motion": "in_place",

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>VRM Animation Debug — Lower Body Chain Analysis</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { margin: 0; overflow: hidden; font-family: monospace; }
+    canvas { display: block; }
+    #debug-panel {
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      background: rgba(0,0,0,0.85);
+      color: #0f0;
+      padding: 12px;
+      font-size: 11px;
+      max-width: 420px;
+      max-height: 90vh;
+      overflow-y: auto;
+      border-radius: 4px;
+      white-space: pre;
+      line-height: 1.4;
+      z-index: 1000;
+    }
+    #info-panel {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      padding: 12px;
+      font-size: 12px;
+      max-width: 320px;
+      border-radius: 4px;
+      z-index: 1000;
+    }
+    #info-panel h3 { margin: 0 0 8px; color: #0af; }
+    #info-panel p { margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <div id="info-panel">
+    <h3>VRM Animation Debug Harness</h3>
+    <p>Model: Maria (model.vrm)</p>
+    <p>Animation: IdleNeutral.fbx</p>
+    <p>Purpose: Monitor how three-vrm reference handles lower-body retargeting</p>
+  </div>
+  <div id="debug-panel">Loading...</div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

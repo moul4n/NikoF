@@ -12,11 +12,6 @@
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     },
-    "idle.tired": {
-      "path": "assets/animations/dsl/shared/idle.tired.json",
-      "stage": "staged_raw_unity_source",
-      "approved_for_shared_library": false
-    },
     "speak.loop": {
       "path": "assets/animations/dsl/shared/speak.loop.json",
       "stage": "staged_raw_unity_source",
@@ -27,13 +22,8 @@
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     },
-    "idle1": {
-      "path": "assets/animations/dsl/shared/idle1.json",
-      "stage": "staged_raw_unity_source",
-      "approved_for_shared_library": false
-    },
-    "idle1v3": {
-      "path": "assets/animations/dsl/shared/idle1v3.json",
+    "idle.neutral": {
+      "path": "assets/animations/dsl/shared/idle.neutral.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     }

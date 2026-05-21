@@ -212,7 +212,7 @@ export function useSurfaceShellOrchestration({
 }: UseSurfaceShellOrchestrationOptions): UseSurfaceShellOrchestrationResult {
   const [devDisplayProfileView, setDevDisplayProfileView] = useState<AvatarDebugProfileView>("front");
   const [devDisplayRigOverlayEnabled, setDevDisplayRigOverlayEnabled] = useState(false);
-  const [devDisplayPlaybackPath, setDevDisplayPlaybackPath] = useState<AvatarAnimationPlaybackPath>("vrma");
+  const [devDisplayPlaybackPath, setDevDisplayPlaybackPath] = useState<AvatarAnimationPlaybackPath>("official");
   const [devDisplayAnimationOverride, setDevDisplayAnimationOverride] = useState<DevDisplayAnimationOverrideState>({
     optionId: "backend",
     activationKey: 0
@@ -224,7 +224,7 @@ export function useSurfaceShellOrchestration({
   const effectiveDisplayRigOverlayEnabled =
     surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayRigOverlayEnabled : false;
   const effectiveDisplayPlaybackPath: AvatarAnimationPlaybackPath =
-    surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayPlaybackPath : "vrma";
+    surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayPlaybackPath : "official";
   const desiredConversationAnimationLifecycleState =
     catalogLoadStatus === "ready" && selectedCharacter
       ? resolveDesiredConversationAnimationLifecycleState(
