@@ -93,6 +93,18 @@ class FasterWhisperServerRuntimeTests(unittest.TestCase):
 
             popen_mock.assert_not_called()
 
+    def test_kill_process_uses_tree_termination(self) -> None:
+        manager = FasterWhisperServerManager()
+        process = Mock()
+        process.pid = 1234
+        manager._process = process
+
+        with patch("app.services.stt_server.terminate_process_tree") as terminate_mock:
+            manager._kill_process()
+
+        terminate_mock.assert_called_once_with(process)
+        self.assertIsNone(manager._process)
+
 
 if __name__ == "__main__":
     unittest.main()

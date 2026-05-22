@@ -2,6 +2,12 @@
 
 ## Active Decisions
 
+### 2026-05-22T15:30:00Z: Preferred local startup is the managed dev-stack supervisor
+
+**By:** Copilot
+**What:** Treat `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1` as the preferred local startup path for users, developers, and AI agents whenever the full stack is needed. Keep `..\.venv\Scripts\python.exe -m app.dev_server` as the backend-only command for intentionally scoped debugging, not as the default full-stack startup path. Use `-StopAfterSeconds` for bounded smoke checks that should leave the machine clean after proving startup.
+**Why:** One repo-root supervisor command keeps frontend plus backend startup consistent, keeps STT and TTS ownership with the backend, and reduces the chance of orphaned local sidecars caused by ad hoc multi-terminal launches.
+
 ### 2026-05-19T00:00:00Z: VRMA migration architecture confirmed — backend sends semantic commands, frontend owns native VRMA playback
 
 **By:** Trinity

@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -29,6 +30,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from app.core.settings import AppPaths, get_app_paths
+from app.services.process_supervision import find_listening_pid, process_exists, terminate_process_tree, terminate_process_tree_by_pid
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,33 @@ PREFERRED_SERVER_SCRIPT_CANDIDATES = ("api_v2.py", "api.py", "api_server.py")
 def _default_log_root(app_paths: AppPaths | None = None) -> Path:
     paths = app_paths or get_app_paths()
     return paths.local_data_root / "logs" / "tts"
+
+
+def _backend_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _repo_server_script_source() -> Path:
+    return Path(__file__).resolve().parents[3] / "scripts" / "tts_server" / "api_server.py"
+
+
+def _sync_repo_server_script(provider_root: Path, server_script: str) -> None:
+    if server_script != "api_server.py":
+        return
+
+    source_path = _repo_server_script_source()
+    if not source_path.is_file():
+        return
+
+    provider_root.mkdir(parents=True, exist_ok=True)
+    destination_path = provider_root / server_script
+    try:
+        if destination_path.is_file() and destination_path.read_text(encoding="utf-8") == source_path.read_text(encoding="utf-8"):
+            return
+    except OSError:
+        pass
+
+    shutil.copyfile(source_path, destination_path)
 
 
 def _resolve_default_server_script(provider_root: Path) -> str:
@@ -124,6 +153,7 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
     #   entrypoints when they exist in the provider root.
     raw_server_script = str(config_data.get("server_script") or "").strip()
     server_script = raw_server_script or _resolve_default_server_script(provider_root)
+    _sync_repo_server_script(provider_root, server_script)
 
     startup_timeout_seconds = SERVER_STARTUP_TIMEOUT_SECONDS
     raw_startup_timeout = config_data.get("timeout_seconds")
@@ -154,6 +184,16 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
 
 class GPTSoVITSServerError(RuntimeError):
     """Raised when the server cannot complete an operation."""
+
+
+def _extract_owner_pid(payload: dict[str, Any] | None) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    raw_owner_pid = payload.get("owner_pid")
+    try:
+        return int(raw_owner_pid) if raw_owner_pid is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _http_json_request(
@@ -242,12 +282,14 @@ class GPTSoVITSServerManager:
                 return True
 
             if self.is_healthy:
-                logger.error(
-                    "Refusing to attach to an external GPT-SoVITS server on %s; backend-side ownership is required.",
+                logger.warning(
+                    "Reclaiming pre-existing GPT-SoVITS server on %s before starting a managed sidecar",
                     self.config.base_url,
                 )
-                self._started = False
-                return False
+                if not self._reclaim_external_server():
+                    logger.error("Failed to reclaim GPT-SoVITS server on %s", self.config.base_url)
+                    self._started = False
+                    return False
 
             if self.is_running:
                 self._kill_process()
@@ -290,6 +332,7 @@ class GPTSoVITSServerManager:
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                             env={
                                 **os.environ,
+                                "NIKOF_BACKEND_ROOT": str(_backend_root()),
                                 "NIKOF_TTS_OWNER_PID": str(os.getpid()),
                             },
                         )
@@ -338,6 +381,49 @@ class GPTSoVITSServerManager:
         """Stop and restart the server."""
         self.stop()
         return self.start()
+
+    def _reclaim_external_server(self) -> bool:
+        external_health: dict[str, Any] | None = None
+        try:
+            external_health = _http_json_request(self.config.health_url, timeout=5.0)
+        except GPTSoVITSServerError:
+            external_health = None
+
+        owner_pid = _extract_owner_pid(external_health)
+        if owner_pid is not None and not process_exists(owner_pid):
+            logger.warning(
+                "Reclaiming orphaned GPT-SoVITS sidecar whose owner pid %s is no longer alive",
+                owner_pid,
+            )
+
+        try:
+            _http_json_request(self.config.shutdown_url, method="POST", timeout=5.0)
+        except GPTSoVITSServerError as exc:
+            logger.warning("Graceful shutdown request for the existing GPT-SoVITS server failed: %s", exc)
+
+        deadline = time.time() + SERVER_RECOVERY_TIMEOUT_SECONDS
+        while time.time() < deadline:
+            if not self.is_healthy:
+                return True
+            time.sleep(SERVER_RECOVERY_POLL_INTERVAL_SECONDS)
+
+        external_pid = find_listening_pid(self.config.host, self.config.port)
+        if external_pid is None:
+            return False
+
+        logger.warning(
+            "Force-killing stale GPT-SoVITS listener pid=%s on %s",
+            external_pid,
+            self.config.base_url,
+        )
+        terminate_process_tree_by_pid(external_pid)
+
+        deadline = time.time() + SERVER_RECOVERY_TIMEOUT_SECONDS
+        while time.time() < deadline:
+            if not self.is_healthy:
+                return True
+            time.sleep(SERVER_RECOVERY_POLL_INTERVAL_SECONDS)
+        return False
 
     def synthesize(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Send a synthesis request to the running server.
@@ -444,18 +530,8 @@ class GPTSoVITSServerManager:
         """Force-kill the server process."""
         if self._process is None:
             return
-
-        try:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=3.0)
-        except OSError:
-            pass
-        finally:
-            self._process = None
+        terminate_process_tree(self._process)
+        self._process = None
 
 
 # Module-level singleton

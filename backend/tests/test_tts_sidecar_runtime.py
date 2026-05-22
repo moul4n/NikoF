@@ -166,7 +166,7 @@ class GPTSoVITSServerOwnershipTests(unittest.TestCase):
 
         self.assertEqual(90, config.startup_timeout_seconds)
 
-    def test_start_refuses_external_healthy_listener(self) -> None:
+    def test_start_reclaims_existing_healthy_listener_before_launch(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             config = GPTSoVITSServerConfig(
@@ -180,11 +180,53 @@ class GPTSoVITSServerOwnershipTests(unittest.TestCase):
             )
             manager = GPTSoVITSServerManager(config=config)
 
-            with patch.object(GPTSoVITSServerManager, "is_healthy", new_callable=PropertyMock, return_value=True):
+            with patch.object(GPTSoVITSServerManager, "is_running", new_callable=PropertyMock, return_value=False), patch.object(
+                GPTSoVITSServerManager,
+                "is_healthy",
+                new_callable=PropertyMock,
+                return_value=True,
+            ), patch.object(GPTSoVITSServerManager, "server_configured", new_callable=PropertyMock, return_value=True), patch.object(
+                manager,
+                "_reclaim_external_server",
+                return_value=True,
+            ) as reclaim_mock, patch.object(manager, "_wait_for_healthy", return_value=True), patch(
+                "app.services.tts_server.subprocess.Popen"
+            ) as popen_mock:
+                process = MagicMock()
+                process.poll.return_value = None
+                popen_mock.return_value = process
+                started = manager.start()
+
+        self.assertTrue(started)
+        reclaim_mock.assert_called_once_with()
+        popen_mock.assert_called_once()
+
+    def test_start_fails_when_existing_healthy_listener_cannot_be_reclaimed(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = GPTSoVITSServerConfig(
+                host="127.0.0.1",
+                port=19980,
+                python_executable=sys.executable,
+                server_script="api_server.py",
+                model_root=root / "model",
+                provider_root=root / "provider",
+                log_root=root / "logs",
+            )
+            manager = GPTSoVITSServerManager(config=config)
+
+            with patch.object(GPTSoVITSServerManager, "is_running", new_callable=PropertyMock, return_value=False), patch.object(
+                GPTSoVITSServerManager,
+                "is_healthy",
+                new_callable=PropertyMock,
+                return_value=True,
+            ), patch.object(manager, "_reclaim_external_server", return_value=False), patch(
+                "app.services.tts_server.subprocess.Popen"
+            ) as popen_mock:
                 started = manager.start()
 
         self.assertFalse(started)
-        self.assertIsNone(manager.owner_pid)
+        popen_mock.assert_not_called()
 
     def test_wait_for_healthy_uses_configured_startup_timeout(self) -> None:
         config = GPTSoVITSServerConfig(startup_timeout_seconds=1.0)
@@ -224,6 +266,18 @@ class GPTSoVITSServerOwnershipTests(unittest.TestCase):
 
         self.assertEqual("artifact.wav", response["audio_reference"])
         restart.assert_not_called()
+
+    def test_kill_process_uses_tree_termination(self) -> None:
+        manager = GPTSoVITSServerManager()
+        process = MagicMock()
+        process.pid = 1234
+        manager._process = process
+
+        with patch("app.services.tts_server.terminate_process_tree") as terminate_mock:
+            manager._kill_process()
+
+        terminate_mock.assert_called_once_with(process)
+        self.assertIsNone(manager._process)
 
 
 class ResourceMonitorFallbackTests(unittest.TestCase):

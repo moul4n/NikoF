@@ -95,6 +95,24 @@ Pass `-Prompts` for a short ad hoc run or `-PromptFile` for a custom prompt list
 
 The artifact reports both the raw TTS request counter from `GET /system/resources` and an estimated completed-request total derived from returned `audio_reference` ids. On the current backend, the resource counter can lag behind successful preview responses, so use the estimated total when you need a closer completion count during active debugging.
 
+## Preferred Local Startup
+
+For normal local use, developer work, and AI-agent repro runs, prefer the managed stack launcher from the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
+```
+
+That command starts the frontend and backend together, keeps the backend as the owner of STT and TTS sidecars, and gives you one supervisor window to stop when you are done. The preferred shutdown path is to stop that supervisor window with `Ctrl+C`, which lets the script tear down the managed frontend and backend process trees together.
+
+For bounded smoke checks or automation that must leave the machine clean, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1 -StopAfterSeconds 15
+```
+
+Use `..\.venv\Scripts\python.exe -m app.dev_server` only when you intentionally need a backend-only session. The frontend never owns STT or TTS sidecars.
+
 ## Fresh-Machine Bootstrap
 
 On a new Windows machine, run the bootstrap scaffold first:

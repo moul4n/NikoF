@@ -24,6 +24,7 @@ import io
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 import traceback
@@ -40,6 +41,7 @@ DEFAULT_SOVITS_MODEL = "s2G488k.pth"
 # Disable automatic garbage collection — PyTorch tensor destructors cause
 # prolonged GPU activity when GC runs.  We rely on refcounting instead.
 gc.disable()
+OWNER_POLL_INTERVAL_SECONDS = 2.0
 
 # Globals set during startup
 _model_root: Path = Path(".")
@@ -47,6 +49,7 @@ _speaker_manifest: dict[str, Any] = {}
 _get_tts_wav: Any = None
 _i18n: Any = None
 _model_name: str = "gpt-sovits"
+_owner_pid: int | None = None
 _lock = threading.Lock()
 
 
@@ -110,6 +113,42 @@ def _merge_settings(*sources: Any) -> dict[str, Any]:
                 continue
             merged[key] = value
     return merged
+
+
+def _owner_pid_from_env() -> int | None:
+    raw_owner_pid = os.environ.get("NIKOF_TTS_OWNER_PID", "").strip()
+    if not raw_owner_pid:
+        return None
+    try:
+        return int(raw_owner_pid)
+    except ValueError:
+        return None
+
+
+def _owner_process_exists(owner_pid: int | None) -> bool:
+    if owner_pid is None or owner_pid <= 0:
+        return False
+
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            completed = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {owner_pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                check=False,
+                creationflags=creationflags,
+            )
+        except OSError:
+            return False
+        output = (completed.stdout or "").strip()
+        return completed.returncode == 0 and output and "No tasks are running" not in output and f'"{owner_pid}"' in output
+
+    try:
+        os.kill(owner_pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 def _language_label(raw_value: Any) -> str:
@@ -380,6 +419,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 "status": "ready",
                 "model": _model_name,
+                "owner_pid": _owner_pid,
             })
         else:
             self._send_json(404, {"error": "not_found"})
@@ -422,6 +462,17 @@ def _run_server(host: str, port: int) -> None:
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
+    if _owner_pid is not None:
+        def _owner_watchdog() -> None:
+            while not _shutdown_event.wait(OWNER_POLL_INTERVAL_SECONDS):
+                if _owner_process_exists(_owner_pid):
+                    continue
+                print(f"[api_server] Owner pid {_owner_pid} exited; shutting down.", flush=True)
+                _shutdown_event.set()
+                return
+
+        threading.Thread(target=_owner_watchdog, name="tts-owner-watchdog", daemon=True).start()
+
     while not _shutdown_event.is_set():
         server.handle_request()
 
@@ -435,6 +486,8 @@ def _run_server(host: str, port: int) -> None:
 
 
 def main() -> int:
+    global _owner_pid
+
     parser = argparse.ArgumentParser(description="GPT-SoVITS persistent inference server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9880)
@@ -444,6 +497,7 @@ def main() -> int:
     args = parser.parse_args()
 
     model_root = Path(args.model_root).resolve()
+    _owner_pid = _owner_pid_from_env()
     if not model_root.exists():
         print(f"[api_server] ERROR: model root does not exist: {model_root}", file=sys.stderr)
         return 1

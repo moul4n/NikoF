@@ -53,6 +53,26 @@ Expectations:
 
 The bootstrap contract is successful when a second Windows machine can reconstruct the intended environment without needing undocumented chat history or the original developer's shell profile.
 
+## Preferred Local Startup And Shutdown
+
+For normal local operation after bootstrap, the preferred startup path for users, the dev team, and AI agents is:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
+```
+
+Why this is the preferred path:
+
+- It starts the frontend and backend together from one repo-root command.
+- It keeps STT and TTS sidecar ownership with the backend instead of with the frontend or a stray terminal.
+- It gives one supervisor process a single shutdown surface instead of relying on a user or agent to remember multiple commands.
+
+Preferred shutdown rule:
+
+- Stop the supervisor window with `Ctrl+C` when you are done. That is the intended path for a human run.
+- For automation or smoke tests that must stop on their own, use `-StopAfterSeconds`, for example `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1 -StopAfterSeconds 15`.
+- Start `..\.venv\Scripts\python.exe -m app.dev_server` directly only for backend-only debugging. The frontend does not own STT or TTS sidecars.
+
 ## Manual Fallback When Automation Is Not Viable
 
 Some prerequisites cannot be redistributed or installed safely by script. In that case, documentation and scripts must still leave the machine in a recoverable state.

@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
@@ -43,6 +44,43 @@ MAX_UTTERANCE_SECONDS = 15.0
 MIN_RMS_THRESHOLD = 0.012
 SPEECH_START_BLOCKS = 3
 SPEECH_END_BLOCKS = 8
+OWNER_POLL_INTERVAL_SECONDS = 2.0
+
+
+def _owner_pid_from_env() -> int | None:
+    raw_owner_pid = os.environ.get("NIKOF_STT_OWNER_PID", "").strip()
+    if not raw_owner_pid:
+        return None
+    try:
+        return int(raw_owner_pid)
+    except ValueError:
+        return None
+
+
+def _owner_process_exists(owner_pid: int | None) -> bool:
+    if owner_pid is None or owner_pid <= 0:
+        return False
+
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            completed = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {owner_pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                check=False,
+                creationflags=creationflags,
+            )
+        except OSError:
+            return False
+        output = (completed.stdout or "").strip()
+        return completed.returncode == 0 and output and "No tasks are running" not in output and f'"{owner_pid}"' in output
+
+    try:
+        os.kill(owner_pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 def _resolve_locale_language(locale: str | None) -> str | None:
@@ -227,6 +265,7 @@ class HotMicRuntime:
     def __init__(self, *, model_root: Path, locale: str = "en-US") -> None:
         self._model_root = model_root
         self._locale = locale
+        self._owner_pid = _owner_pid_from_env()
         self._model = None
         self._compute_device = "cpu"
         self._compute_type = "int8"
@@ -286,6 +325,7 @@ class HotMicRuntime:
             "status": "ready" if self._state != "error" else "error",
             "model_loaded": self._model is not None,
             "state": self._state,
+            "owner_pid": self._owner_pid,
             "model_name": self._model_root.name,
             "compute_device": self._compute_device,
             "compute_type": self._compute_type,
@@ -673,6 +713,22 @@ def run_server_cli(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     runtime = HotMicRuntime(model_root=Path(args.model_root), locale=args.locale)
     server = ThreadingHTTPServer((args.host, int(args.port)), _build_handler(runtime))
+
+    owner_pid = _owner_pid_from_env()
+    if owner_pid is not None:
+        def _owner_watchdog() -> None:
+            while True:
+                if runtime._processor_stop.wait(OWNER_POLL_INTERVAL_SECONDS):
+                    return
+                if _owner_process_exists(owner_pid):
+                    continue
+                logger.warning("STT sidecar owner pid %s exited; shutting down", owner_pid)
+                runtime.shutdown()
+                threading.Thread(target=server.shutdown, daemon=True).start()
+                return
+
+        threading.Thread(target=_owner_watchdog, name="stt-owner-watchdog", daemon=True).start()
+
     try:
         server.serve_forever(poll_interval=0.2)
     finally:

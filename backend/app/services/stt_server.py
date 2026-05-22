@@ -14,6 +14,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from app.core.settings import AppPaths, _has_faster_whisper_payload_proof, get_app_paths
+from app.services.process_supervision import find_listening_pid, process_exists, terminate_process_tree, terminate_process_tree_by_pid
 
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,16 @@ def load_server_config(app_paths: AppPaths | None = None) -> FasterWhisperServer
 
 class FasterWhisperServerError(RuntimeError):
     pass
+
+
+def _extract_owner_pid(payload: dict[str, Any] | None) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    raw_owner_pid = payload.get("owner_pid")
+    try:
+        return int(raw_owner_pid) if raw_owner_pid is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _http_json_request(
@@ -353,10 +364,40 @@ class FasterWhisperServerManager:
         return False
 
     def _reclaim_external_server(self) -> bool:
+        external_health: dict[str, Any] | None = None
+        try:
+            external_health = _http_json_request(self.config.health_url, timeout=5.0)
+        except FasterWhisperServerError:
+            external_health = None
+
+        owner_pid = _extract_owner_pid(external_health)
+        if owner_pid is not None and not process_exists(owner_pid):
+            logger.warning(
+                "Reclaiming orphaned Faster-Whisper sidecar whose owner pid %s is no longer alive",
+                owner_pid,
+            )
+
         try:
             _http_json_request(self.config.shutdown_url, method="POST", timeout=5.0)
         except FasterWhisperServerError as exc:
             logger.warning("Graceful shutdown request for the existing Faster-Whisper server failed: %s", exc)
+
+        deadline = time.monotonic() + SERVER_RECLAIM_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            if not self.is_healthy:
+                return True
+            time.sleep(SERVER_POLL_INTERVAL_SECONDS)
+
+        external_pid = find_listening_pid(self.config.host, self.config.port)
+        if external_pid is None:
+            return False
+
+        logger.warning(
+            "Force-killing stale Faster-Whisper listener pid=%s on %s",
+            external_pid,
+            self.config.base_url,
+        )
+        terminate_process_tree_by_pid(external_pid)
 
         deadline = time.monotonic() + SERVER_RECLAIM_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
@@ -368,11 +409,7 @@ class FasterWhisperServerManager:
     def _kill_process(self) -> None:
         if self._process is None:
             return
-        try:
-            self._process.kill()
-            self._process.wait(timeout=5.0)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        terminate_process_tree(self._process)
         self._process = None
 
 

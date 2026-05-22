@@ -44,3 +44,19 @@ If you make a decision that affects other team members, write it to:
 .squad/decisions/inbox/copilot-{brief-slug}.md
 ```
 The Scribe will merge it into the shared decisions file.
+
+## Local Startup Preference
+
+When you need the full local stack for validation or repro work, prefer this repo-root command over separate frontend and backend starts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
+```
+
+Use `-StopAfterSeconds` for bounded smoke checks that should leave the machine clean, for example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1 -StopAfterSeconds 15
+```
+
+Start `backend` or `frontend` alone only when the task is intentionally scoped to one side. The backend owns STT and TTS sidecars; the frontend does not.

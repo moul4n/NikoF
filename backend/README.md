@@ -54,6 +54,8 @@ Set-Location backend
 
 `..\.venv\Scripts\python.exe -m app.dev_server` is the canonical backend dev start command and binds the API to `http://127.0.0.1:8000`.
 
+For full-stack local work, do not start the backend in isolation by default. The preferred user, developer, and agent workflow is to run `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1` from the repo root and let that supervisor own frontend plus backend startup and shutdown. Use `app.dev_server` directly only for backend-only investigation.
+
 If port `8000` is already occupied, `app.dev_server` now fails fast with a specific message that distinguishes an already-healthy backend from a stale listener that is holding the port without answering `/health`.
 
 If required local LLM or TTS prerequisites are still missing, `app.dev_server` stays in degraded mode but now prints the exact expected path, the matching bootstrap resume hook when one exists, and the generated hint-file path for the missing prerequisite.

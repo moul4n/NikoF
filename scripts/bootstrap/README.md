@@ -16,6 +16,14 @@ When you want the repo to install the safe prerequisites on a Windows machine in
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -AllSafe
 ```
 
+For normal day-to-day local use after bootstrap, the preferred full-stack startup path is:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
+```
+
+That supervisor starts frontend plus backend together, keeps STT and TTS ownership with the backend, and is the startup path users, developers, and AI agents should prefer. For automation that should prove startup and still leave the machine clean, add `-StopAfterSeconds 15` or a similar bounded value.
+
 Optional override for the local storage root:
 
 ```powershell
