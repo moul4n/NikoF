@@ -13,7 +13,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.api.stt_routes import STTListeningRequest, register_stt_routes
-from app.services.stt_worker import STTWorkerState, STTWorkerStatus
+from app.services.stt_worker import STTTranscriptChunk, STTWorkerState, STTWorkerStatus
 
 
 class FakeRoute:
@@ -96,6 +96,33 @@ class STTRouteTests(unittest.TestCase):
         self.assertEqual("unavailable", response["state"])
         self.assertFalse(response["listening"])
         self.assertEqual("STT sidecar is unavailable", response["last_error"])
+
+    def test_session_stt_route_serializes_transcript_chunk_processing_time(self) -> None:
+        router = FakeAPIRouter()
+        worker = FakeSTTWorker()
+        worker._status.transcript_chunks = (
+            STTTranscriptChunk(
+                chunk_id="stt-chunk-1",
+                transcript="test transcript",
+                locale="en-US",
+                captured_at=1234.5,
+                duration_ms=860,
+                processing_ms=412.0,
+                confidence=0.91,
+                accepted_for_dispatch=True,
+                dispatch_state="submitted",
+                dispatch_target="llm",
+                dispatch_detail="Transcript submitted through the shared user-text turn workflow.",
+            ),
+        )
+
+        with patch("app.api.stt_routes.get_stt_worker", return_value=worker):
+            register_stt_routes(router)
+
+            response = invoke_endpoint(get_route(router, path="/session/stt", method="GET").endpoint)
+
+        self.assertEqual(412.0, response["transcript_chunks"][0]["processing_ms"])
+        self.assertEqual(860, response["transcript_chunks"][0]["duration_ms"])
 
     def test_session_stt_listening_route_serializes_slotted_response(self) -> None:
         router = FakeAPIRouter()

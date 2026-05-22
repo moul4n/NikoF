@@ -8,6 +8,7 @@ import type {
   BackendAssistantMessageDocument,
   BackendOperatorCommandResponseDocument,
   BackendOperatorCommandType,
+  BackendSttTranscriptChunkDocument,
   BackendSpeechSynthesisDocument,
   CharacterCatalogEntry
 } from "../shared/types/character";
@@ -196,6 +197,42 @@ function describeSpeechPlaybackTransport(playback: SpeechPlaybackState): string 
   }
 
   return "none";
+}
+
+function formatSttChunkTimestamp(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return "time unavailable";
+  }
+
+  return new Date(value * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function describeSttChunkDispatchState(chunk: BackendSttTranscriptChunkDocument): string {
+  if (chunk.dispatch_state === "submitted") {
+    return `sent to ${chunk.dispatch_target ?? "llm"}`;
+  }
+
+  if (chunk.dispatch_state === "stub-recorded") {
+    return "stored for stub dispatch";
+  }
+
+  if (chunk.dispatch_state === "queued") {
+    return `queued for ${chunk.dispatch_target ?? "llm"}`;
+  }
+
+  if (chunk.dispatch_state === "filtered") {
+    return "kept as debug-only";
+  }
+
+  if (chunk.dispatch_state === "error") {
+    return "dispatch error";
+  }
+
+  return chunk.dispatch_state;
 }
 
 function describeBackendCanonicalBundleReadiness(playback: SpeechPlaybackState): string | null {
@@ -512,7 +549,8 @@ export function ControlSurfaceOperatorCommandPanel({
         speechPlaybackStatus.lastBundle.utteranceDurationMs > 0));
   const sttSnapshot = sttState.snapshot;
   const sttStatusLine = describeSttStateLine(sttState);
-  const sttLatestTranscript = sttSnapshot?.latest_confirmed_text ?? "Awaiting a queued transcript from the STT sidecar.";
+  const sttTranscriptChunks = sttSnapshot?.transcript_chunks ?? [];
+  const sttLatestTranscript = sttTranscriptChunks[0]?.transcript ?? sttSnapshot?.latest_confirmed_text ?? "Awaiting a queued transcript from the STT sidecar.";
   const sttListeningButtonLabel = sttSnapshot?.listening ? "Stop listening" : "Start listening";
   const sttControlsDisabled = sttState.action !== "idle" || sttState.status === "loading";
 
@@ -647,12 +685,36 @@ export function ControlSurfaceOperatorCommandPanel({
         </div>
 
         <div className="operator-panel__stt-transcript" aria-live="polite">
-          <p className="operator-panel__stt-transcript-label">Latest queued transcript</p>
+          <div className="operator-panel__stt-transcript-header">
+            <p className="operator-panel__stt-transcript-label">STT output window</p>
+            <p className="operator-panel__stt-transcript-meta">{sttTranscriptChunks.length} stored chunks</p>
+          </div>
           <p className="operator-panel__stt-transcript-text">{sttLatestTranscript}</p>
+          <div className="operator-panel__stt-log" role="list" aria-label="Recent STT transcript chunks">
+            {sttTranscriptChunks.length === 0 ? (
+              <p className="operator-panel__stt-log-empty">Waiting for confirmed speech chunks from the hot-mic sidecar.</p>
+            ) : (
+              sttTranscriptChunks.map((chunk) => (
+                <article key={chunk.chunk_id} className="operator-panel__stt-log-entry" role="listitem">
+                  <div className="operator-panel__stt-log-entry-header">
+                    <p className="operator-panel__stt-log-entry-title">{describeSttChunkDispatchState(chunk)}</p>
+                    <p className="operator-panel__stt-log-entry-meta">
+                      {formatSttChunkTimestamp(chunk.captured_at)} · {(chunk.duration_ms / 1000).toFixed(2)}s
+                      {typeof chunk.confidence === "number" ? ` · ${(chunk.confidence * 100).toFixed(0)}% conf` : ""}
+                    </p>
+                  </div>
+                  <p className="operator-panel__stt-log-entry-text">{chunk.transcript}</p>
+                  {chunk.dispatch_detail ? (
+                    <p className="operator-panel__stt-log-entry-detail">{chunk.dispatch_detail}</p>
+                  ) : null}
+                </article>
+              ))
+            )}
+          </div>
         </div>
 
         <p className="operator-panel__hint">
-          Browser controls stay backend-owned here: input selection updates the sidecar through the backend, and accepted transcripts are pushed into the same reply workflow as text_question.
+          Browser controls stay backend-owned here: input selection updates the sidecar through the backend, confirmed chunks are stored in the backend STT buffer for debugging, and accepted chunks are marked for stub or live downstream dispatch.
         </p>
         {sttState.message ? <p className="surface-panel__summary">{sttState.message}</p> : null}
       </section>

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.stt_worker import STTInputDevice, STTWorkerStatus, get_stt_worker
+from app.services.stt_worker import STTInputDevice, STTTranscriptChunk, STTWorkerStatus, get_stt_worker
 
 
 @dataclass(slots=True, frozen=True)
@@ -24,6 +24,7 @@ class STTStateResponse:
     compute_device: str | None
     compute_type: str | None
     next_sequence: int
+    transcript_chunks: tuple[dict[str, Any], ...]
 
 
 @dataclass(slots=True, frozen=True)
@@ -54,6 +55,7 @@ def _serialize_status(status: STTWorkerStatus) -> STTStateResponse:
         compute_device=status.compute_device,
         compute_type=status.compute_type,
         next_sequence=status.next_sequence,
+        transcript_chunks=tuple(_serialize_chunk(chunk) for chunk in status.transcript_chunks),
     )
 
 
@@ -64,6 +66,22 @@ def _serialize_device(device: STTInputDevice) -> dict[str, Any]:
         "default": device.default,
         "sample_rate_hz": device.sample_rate_hz,
         "max_input_channels": device.max_input_channels,
+    }
+
+
+def _serialize_chunk(chunk: STTTranscriptChunk) -> dict[str, Any]:
+    return {
+        "chunk_id": chunk.chunk_id,
+        "transcript": chunk.transcript,
+        "locale": chunk.locale,
+        "captured_at": chunk.captured_at,
+        "duration_ms": chunk.duration_ms,
+        "processing_ms": chunk.processing_ms,
+        "confidence": chunk.confidence,
+        "accepted_for_dispatch": chunk.accepted_for_dispatch,
+        "dispatch_state": chunk.dispatch_state,
+        "dispatch_target": chunk.dispatch_target,
+        "dispatch_detail": chunk.dispatch_detail,
     }
 
 
@@ -85,6 +103,7 @@ def _serialize_state_response(response: STTStateResponse) -> dict[str, Any]:
         "compute_device": response.compute_device,
         "compute_type": response.compute_type,
         "next_sequence": response.next_sequence,
+        "transcript_chunks": list(response.transcript_chunks),
     }
 
 

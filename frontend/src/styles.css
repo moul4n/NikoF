@@ -565,11 +565,18 @@ select {
 
 .operator-panel__stt-transcript {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.65rem;
   padding: 0.95rem 1rem;
   border-radius: 14px;
   background: rgba(10, 16, 27, 0.9);
   border: 1px solid rgba(123, 211, 193, 0.18);
+}
+
+.operator-panel__stt-transcript-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
 }
 
 .operator-panel__stt-transcript-label {
@@ -580,10 +587,70 @@ select {
   letter-spacing: 0.08em;
 }
 
+.operator-panel__stt-transcript-meta {
+  margin: 0;
+  color: #a9b6ca;
+  font-size: 0.78rem;
+}
+
 .operator-panel__stt-transcript-text {
   margin: 0;
   color: #eef4ff;
   min-height: 1.5rem;
+}
+
+.operator-panel__stt-log {
+  display: grid;
+  gap: 0.7rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.operator-panel__stt-log-empty {
+  margin: 0;
+  color: #a9b6ca;
+  font-size: 0.92rem;
+}
+
+.operator-panel__stt-log-entry {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(18, 29, 46, 0.92);
+  border: 1px solid rgba(140, 160, 191, 0.14);
+}
+
+.operator-panel__stt-log-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.operator-panel__stt-log-entry-title,
+.operator-panel__stt-log-entry-meta,
+.operator-panel__stt-log-entry-text,
+.operator-panel__stt-log-entry-detail {
+  margin: 0;
+}
+
+.operator-panel__stt-log-entry-title {
+  color: #eef4ff;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.operator-panel__stt-log-entry-meta,
+.operator-panel__stt-log-entry-detail {
+  color: #a9b6ca;
+  font-size: 0.82rem;
+}
+
+.operator-panel__stt-log-entry-text {
+  color: #eef4ff;
+  line-height: 1.45;
 }
 
 .operator-panel__timeline {

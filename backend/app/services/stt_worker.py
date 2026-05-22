@@ -5,7 +5,8 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
 
@@ -42,6 +43,21 @@ class STTInputDevice:
     max_input_channels: int | None
 
 
+@dataclass(slots=True, frozen=True)
+class STTTranscriptChunk:
+    chunk_id: str
+    transcript: str
+    locale: str
+    captured_at: float
+    duration_ms: int
+    processing_ms: float | None
+    confidence: float | None
+    accepted_for_dispatch: bool
+    dispatch_state: str
+    dispatch_target: str | None
+    dispatch_detail: str | None
+
+
 @dataclass(slots=True)
 class STTWorkerStatus:
     state: STTWorkerState
@@ -59,6 +75,7 @@ class STTWorkerStatus:
     compute_device: str | None
     compute_type: str | None
     next_sequence: int
+    transcript_chunks: tuple[STTTranscriptChunk, ...] = field(default_factory=tuple)
 
 
 def _should_submit_transcript(transcript: str) -> bool:
@@ -89,6 +106,8 @@ class STTWorker:
         self._model_name: str | None = None
         self._available = False
         self._next_sequence = 1
+        self._chunk_sequence = 0
+        self._transcript_chunks: deque[STTTranscriptChunk] = deque(maxlen=24)
         self._poll_task: asyncio.Task[None] | None = None
         self._turn_services: UserTurnServices | None = None
         self._lock = threading.Lock()
@@ -114,6 +133,7 @@ class STTWorker:
             compute_device=self._compute_device,
             compute_type=self._compute_type,
             next_sequence=self._next_sequence,
+            transcript_chunks=tuple(self._transcript_chunks),
         )
 
     async def start(self) -> None:
@@ -178,6 +198,8 @@ class STTWorker:
     async def set_listening(self, enabled: bool) -> STTWorkerStatus:
         try:
             if enabled:
+                self._latest_confirmed_text = None
+                self._latest_confirmed_at = None
                 self._manager.start_listening()
             else:
                 self._manager.stop_listening()
@@ -229,15 +251,39 @@ class STTWorker:
                 duration_ms = int(event.get("duration_ms") or 0)
                 latency_ms = float(event.get("latency_ms") or 0.0)
                 self._tracker.record_request(latency_ms)
+                self._latest_confirmed_text = transcript
+                self._latest_confirmed_at = float(event.get("timestamp_epoch") or time.time())
                 if _should_submit_transcript(transcript):
-                    self._latest_confirmed_text = transcript
-                    self._latest_confirmed_at = float(event.get("timestamp_epoch") or time.time())
                     self._total_submitted += 1
-                    await self._submit_transcript(
+                    chunk = self._record_transcript_chunk(
                         transcript=transcript,
                         locale=str(event.get("locale") or "en-US"),
                         confidence=confidence,
                         duration_ms=duration_ms,
+                        processing_ms=latency_ms,
+                        accepted_for_dispatch=True,
+                        dispatch_state="queued",
+                        dispatch_target="llm",
+                        dispatch_detail="Transcript accepted and queued for downstream dispatch.",
+                    )
+                    await self._submit_transcript(
+                        chunk_id=chunk.chunk_id,
+                        transcript=transcript,
+                        locale=str(event.get("locale") or "en-US"),
+                        confidence=confidence,
+                        duration_ms=duration_ms,
+                    )
+                else:
+                    self._record_transcript_chunk(
+                        transcript=transcript,
+                        locale=str(event.get("locale") or "en-US"),
+                        confidence=confidence,
+                        duration_ms=duration_ms,
+                        processing_ms=latency_ms,
+                        accepted_for_dispatch=False,
+                        dispatch_state="filtered",
+                        dispatch_target=None,
+                        dispatch_detail="Transcript kept for debugging but not forwarded because it did not meet the STT submission threshold.",
                     )
             elif event_type == "transcript.error":
                 self._last_error = str(event.get("message") or "STT transcription failed")
@@ -247,12 +293,19 @@ class STTWorker:
     async def _submit_transcript(
         self,
         *,
+        chunk_id: str,
         transcript: str,
         locale: str,
         confidence: float | None,
         duration_ms: int,
     ) -> None:
         if self._turn_services is None:
+            self._update_transcript_chunk(
+                chunk_id,
+                dispatch_state="stub-recorded",
+                dispatch_target="stub",
+                dispatch_detail="Transcript recorded to the STT debug buffer; no live LLM turn services are configured yet.",
+            )
             return
 
         transcription = SpeechTranscriptionContract(
@@ -271,18 +324,34 @@ class STTWorker:
                 ),
             ),
         )
-        await asyncio.get_running_loop().run_in_executor(
-            None,
-            lambda: run_user_text_turn(
-                UserTurnRequest(
-                    text=transcript,
-                    locale=locale,
-                    session_event_type="session.stt.accepted",
-                    transcription=transcription,
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: run_user_text_turn(
+                    UserTurnRequest(
+                        text=transcript,
+                        locale=locale,
+                        session_event_type="session.stt.accepted",
+                        transcription=transcription,
+                    ),
+                    services=self._turn_services,
                 ),
-                services=self._turn_services,
-            ),
-        )
+            )
+        except Exception as exc:
+            self._update_transcript_chunk(
+                chunk_id,
+                dispatch_state="error",
+                dispatch_target="llm",
+                dispatch_detail=str(exc),
+            )
+            raise
+        else:
+            self._update_transcript_chunk(
+                chunk_id,
+                dispatch_state="submitted",
+                dispatch_target="llm",
+                dispatch_detail="Transcript submitted through the shared user-text turn workflow.",
+            )
 
     async def _refresh_state(self) -> None:
         try:
@@ -322,6 +391,55 @@ class STTWorker:
             "starting": STTWorkerState.STARTING,
         }
         self._state = mapping.get(state_name, self._state if state_name else self._state)
+
+    def _record_transcript_chunk(
+        self,
+        *,
+        transcript: str,
+        locale: str,
+        confidence: float | None,
+        duration_ms: int,
+        processing_ms: float | None,
+        accepted_for_dispatch: bool,
+        dispatch_state: str,
+        dispatch_target: str | None,
+        dispatch_detail: str | None,
+    ) -> STTTranscriptChunk:
+        self._chunk_sequence += 1
+        chunk = STTTranscriptChunk(
+            chunk_id=f"stt-chunk-{self._chunk_sequence}",
+            transcript=transcript,
+            locale=locale,
+            captured_at=time.time(),
+            duration_ms=duration_ms,
+            processing_ms=processing_ms,
+            confidence=confidence,
+            accepted_for_dispatch=accepted_for_dispatch,
+            dispatch_state=dispatch_state,
+            dispatch_target=dispatch_target,
+            dispatch_detail=dispatch_detail,
+        )
+        self._transcript_chunks.appendleft(chunk)
+        return chunk
+
+    def _update_transcript_chunk(
+        self,
+        chunk_id: str,
+        *,
+        dispatch_state: str,
+        dispatch_target: str | None,
+        dispatch_detail: str | None,
+    ) -> None:
+        for index, chunk in enumerate(self._transcript_chunks):
+            if chunk.chunk_id != chunk_id:
+                continue
+            self._transcript_chunks[index] = replace(
+                chunk,
+                dispatch_state=dispatch_state,
+                dispatch_target=dispatch_target,
+                dispatch_detail=dispatch_detail,
+            )
+            return
 
 
 _stt_worker: STTWorker | None = None

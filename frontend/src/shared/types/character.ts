@@ -325,6 +325,19 @@ export interface BackendSttInputDeviceDocument {
   max_input_channels?: number | null;
 }
 
+export interface BackendSttTranscriptChunkDocument {
+  chunk_id: string;
+  transcript: string;
+  locale: string;
+  captured_at: number;
+  duration_ms: number;
+  confidence?: number | null;
+  accepted_for_dispatch: boolean;
+  dispatch_state: string;
+  dispatch_target?: string | null;
+  dispatch_detail?: string | null;
+}
+
 export interface BackendSttStateDocument {
   schema_version: number;
   state: string;
@@ -342,6 +355,7 @@ export interface BackendSttStateDocument {
   compute_device?: string | null;
   compute_type?: string | null;
   next_sequence: number;
+  transcript_chunks?: BackendSttTranscriptChunkDocument[];
 }
 
 export interface BackendTtsReferenceSettingsDocument {

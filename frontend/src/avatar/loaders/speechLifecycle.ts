@@ -17,6 +17,7 @@ export interface SpeechLifecycleLiveConsumptionSubscription {
 }
 
 const backendApiBaseUrl = resolveBackendApiBaseUrl();
+const snapshotFallbackPollIntervalMs = 1250;
 
 export interface ConsumedSpeechLifecycleSnapshot {
   stream: string;
@@ -78,6 +79,8 @@ export async function startSpeechLifecycleLiveConsumption(
   const fetcher = options.fetcher ?? fetch;
   let closed = false;
   let eventSource: EventSource | null = null;
+  let snapshotFallbackTimeoutId: number | null = null;
+  let refreshInFlight: Promise<void> | null = null;
   let currentSnapshot = await fetchSpeechLifecycleSnapshot(fetcher);
 
   if (closed) {
@@ -90,8 +93,24 @@ export async function startSpeechLifecycleLiveConsumption(
 
   options.onSnapshot(consumeSpeechLifecycleSnapshot(currentSnapshot), "snapshot");
 
-  if (typeof window !== "undefined" && typeof window.EventSource === "function") {
-    const liveUrl = buildSpeechLifecycleLiveUrl(currentSnapshot.next_cursor);
+  connectLiveDelivery(currentSnapshot.next_cursor);
+  ensureSnapshotFallbackPolling();
+
+  return {
+    close: () => {
+      closed = true;
+      eventSource?.close();
+      eventSource = null;
+      clearSnapshotFallbackPolling();
+    }
+  };
+
+  function connectLiveDelivery(cursor: string): void {
+    if (closed || typeof window === "undefined" || typeof window.EventSource !== "function" || eventSource) {
+      return;
+    }
+
+    const liveUrl = buildSpeechLifecycleLiveUrl(cursor);
     eventSource = new window.EventSource(liveUrl);
 
     eventSource.addEventListener("open", () => {
@@ -103,11 +122,11 @@ export async function startSpeechLifecycleLiveConsumption(
     });
 
     eventSource.addEventListener("speech.lifecycle", () => {
-      void refreshSnapshotFromLiveSignal();
+      void refreshSnapshot("live");
     });
 
     eventSource.onmessage = () => {
-      void refreshSnapshotFromLiveSignal();
+      void refreshSnapshot("live");
     };
 
     eventSource.onerror = () => {
@@ -118,26 +137,69 @@ export async function startSpeechLifecycleLiveConsumption(
       eventSource?.close();
       eventSource = null;
       options.onDeliveryModeChange("snapshot", new Error("Live speech lifecycle delivery disconnected."));
+      ensureSnapshotFallbackPolling();
+      void refreshSnapshot("snapshot");
     };
   }
 
-  return {
-    close: () => {
-      closed = true;
-      eventSource?.close();
-      eventSource = null;
+  function clearSnapshotFallbackPolling(): void {
+    if (snapshotFallbackTimeoutId !== null) {
+      window.clearTimeout(snapshotFallbackTimeoutId);
+      snapshotFallbackTimeoutId = null;
     }
-  };
+  }
 
-  async function refreshSnapshotFromLiveSignal(): Promise<void> {
-    const latestSnapshot = await fetchSpeechLifecycleSnapshot(fetcher);
-
-    if (closed) {
+  function ensureSnapshotFallbackPolling(): void {
+    if (closed || snapshotFallbackTimeoutId !== null) {
       return;
     }
 
-    currentSnapshot = mergeSpeechLifecycleSnapshot(currentSnapshot, latestSnapshot);
-    options.onSnapshot(consumeSpeechLifecycleSnapshot(currentSnapshot), "live");
+    snapshotFallbackTimeoutId = window.setTimeout(() => {
+      snapshotFallbackTimeoutId = null;
+      void refreshSnapshot(eventSource ? "live" : "snapshot");
+    }, snapshotFallbackPollIntervalMs);
+  }
+
+  async function refreshSnapshot(deliveryMode: SpeechLifecycleDeliveryMode): Promise<void> {
+    if (refreshInFlight) {
+      await refreshInFlight;
+      return;
+    }
+
+    refreshInFlight = (async () => {
+      try {
+        const latestSnapshot = await fetchSpeechLifecycleSnapshot(fetcher, currentSnapshot.next_cursor);
+
+        if (closed) {
+          return;
+        }
+
+        currentSnapshot = mergeSpeechLifecycleSnapshot(currentSnapshot, latestSnapshot);
+        options.onSnapshot(consumeSpeechLifecycleSnapshot(currentSnapshot), deliveryMode);
+
+        if (!eventSource) {
+          connectLiveDelivery(currentSnapshot.next_cursor);
+        }
+      } catch (error) {
+        if (closed) {
+          return;
+        }
+
+        if (deliveryMode === "live") {
+          options.onDeliveryModeChange(
+            "snapshot",
+            error instanceof Error ? error : new Error("Speech lifecycle refresh failed.")
+          );
+          eventSource?.close();
+          eventSource = null;
+        }
+      } finally {
+        refreshInFlight = null;
+        ensureSnapshotFallbackPolling();
+      }
+    })();
+
+    await refreshInFlight;
   }
 }
 
@@ -167,8 +229,16 @@ function stripNullFields(value: unknown): unknown {
   return value;
 }
 
-async function fetchSpeechLifecycleSnapshot(fetcher: typeof fetch): Promise<BackendSpeechLifecycleTransportSnapshotDocument> {
-  const response = await fetcher(buildBackendApiUrl("/session/speech-lifecycle"));
+async function fetchSpeechLifecycleSnapshot(
+  fetcher: typeof fetch,
+  cursor?: string
+): Promise<BackendSpeechLifecycleTransportSnapshotDocument> {
+  const snapshotUrl = new URL(buildBackendApiUrl("/session/speech-lifecycle"), window.location.origin);
+  if (cursor) {
+    snapshotUrl.searchParams.set("cursor", cursor);
+  }
+
+  const response = await fetcher(snapshotUrl.toString());
 
   if (!response.ok) {
     throw new Error(`Backend speech lifecycle request failed with status ${response.status}.`);

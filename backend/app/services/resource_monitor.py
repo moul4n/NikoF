@@ -116,7 +116,55 @@ def _try_gpu_snapshot() -> GpuSnapshot | None:
             utilization_percent=utilization,
         )
     except Exception:
+        return _try_nvidia_smi_gpu_snapshot()
+
+
+def _try_nvidia_smi_gpu_snapshot() -> GpuSnapshot | None:
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,name,memory.total,memory.used,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
         return None
+
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+
+    reader = csv.reader(completed.stdout.splitlines())
+    first_row = next(reader, None)
+    if first_row is None or len(first_row) < 5:
+        return None
+
+    try:
+        device_index = int(first_row[0].strip())
+        device_name = first_row[1].strip()
+        total_mb = float(first_row[2].strip())
+        used_mb = float(first_row[3].strip())
+    except ValueError:
+        return None
+
+    utilization_raw = first_row[4].strip()
+    try:
+        utilization = float(utilization_raw)
+    except ValueError:
+        utilization = None
+
+    return GpuSnapshot(
+        device_index=device_index,
+        device_name=device_name,
+        vram_total_mb=total_mb,
+        vram_used_mb=used_mb,
+        vram_free_mb=max(total_mb - used_mb, 0.0),
+        utilization_percent=utilization,
+    )
 
 
 def _system_memory_snapshot() -> SystemMemorySnapshot:
@@ -386,6 +434,7 @@ class SubsystemTracker:
 
 # Budget thresholds for the 12 GB baseline card
 VRAM_BUDGET_MB = float(os.environ.get("NIKOF_VRAM_BUDGET_MB", "12288"))
+STT_GPU_CPU_DEFAULT_CUTOFF_MB = float(os.environ.get("NIKOF_STT_GPU_CPU_DEFAULT_CUTOFF_MB", "12288"))
 VRAM_WARNING_THRESHOLD = 0.85  # warn at 85% usage
 RAM_WARNING_THRESHOLD = 0.90   # warn at 90% usage
 
@@ -456,6 +505,9 @@ class ResourceMonitor:
         gpu = _try_gpu_snapshot()
         if gpu is None:
             return True  # No GPU info means we can't block
+
+        if subsystem == "stt" and gpu.vram_total_mb <= STT_GPU_CPU_DEFAULT_CUTOFF_MB:
+            return False
 
         return gpu.vram_free_mb >= estimated_vram_mb
 
