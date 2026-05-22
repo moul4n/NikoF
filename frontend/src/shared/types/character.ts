@@ -183,12 +183,40 @@ export interface BackendSpeechVisemeSlotDocument {
   end_ms: number;
 }
 
+export interface BackendSpeechMouthCueSlotDocument {
+  cue: string;
+  start_ms: number;
+  end_ms: number;
+  weight?: number | null;
+}
+
+export interface BackendSpeechMouthCueTrackDocument {
+  track_id: string;
+  cue_namespace: string;
+  cues: BackendSpeechMouthCueSlotDocument[];
+}
+
+export interface BackendSpeechLipSyncDebugDocument {
+  timing_source?: string | null;
+  source_slot_type?: string | null;
+  generated_track_ids: string[];
+  phoneme_slot_count: number;
+  viseme_slot_count: number;
+}
+
+export interface BackendSpeechLipSyncPayloadDocument {
+  default_track_id?: string | null;
+  mouth_cue_tracks: BackendSpeechMouthCueTrackDocument[];
+  debug?: BackendSpeechLipSyncDebugDocument | null;
+}
+
 export interface BackendSpeechTimingMetadataDocument {
   utterance_duration_ms: number;
   segment_ranges: BackendSpeechSegmentRangeDocument[];
   audio_format?: BackendAudioFormatMetadataDocument | null;
   phoneme_slots: BackendSpeechPhonemeSlotDocument[];
   viseme_slots: BackendSpeechVisemeSlotDocument[];
+  lip_sync?: BackendSpeechLipSyncPayloadDocument | null;
 }
 
 export interface BackendSpeechTranscriptionDocument {

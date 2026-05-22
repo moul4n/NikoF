@@ -46,6 +46,7 @@ _BASIC_MOUTH_TRACK_ID = "basic"
 _ADVANCED_MOUTH_TRACK_ID = "advanced"
 _BASIC_CUE_NAMESPACE = "vrm-basic-v1"
 _ADVANCED_CUE_NAMESPACE = "vrm-advanced-v1"
+_TEXT_FALLBACK_TIMING_SOURCE = "text_fallback_visemes"
 
 
 def _normalize_symbol_token(value: str) -> str:
@@ -54,6 +55,18 @@ def _normalize_symbol_token(value: str) -> str:
 
 def _normalize_phoneme_token(value: str) -> str:
     return "".join(character for character in value.strip().upper() if character.isalpha())
+
+
+def _append_timing_source(existing: str | None, marker: str) -> str:
+    normalized_existing = str(existing or "").strip()
+    if not normalized_existing:
+        return marker
+
+    existing_parts = {part.strip() for part in normalized_existing.split("+") if part.strip()}
+    if marker in existing_parts:
+        return normalized_existing
+
+    return f"{normalized_existing}+{marker}"
 
 
 def _resolve_basic_cue_from_viseme(viseme: str) -> str | None:
@@ -226,6 +239,125 @@ def _build_mouth_cue_slots_from_visemes(
         if cue is not None and max(max(0, slot.start_ms), slot.end_ms) > max(0, slot.start_ms)
     ]
     return _merge_mouth_cue_slots(tuple(cues))
+
+
+def _tokenize_text_fallback_visemes(text: str) -> tuple[str, ...]:
+    normalized_text = text.lower()
+    if not normalized_text.strip():
+        return tuple()
+
+    symbols: list[str] = []
+    index = 0
+    while index < len(normalized_text):
+        pair = normalized_text[index:index + 2]
+        character = normalized_text[index]
+
+        if not character.isalpha():
+            symbol = "sil"
+            step = 1
+        elif pair == "th":
+            symbol = "th"
+            step = 2
+        elif pair in {"sh", "ch", "zh"}:
+            symbol = "ih"
+            step = 2
+        elif character in {"m", "b", "p"}:
+            symbol = "bmp"
+            step = 1
+        elif character in {"f", "v"}:
+            symbol = "fv"
+            step = 1
+        elif character == "l":
+            symbol = "l"
+            step = 1
+        elif character in {"w", "q"}:
+            symbol = "wq"
+            step = 1
+        elif character == "a":
+            symbol = "a"
+            step = 1
+        elif character == "e":
+            symbol = "e"
+            step = 1
+        elif character in {"i", "y"}:
+            symbol = "i"
+            step = 1
+        elif character == "o":
+            symbol = "o"
+            step = 1
+        elif character == "u":
+            symbol = "u"
+            step = 1
+        else:
+            symbol = "ih"
+            step = 1
+
+        if not symbols or symbols[-1] != symbol:
+            symbols.append(symbol)
+        index += step
+
+    return tuple(symbols or ["sil"])
+
+
+def _build_text_fallback_viseme_slots(text: str, utterance_duration_ms: int) -> tuple[SpeechVisemeSlot, ...]:
+    if utterance_duration_ms <= 0:
+        return tuple()
+
+    symbols = _tokenize_text_fallback_visemes(text)
+    if not symbols:
+        return tuple()
+
+    weights = {
+        "sil": 0.35,
+        "bmp": 0.7,
+        "fv": 0.8,
+        "th": 0.8,
+        "l": 0.8,
+        "wq": 0.95,
+        "a": 1.35,
+        "e": 1.15,
+        "i": 1.0,
+        "o": 1.3,
+        "u": 1.15,
+        "ih": 0.85,
+    }
+    total_weight = sum(weights.get(symbol, 1.0) for symbol in symbols)
+    if total_weight <= 0:
+        return tuple()
+
+    slots: list[SpeechVisemeSlot] = []
+    cursor_ms = 0
+    for index, symbol in enumerate(symbols):
+        if index == len(symbols) - 1:
+            end_ms = utterance_duration_ms
+        else:
+            slice_ms = max(1, int(round((weights.get(symbol, 1.0) / total_weight) * utterance_duration_ms)))
+            end_ms = min(utterance_duration_ms, cursor_ms + slice_ms)
+
+        if end_ms <= cursor_ms:
+            continue
+
+        slots.append(
+            SpeechVisemeSlot(
+                viseme=symbol,
+                start_ms=cursor_ms,
+                end_ms=end_ms,
+            )
+        )
+        cursor_ms = end_ms
+
+    if not slots:
+        return tuple()
+
+    if slots[-1].end_ms < utterance_duration_ms:
+        last_slot = slots[-1]
+        slots[-1] = SpeechVisemeSlot(
+            viseme=last_slot.viseme,
+            start_ms=last_slot.start_ms,
+            end_ms=utterance_duration_ms,
+        )
+
+    return tuple(slot for slot in slots if slot.end_ms > slot.start_ms)
 
 
 def _normalize_mouth_cue_slots(raw_value: Any) -> tuple[SpeechMouthCueSlot, ...]:
@@ -686,6 +818,7 @@ def _normalize_timing(
     *,
     fallback: SpeechTimingMetadata,
     preferred_lip_sync_track_id: str | None = None,
+    source_text: str | None = None,
 ) -> SpeechTimingMetadata:
     if not isinstance(raw_value, dict):
         return fallback
@@ -698,13 +831,15 @@ def _normalize_timing(
     if utterance_duration_ms <= 0 and segment_ranges:
         utterance_duration_ms = max(segment.end_ms for segment in segment_ranges)
 
-    phoneme_slots = (
-        _normalize_phoneme_slots(raw_value.get("phoneme_slots")) or fallback.phoneme_slots
-    )
-    viseme_slots = (
-        _normalize_viseme_slots(raw_value.get("viseme_slots")) or fallback.viseme_slots
-    )
+    phoneme_slots = _normalize_phoneme_slots(raw_value.get("phoneme_slots"))
+    viseme_slots = _normalize_viseme_slots(raw_value.get("viseme_slots"))
     timing_source = str(raw_value.get("timing_source") or "").strip() or None
+
+    if not phoneme_slots and not viseme_slots:
+        fallback_viseme_slots = _build_text_fallback_viseme_slots(str(source_text or "").strip(), utterance_duration_ms)
+        if fallback_viseme_slots:
+            viseme_slots = fallback_viseme_slots
+            timing_source = _append_timing_source(timing_source, _TEXT_FALLBACK_TIMING_SOURCE)
 
     return SpeechTimingMetadata(
         utterance_duration_ms=utterance_duration_ms,
@@ -1272,6 +1407,7 @@ class GptSovitsSynthesisAdapter(StubSpeechSynthesisService):
             response.get("timing"),
             fallback=fallback_timing,
             preferred_lip_sync_track_id=request.preferred_lip_sync_track_id,
+            source_text=str(response.get("text") or request.text),
         )
         success = audio_reference is not None
         status = _normalize_contract_status(response.get("status"), success=success)

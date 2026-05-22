@@ -34,6 +34,13 @@ interface MouthConfig {
   twitchDuration: number;
   /** Max weight of a micro-twitch. */
   twitchMaxWeight: number;
+  /** Interval between rare passive breath events (seconds). */
+  minBreathInterval: number;
+  maxBreathInterval: number;
+  /** Duration of a passive breath event (seconds). */
+  breathDuration: number;
+  /** Peak mouth weight during a passive breath. */
+  breathMaxWeight: number;
 }
 
 const DEFAULT_CONFIG: MouthConfig = {
@@ -45,11 +52,16 @@ const DEFAULT_CONFIG: MouthConfig = {
   minTwitchInterval: 4.0,
   maxTwitchInterval: 10.0,
   twitchDuration: 0.15,
-  twitchMaxWeight: 0.1
+  twitchMaxWeight: 0.1,
+  minBreathInterval: 18.0,
+  maxBreathInterval: 42.0,
+  breathDuration: 0.9,
+  breathMaxWeight: 0.18
 };
 
 /** Expression names we subtly modulate for idle mouth life. */
 const IDLE_MOUTH_EXPRESSIONS = ["aa", "ih", "ou"] as const;
+const CONTROLLED_MOUTH_EXPRESSIONS = ["aa", "ih", "ou", "oh"] as const;
 
 interface DriftOscillator {
   expressionName: string;
@@ -61,6 +73,12 @@ interface DriftOscillator {
 
 interface MicroTwitch {
   expressionName: string;
+  elapsed: number;
+  duration: number;
+  peakWeight: number;
+}
+
+interface PassiveBreath {
   elapsed: number;
   duration: number;
   peakWeight: number;
@@ -91,6 +109,11 @@ export function createPassiveMouthController(
   let twitchTimer = 0;
   let activeTwitch: MicroTwitch | null = null;
 
+  // Rare passive breath state
+  let nextBreathIn = randomInRange(cfg.minBreathInterval, cfg.maxBreathInterval);
+  let breathTimer = 0;
+  let activeBreath: PassiveBreath | null = null;
+
   function randomInRange(min: number, max: number): number {
     return min + Math.random() * (max - min);
   }
@@ -104,8 +127,8 @@ export function createPassiveMouthController(
   }
 
   function clearAllMouth(): void {
-    for (const osc of oscillators) {
-      setMouthWeight(osc.expressionName, 0);
+    for (const expressionName of CONTROLLED_MOUTH_EXPRESSIONS) {
+      setMouthWeight(expressionName, 0);
     }
   }
 
@@ -125,6 +148,11 @@ export function createPassiveMouthController(
       masterGain = 0;
     } else if (masterGain < 1) {
       masterGain = Math.min(1, masterGain + deltaSeconds / cfg.fadeInDuration);
+    }
+
+    const expressionWeights = new Map<string, number>();
+    for (const expressionName of CONTROLLED_MOUTH_EXPRESSIONS) {
+      expressionWeights.set(expressionName, 0);
     }
 
     // Drift oscillators
@@ -151,7 +179,18 @@ export function createPassiveMouthController(
         weight = Math.min(weight + twitchWeight * masterGain, 0.3);
       }
 
-      setMouthWeight(osc.expressionName, weight);
+      expressionWeights.set(osc.expressionName, weight);
+    }
+
+    if (activeBreath) {
+      const breathT = activeBreath.elapsed / activeBreath.duration;
+      const breathWeight = activeBreath.peakWeight * Math.sin(breathT * Math.PI) * masterGain;
+      expressionWeights.set("oh", Math.min((expressionWeights.get("oh") ?? 0) + breathWeight, 0.32));
+      expressionWeights.set("aa", Math.min((expressionWeights.get("aa") ?? 0) + breathWeight * 0.35, 0.18));
+    }
+
+    for (const expressionName of CONTROLLED_MOUTH_EXPRESSIONS) {
+      setMouthWeight(expressionName, expressionWeights.get(expressionName) ?? 0);
     }
 
     // Micro-twitch timer
@@ -174,15 +213,36 @@ export function createPassiveMouthController(
         activeTwitch = null;
       }
     }
+
+    // Rare passive breath timer
+    breathTimer += deltaSeconds;
+    if (!activeBreath && breathTimer >= nextBreathIn) {
+      activeBreath = {
+        elapsed: 0,
+        duration: cfg.breathDuration,
+        peakWeight: cfg.breathMaxWeight
+      };
+      breathTimer = 0;
+      nextBreathIn = randomInRange(cfg.minBreathInterval, cfg.maxBreathInterval);
+    }
+
+    if (activeBreath) {
+      activeBreath.elapsed += deltaSeconds;
+      if (activeBreath.elapsed >= activeBreath.duration) {
+        activeBreath = null;
+      }
+    }
   }
 
   function suppressForSpeech(): void {
     suppressed = true;
+    activeBreath = null;
   }
 
   function releaseFromSpeech(): void {
     suppressed = false;
     settling = true;
+    activeBreath = null;
     clearAllMouth();
   }
 

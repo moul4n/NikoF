@@ -37,6 +37,19 @@ interface ControlSurfaceOperatorCommandPanelProps {
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
 
+function formatTimelinePercent(value: number, totalMs: number): string {
+  if (!(totalMs > 0)) {
+    return "0%";
+  }
+
+  const normalized = Math.min(100, Math.max(0, (value / totalMs) * 100));
+  return `${normalized.toFixed(2)}%`;
+}
+
+function formatCueWindow(startMs: number, endMs: number): string {
+  return `${(startMs / 1000).toFixed(2)}s - ${(endMs / 1000).toFixed(2)}s`;
+}
+
 function getOperatorCommandLabel(commandType: BackendOperatorCommandType | null): string {
   if (commandType === "text_question") {
     return "Text question";
@@ -183,6 +196,111 @@ function describeSpeechPlaybackTransport(playback: SpeechPlaybackState): string 
   }
 
   return "none";
+}
+
+function describeBackendCanonicalBundleReadiness(playback: SpeechPlaybackState): string | null {
+  const bundle = playback.lastBundle;
+  if (!bundle) {
+    return null;
+  }
+
+  const hasAudio = bundle.audioSource !== null;
+  const hasTimingWindow = typeof bundle.utteranceDurationMs === "number" && bundle.utteranceDurationMs > 0;
+  const hasMouthCueTracks = (bundle.lipSync?.mouth_cue_tracks.length ?? 0) > 0;
+  const hasVisemeSlots = bundle.visemeSlots.length > 0;
+
+  if (hasAudio && hasMouthCueTracks) {
+    return "Backend canonical bundle is live-test ready for browser audio plus generated mouth cue tracks.";
+  }
+
+  if (hasAudio && hasVisemeSlots) {
+    return "Backend canonical bundle is live-test ready for browser audio plus raw viseme timing.";
+  }
+
+  if (hasAudio && hasTimingWindow) {
+    return "Backend canonical bundle has browser-playable audio, but no phoneme or viseme mouth payload was published.";
+  }
+
+  if (hasTimingWindow && (hasMouthCueTracks || hasVisemeSlots)) {
+    return "Backend canonical bundle can drive timing-based mouth sync, but no browser-playable audio reference was published.";
+  }
+
+  if (hasTimingWindow) {
+    return "Backend canonical bundle only exposes a timing window right now.";
+  }
+
+  return "Backend canonical bundle is incomplete: no playable audio and no timing metadata were published.";
+}
+
+function renderSpeechBundleTimeline(playback: SpeechPlaybackState): JSX.Element | null {
+  const bundle = playback.lastBundle;
+  const lipSync = bundle?.lipSync;
+  const totalMs = bundle?.utteranceDurationMs ?? null;
+
+  if (!bundle || !lipSync || lipSync.mouth_cue_tracks.length === 0 || typeof totalMs !== "number" || totalMs <= 0) {
+    return null;
+  }
+
+  return (
+    <section className="operator-panel__timeline" aria-labelledby="operator-speech-bundle-timeline-title">
+      <div className="operator-panel__timeline-header">
+        <div>
+          <p className="eyebrow">Speech bundle</p>
+          <h3 id="operator-speech-bundle-timeline-title">Lip-sync track timeline</h3>
+        </div>
+        <p className="operator-panel__timeline-meta">{(totalMs / 1000).toFixed(2)}s total</p>
+      </div>
+
+      {lipSync.mouth_cue_tracks.map((track) => {
+        const isDefaultTrack = track.track_id === playback.lipSyncDefaultTrackId;
+        return (
+          <article
+            key={track.track_id}
+            className={isDefaultTrack ? "operator-panel__timeline-track operator-panel__timeline-track--default" : "operator-panel__timeline-track"}
+          >
+            <div className="operator-panel__timeline-track-header">
+              <div>
+                <p className="operator-panel__timeline-track-title">{track.track_id}</p>
+                <p className="operator-panel__timeline-track-subtitle">{track.cue_namespace}</p>
+              </div>
+              <p className="operator-panel__timeline-track-meta">
+                {isDefaultTrack ? "default" : "optional"} · {track.cues.length} cues
+              </p>
+            </div>
+
+            <div className="operator-panel__timeline-lane" role="img" aria-label={`${track.track_id} cue timeline`}>
+              {track.cues.map((cue, cueIndex) => (
+                <span
+                  key={`${track.track_id}:${cue.cue}:${cue.start_ms}:${cueIndex}`}
+                  className="operator-panel__timeline-segment"
+                  style={{
+                    left: formatTimelinePercent(cue.start_ms, totalMs),
+                    width: formatTimelinePercent(Math.max(0, cue.end_ms - cue.start_ms), totalMs)
+                  }}
+                  title={`${cue.cue} · ${formatCueWindow(cue.start_ms, cue.end_ms)}`}
+                >
+                  <span className="operator-panel__timeline-segment-label">{cue.cue}</span>
+                </span>
+              ))}
+            </div>
+
+            <div className="operator-panel__timeline-cues">
+              {track.cues.slice(0, 10).map((cue, cueIndex) => (
+                <span key={`${track.track_id}:chip:${cue.cue}:${cue.start_ms}:${cueIndex}`} className="operator-panel__timeline-chip">
+                  {cue.cue} · {formatCueWindow(cue.start_ms, cue.end_ms)}
+                </span>
+              ))}
+              {track.cues.length > 10 ? (
+                <span className="operator-panel__timeline-chip operator-panel__timeline-chip--muted">
+                  +{track.cues.length - 10} more
+                </span>
+              ) : null}
+            </div>
+          </article>
+        );
+      })}
+    </section>
+  );
 }
 
 function resolveCanonicalCatchUpLabel(
@@ -387,6 +505,11 @@ export function ControlSurfaceOperatorCommandPanel({
   const operatorPreviewSummaryClassName = buildFeedbackClassName("surface-panel__summary", operatorFeedbackTone);
   const submitTextQuestionDisabled = isSubmitting || textQuestionDraft.trim().length === 0;
   const submitTtsPreviewDisabled = isSubmitting || ttsPreviewDraft.trim().length === 0;
+  const canReplayLastBundle =
+    speechPlaybackStatus.lastBundle !== null &&
+    (speechPlaybackStatus.lastBundle.audioSource !== null ||
+      (typeof speechPlaybackStatus.lastBundle.utteranceDurationMs === "number" &&
+        speechPlaybackStatus.lastBundle.utteranceDurationMs > 0));
   const sttSnapshot = sttState.snapshot;
   const sttStatusLine = describeSttStateLine(sttState);
   const sttLatestTranscript = sttSnapshot?.latest_confirmed_text ?? "Awaiting a queued transcript from the STT sidecar.";
@@ -585,6 +708,28 @@ export function ControlSurfaceOperatorCommandPanel({
       {speechPlaybackStatus.error ? (
         <p className="surface-panel__summary">Playback note: {speechPlaybackStatus.error}</p>
       ) : null}
+      {speechPlaybackStatus.lastBundle ? (
+        <div className="operator-panel__actions">
+          <button
+            className="operator-panel__button"
+            type="button"
+            onClick={() => speechPlaybackStatus.replayLastBundle()}
+            disabled={!canReplayLastBundle}
+          >
+            Replay last backend canonical bundle
+          </button>
+        </div>
+      ) : null}
+      {speechPlaybackStatus.lastBundle ? (
+        <p className="surface-panel__summary">
+          Backend canonical bundle · default track {speechPlaybackStatus.lipSyncDefaultTrackId ?? "none"} · tracks {speechPlaybackStatus.lipSyncTrackIds.join(", ") || "none"} · source {speechPlaybackStatus.lipSyncTimingSource ?? "unspecified"}
+          {speechPlaybackStatus.lipSyncSourceSlotType ? ` / ${speechPlaybackStatus.lipSyncSourceSlotType}` : ""}
+        </p>
+      ) : null}
+      {describeBackendCanonicalBundleReadiness(speechPlaybackStatus) ? (
+        <p className="surface-panel__summary">{describeBackendCanonicalBundleReadiness(speechPlaybackStatus)}</p>
+      ) : null}
+      {renderSpeechBundleTimeline(speechPlaybackStatus)}
 
       <label className="operator-panel__field" htmlFor="operator-command-locale">
         <span className="operator-panel__field-label">Command locale</span>

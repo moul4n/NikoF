@@ -60,7 +60,8 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   );
   const speechPlaybackStatus = useSpeechPlaybackBridge({
     runtime,
-    canonicalSynthesisEvent: preferredSpeechSynthesisEvent
+    canonicalSynthesisEvent: preferredSpeechSynthesisEvent,
+    latestAvailableSynthesisEvent: speechLifecycleState.snapshot?.canonicalSpeechSynthesisEvent ?? null
   });
   const avatarRuntimeSnapshot = useAvatarRuntimeSnapshot({ runtime });
   const {

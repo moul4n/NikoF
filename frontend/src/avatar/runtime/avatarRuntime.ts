@@ -7,6 +7,7 @@ import type {
   SemanticAnimationRuntimePayload
 } from "../../shared/types/animation";
 import type {
+  BackendSpeechMouthCueTrackDocument,
   BackendSpeechVisemeSlotDocument,
   CharacterId,
   CharacterManifestSummary,
@@ -63,6 +64,11 @@ type AvatarRuntimeListener = () => void;
 
 const VRM_MOUTH_EXPRESSION_NAMES = ["aa", "ih", "ou", "ee", "oh"] as const;
 const VRM_MOUTH_EXPRESSION_NAME_SET = new Set<string>(VRM_MOUTH_EXPRESSION_NAMES);
+const SPEECH_SILENCE_EXPRESSION_NAME = "__nikof_silence__";
+const SPEECH_EXPRESSION_BLEND_WINDOW_MS = 64;
+const SPEECH_EXPRESSION_MIN_WEIGHT = 0.001;
+const SPEECH_SHORT_SILENCE_SKIP_MS = 120;
+const SPEECH_SHORT_GAP_BRIDGE_MS = 90;
 const LOWER_BODY_ROTATION_BONES: Array<{
   debugName: AvatarLowerBodyRotationBoneName;
   vrmBoneName: VRMHumanBoneNameValue;
@@ -75,7 +81,7 @@ const LOWER_BODY_ROTATION_BONES: Array<{
   { debugName: "rightLowerLeg", vrmBoneName: VRMHumanBoneName.RightLowerLeg },
   { debugName: "rightFoot", vrmBoneName: VRMHumanBoneName.RightFoot }
 ];
-const VRM_MOUTH_EXPRESSION_ALIASES: Record<string, (typeof VRM_MOUTH_EXPRESSION_NAMES)[number]> = {
+const VRM_MOUTH_EXPRESSION_ALIASES: Record<string, string> = {
   a: "aa",
   aa: "aa",
   i: "ih",
@@ -85,7 +91,27 @@ const VRM_MOUTH_EXPRESSION_ALIASES: Record<string, (typeof VRM_MOUTH_EXPRESSION_
   e: "ee",
   ee: "ee",
   o: "oh",
-  oh: "oh"
+  oh: "oh",
+  sil: SPEECH_SILENCE_EXPRESSION_NAME,
+  x: SPEECH_SILENCE_EXPRESSION_NAME,
+  rest: SPEECH_SILENCE_EXPRESSION_NAME,
+  idle: SPEECH_SILENCE_EXPRESSION_NAME,
+  pause: SPEECH_SILENCE_EXPRESSION_NAME,
+  neutral: SPEECH_SILENCE_EXPRESSION_NAME,
+  closed: SPEECH_SILENCE_EXPRESSION_NAME,
+  bmp: SPEECH_SILENCE_EXPRESSION_NAME,
+  fv: "ee",
+  th: "ih",
+  l: "ee",
+  wq: "ou",
+  smile: "ee"
+};
+const VRM_MOUTH_EXPRESSION_RUNTIME_VARIANTS: Record<string, string[]> = {
+  aa: ["aa", "A"],
+  ih: ["ih", "I"],
+  ou: ["ou", "U"],
+  ee: ["ee", "E"],
+  oh: ["oh", "O"]
 };
 
 interface AvatarSpeechReactionViseme {
@@ -93,6 +119,13 @@ interface AvatarSpeechReactionViseme {
   label: string;
   startMs: number;
   endMs: number;
+}
+
+interface ActiveSpeechReactionState {
+  visemes: AvatarSpeechReactionViseme[];
+  elapsedMs: number;
+  totalDurationMs: number;
+  tailMs: number;
 }
 
 export interface AvatarOverlayChannelSnapshot {
@@ -106,6 +139,7 @@ export interface AvatarOverlayChannelSnapshot {
 export interface AvatarSpeechReactionInput {
   utteranceDurationMs: number | null;
   visemeSlots?: BackendSpeechVisemeSlotDocument[] | null;
+  mouthCueTrack?: BackendSpeechMouthCueTrackDocument | null;
 }
 
 export type AvatarDebugProfileView = "front" | "side";
@@ -423,8 +457,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let activeLoadRequestId = 0;
   let activeLoadTargetKey: string | null = null;
   let activeLoadPromise: Promise<void> | null = null;
-  let speechReactionTimeoutIds: number[] = [];
+  let activeSpeechReaction: ActiveSpeechReactionState | null = null;
   let activeSpeechExpressionName: string | null = null;
+  let activeSpeechExpressionNames = new Set<string>();
   let renderFrameCount = 0;
   const lowerBodyDebugHistory: Array<{
     elapsedSeconds: number;
@@ -1321,10 +1356,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   }
 
   function clearSpeechReactionTimers(): void {
-    speechReactionTimeoutIds.forEach((timeoutId) => {
-      window.clearTimeout(timeoutId);
-    });
-    speechReactionTimeoutIds = [];
+    activeSpeechReaction = null;
   }
 
   function getExpressionManager() {
@@ -1338,27 +1370,136 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     });
   }
 
+  function getSupportedSpeechExpressionNames(expressionManager: NonNullable<ReturnType<typeof getExpressionManager>>): Set<string> {
+    const supportedExpressionNames = new Set<string>();
+    const registeredMouthExpressionNames = Array.isArray(expressionManager.mouthExpressionNames)
+      ? expressionManager.mouthExpressionNames
+      : [];
+
+    registeredMouthExpressionNames.forEach((expressionName) => {
+      if (typeof expressionName !== "string") {
+        return;
+      }
+
+      const trimmedExpressionName = expressionName.trim();
+
+      if (trimmedExpressionName.length === 0 || !expressionManager.getExpression(trimmedExpressionName)) {
+        return;
+      }
+
+      supportedExpressionNames.add(trimmedExpressionName);
+    });
+
+    if (supportedExpressionNames.size > 0) {
+      return supportedExpressionNames;
+    }
+
+    const fallbackCandidateNames = new Set<string>();
+    Object.keys(VRM_MOUTH_EXPRESSION_ALIASES).forEach((expressionName) => {
+      fallbackCandidateNames.add(expressionName);
+    });
+    Object.values(VRM_MOUTH_EXPRESSION_RUNTIME_VARIANTS).forEach((expressionNames) => {
+      expressionNames.forEach((expressionName) => {
+        fallbackCandidateNames.add(expressionName);
+      });
+    });
+
+    fallbackCandidateNames.forEach((expressionName) => {
+      if (expressionName === SPEECH_SILENCE_EXPRESSION_NAME || !expressionManager.getExpression(expressionName)) {
+        return;
+      }
+
+      supportedExpressionNames.add(expressionName);
+    });
+
+    return supportedExpressionNames;
+  }
+
+  function applySpeechExpressionWeights(weightByExpressionName: Map<string, number>): void {
+    const expressionManager = getExpressionManager();
+
+    if (!expressionManager) {
+      activeSpeechExpressionName = null;
+      activeSpeechExpressionNames = new Set<string>();
+      return;
+    }
+
+    const trackedExpressionNames = new Set<string>(getSupportedSpeechExpressionNames(expressionManager));
+    activeSpeechExpressionNames.forEach((expressionName) => {
+      trackedExpressionNames.add(expressionName);
+    });
+    weightByExpressionName.forEach((_weight, expressionName) => {
+      trackedExpressionNames.add(expressionName);
+    });
+
+    trackedExpressionNames.forEach((expressionName) => {
+      if (!expressionManager.getExpression(expressionName)) {
+        return;
+      }
+
+      expressionManager.setValue(expressionName, THREE.MathUtils.clamp(weightByExpressionName.get(expressionName) ?? 0, 0, 1));
+    });
+
+    expressionManager.update();
+
+    activeSpeechExpressionNames = new Set<string>(
+      Array.from(weightByExpressionName.entries())
+        .filter(([, weight]) => weight > SPEECH_EXPRESSION_MIN_WEIGHT)
+        .map(([expressionName]) => expressionName)
+    );
+
+    const dominantExpressionEntry = Array.from(weightByExpressionName.entries()).reduce<readonly [string, number] | null>(
+      (dominantEntry, candidateEntry) => {
+        if (dominantEntry === null || candidateEntry[1] > dominantEntry[1]) {
+          return candidateEntry;
+        }
+
+        return dominantEntry;
+      },
+      null
+    );
+
+    activeSpeechExpressionName = dominantExpressionEntry && dominantExpressionEntry[1] > SPEECH_EXPRESSION_MIN_WEIGHT
+      ? dominantExpressionEntry[0]
+      : null;
+  }
+
   function resetSpeechExpressions(): void {
     const expressionManager = getExpressionManager();
 
     if (!expressionManager) {
       activeSpeechExpressionName = null;
+      activeSpeechExpressionNames = new Set<string>();
       return;
     }
 
+    const trackedExpressionNames = new Set<string>(getSupportedSpeechExpressionNames(expressionManager));
     VRM_MOUTH_EXPRESSION_NAMES.forEach((expressionName) => {
+      trackedExpressionNames.add(expressionName);
+    });
+
+    activeSpeechExpressionNames.forEach((expressionName) => {
+      trackedExpressionNames.add(expressionName);
+    });
+
+    if (activeSpeechExpressionName) {
+      trackedExpressionNames.add(activeSpeechExpressionName);
+    }
+
+    trackedExpressionNames.forEach((expressionName) => {
+      if (!expressionManager.getExpression(expressionName)) {
+        return;
+      }
+
       expressionManager.setValue(expressionName, 0);
     });
 
-    if (activeSpeechExpressionName && !VRM_MOUTH_EXPRESSION_NAME_SET.has(activeSpeechExpressionName)) {
-      expressionManager.setValue(activeSpeechExpressionName, 0);
-    }
-
     expressionManager.update();
     activeSpeechExpressionName = null;
+    activeSpeechExpressionNames = new Set<string>();
   }
 
-  function resolveSpeechExpressionName(viseme: string): string | null {
+  function resolveSpeechExpressionBinding(viseme: string): Pick<AvatarSpeechReactionViseme, "expressionName" | "label"> | null {
     const expressionManager = getExpressionManager();
     const trimmedViseme = viseme.trim();
 
@@ -1368,76 +1509,232 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     const normalizedViseme = trimmedViseme.toLowerCase().replace(/[\s_-]+/g, "");
     const aliasExpressionName = VRM_MOUTH_EXPRESSION_ALIASES[normalizedViseme];
-    const candidateNames = [trimmedViseme, trimmedViseme.toLowerCase(), aliasExpressionName].filter(
-      (value): value is string => Boolean(value)
+
+    if (aliasExpressionName === SPEECH_SILENCE_EXPRESSION_NAME) {
+      return {
+        expressionName: SPEECH_SILENCE_EXPRESSION_NAME,
+        label: "sil"
+      };
+    }
+
+    const supportedExpressionNames = getSupportedSpeechExpressionNames(expressionManager);
+    const candidateNames = Array.from(
+      new Set(
+        [
+          trimmedViseme,
+          trimmedViseme.toLowerCase(),
+          aliasExpressionName,
+          ...(aliasExpressionName ? VRM_MOUTH_EXPRESSION_RUNTIME_VARIANTS[aliasExpressionName] ?? [] : [])
+        ].filter((value): value is string => Boolean(value))
+      )
     );
 
     for (const candidateName of candidateNames) {
-      if (expressionManager.getExpression(candidateName)) {
-        return candidateName;
+      if (supportedExpressionNames.has(candidateName) || expressionManager.getExpression(candidateName)) {
+        return {
+          expressionName: candidateName,
+          label: candidateName
+        };
       }
     }
 
     return null;
   }
 
-  function buildSpeechReactionVisemes(input: AvatarSpeechReactionInput): AvatarSpeechReactionViseme[] {
-    const visemeSlots = input.visemeSlots ?? [];
-    const utteranceDurationMs =
-      typeof input.utteranceDurationMs === "number" && input.utteranceDurationMs > 0 ? input.utteranceDurationMs : null;
+  function appendSpeechReactionViseme(
+    visemes: AvatarSpeechReactionViseme[],
+    nextViseme: AvatarSpeechReactionViseme
+  ): void {
+    const previousViseme = visemes[visemes.length - 1] ?? null;
+    const nextDurationMs = Math.max(0, nextViseme.endMs - nextViseme.startMs);
 
-    return visemeSlots.flatMap((slot) => {
+    if (
+      previousViseme &&
+      nextViseme.expressionName === SPEECH_SILENCE_EXPRESSION_NAME &&
+      previousViseme.expressionName !== SPEECH_SILENCE_EXPRESSION_NAME &&
+      nextDurationMs <= SPEECH_SHORT_SILENCE_SKIP_MS
+    ) {
+      // Tiny silence spans read as hard mouth snaps, so absorb them into the
+      // previous mouth shape instead of forcing a visible full close.
+      previousViseme.endMs = Math.max(previousViseme.endMs, nextViseme.endMs);
+      return;
+    }
+
+    if (
+      previousViseme &&
+      previousViseme.expressionName === nextViseme.expressionName &&
+      nextViseme.startMs <= previousViseme.endMs + 1
+    ) {
+      previousViseme.endMs = Math.max(previousViseme.endMs, nextViseme.endMs);
+      previousViseme.label = nextViseme.label;
+      return;
+    }
+
+    if (
+      previousViseme &&
+      previousViseme.expressionName !== SPEECH_SILENCE_EXPRESSION_NAME &&
+      nextViseme.expressionName !== SPEECH_SILENCE_EXPRESSION_NAME
+    ) {
+      const gapMs = nextViseme.startMs - previousViseme.endMs;
+
+      if (gapMs > 0 && gapMs <= SPEECH_SHORT_GAP_BRIDGE_MS) {
+        const midpointMs = previousViseme.endMs + gapMs * 0.5;
+        previousViseme.endMs = Math.max(previousViseme.endMs, midpointMs);
+        nextViseme.startMs = Math.min(nextViseme.startMs, midpointMs);
+      }
+    }
+
+    visemes.push(nextViseme);
+  }
+
+  function buildResolvedSpeechReactionVisemes<T extends { start_ms: number; end_ms: number }>(
+    slots: readonly T[],
+    utteranceDurationMs: number | null,
+    getCueValue: (slot: T) => string
+  ): AvatarSpeechReactionViseme[] {
+    const visemes: AvatarSpeechReactionViseme[] = [];
+
+    slots.forEach((slot) => {
       if (!Number.isFinite(slot.start_ms) || !Number.isFinite(slot.end_ms)) {
-        return [];
+        return;
       }
 
       const startMs = Math.max(0, slot.start_ms);
       const unclampedEndMs = Math.max(startMs, slot.end_ms);
       const endMs = utteranceDurationMs === null ? unclampedEndMs : Math.min(unclampedEndMs, utteranceDurationMs);
-      const expressionName = resolveSpeechExpressionName(slot.viseme);
+      const speechExpressionBinding = resolveSpeechExpressionBinding(getCueValue(slot));
 
-      if (!expressionName || endMs <= startMs) {
-        return [];
+      if (!speechExpressionBinding || endMs <= startMs) {
+        return;
       }
 
-      return [
-        {
-          expressionName,
-          label: slot.viseme.trim() || expressionName,
-          startMs,
-          endMs
-        }
-      ];
+      appendSpeechReactionViseme(visemes, {
+        expressionName: speechExpressionBinding.expressionName,
+        label: speechExpressionBinding.label,
+        startMs,
+        endMs
+      });
     });
+
+    return visemes;
   }
 
-  function activateSpeechViseme(expressionName: string, label: string): void {
-    const expressionManager = getExpressionManager();
+  function buildSpeechReactionVisemes(input: AvatarSpeechReactionInput): AvatarSpeechReactionViseme[] {
+    const mouthCueSlots = input.mouthCueTrack?.cues ?? [];
+    const visemeSlots = input.visemeSlots ?? [];
+    const utteranceDurationMs =
+      typeof input.utteranceDurationMs === "number" && input.utteranceDurationMs > 0 ? input.utteranceDurationMs : null;
 
-    if (!expressionManager) {
-      updateSnapshot({
-        currentState: "speak",
-        ...buildSpeechOverlaySnapshot({
-          mode: "coarse"
-        })
-      });
+    if (mouthCueSlots.length > 0) {
+      const resolvedMouthCueVisemes = buildResolvedSpeechReactionVisemes(mouthCueSlots, utteranceDurationMs, (slot) => slot.cue);
+
+      if (resolvedMouthCueVisemes.length > 0) {
+        return resolvedMouthCueVisemes;
+      }
+    }
+
+    return buildResolvedSpeechReactionVisemes(visemeSlots, utteranceDurationMs, (slot) => slot.viseme);
+  }
+
+  function computeSpeechVisemeWeight(viseme: AvatarSpeechReactionViseme, elapsedMs: number): number {
+    if (viseme.expressionName === SPEECH_SILENCE_EXPRESSION_NAME) {
+      return 0;
+    }
+
+    const durationMs = Math.max(0, viseme.endMs - viseme.startMs);
+
+    if (durationMs === 0) {
+      return 0;
+    }
+
+    const blendWindowMs = Math.min(SPEECH_EXPRESSION_BLEND_WINDOW_MS, Math.max(24, durationMs * 0.35));
+    const attackStartMs = Math.max(0, viseme.startMs - blendWindowMs * 0.5);
+    const attackEndMs = viseme.startMs + blendWindowMs * 0.5;
+    const releaseStartMs = Math.max(viseme.startMs, viseme.endMs - blendWindowMs * 0.5);
+    const releaseEndMs = viseme.endMs + blendWindowMs * 0.5;
+    const attackWeight =
+      attackEndMs <= attackStartMs ? (elapsedMs >= viseme.startMs ? 1 : 0) : THREE.MathUtils.smoothstep(elapsedMs, attackStartMs, attackEndMs);
+    const releaseWeight =
+      releaseEndMs <= releaseStartMs ? (elapsedMs <= viseme.endMs ? 1 : 0) : 1 - THREE.MathUtils.smoothstep(elapsedMs, releaseStartMs, releaseEndMs);
+
+    return THREE.MathUtils.clamp(attackWeight * releaseWeight, 0, 1);
+  }
+
+  function updateSpeechReaction(deltaSeconds: number): void {
+    if (!activeSpeechReaction) {
       return;
     }
 
-    if (activeSpeechExpressionName !== expressionName) {
-      resetSpeechExpressions();
-      expressionManager.setValue(expressionName, 1);
-      expressionManager.update();
-      activeSpeechExpressionName = expressionName;
+    activeSpeechReaction.elapsedMs += deltaSeconds * 1000;
+
+    const expressionManager = getExpressionManager();
+
+    if (!expressionManager) {
+      if (snapshot.currentState !== "speak" || snapshot.speechReactionMode !== "coarse") {
+        updateSnapshot({
+          currentState: "speak",
+          ...buildSpeechOverlaySnapshot({
+            mode: "coarse"
+          })
+        });
+      }
+
+      return;
     }
 
-    updateSnapshot({
-      currentState: "speak",
-      ...buildSpeechOverlaySnapshot({
-        mode: "viseme",
-        label
-      })
-    });
+    const weightByExpressionName = new Map<string, number>();
+    let dominantViseme: AvatarSpeechReactionViseme | null = null;
+    let dominantWeight = 0;
+
+    for (const viseme of activeSpeechReaction.visemes) {
+      const visemeWeight = computeSpeechVisemeWeight(viseme, activeSpeechReaction?.elapsedMs ?? 0);
+
+      if (visemeWeight <= SPEECH_EXPRESSION_MIN_WEIGHT) {
+        continue;
+      }
+
+      const currentWeight = weightByExpressionName.get(viseme.expressionName) ?? 0;
+      weightByExpressionName.set(viseme.expressionName, Math.max(currentWeight, visemeWeight));
+
+      if (visemeWeight > dominantWeight) {
+        dominantWeight = visemeWeight;
+        dominantViseme = viseme;
+      }
+    }
+
+    const totalWeight = Array.from(weightByExpressionName.values()).reduce((sum, weight) => sum + weight, 0);
+
+    if (totalWeight > 1) {
+      weightByExpressionName.forEach((weight, expressionName) => {
+        weightByExpressionName.set(expressionName, weight / totalWeight);
+      });
+    }
+
+    applySpeechExpressionWeights(weightByExpressionName);
+
+    const nextOverlayLabel = dominantViseme === null ? null : dominantViseme.label;
+
+    if (
+      snapshot.currentState !== "speak" ||
+      snapshot.speechReactionMode !== "viseme" ||
+      snapshot.activeViseme !== nextOverlayLabel
+    ) {
+      updateSnapshot({
+        currentState: "speak",
+        ...buildSpeechOverlaySnapshot({
+          mode: "viseme",
+          label: nextOverlayLabel
+        })
+      });
+    }
+
+    if (
+      weightByExpressionName.size === 0 &&
+      activeSpeechReaction.elapsedMs > activeSpeechReaction.totalDurationMs + activeSpeechReaction.tailMs
+    ) {
+      clearSpeechReaction();
+      return;
+    }
   }
 
   function beginSpeechReaction(input: AvatarSpeechReactionInput): void {
@@ -1448,6 +1745,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const speechReactionVisemes = buildSpeechReactionVisemes(input);
 
     if (speechReactionVisemes.length === 0) {
+      activeSpeechReaction = null;
       updateSnapshot({
         currentState: "speak",
         ...buildSpeechOverlaySnapshot({
@@ -1464,29 +1762,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       })
     });
 
-    speechReactionVisemes.forEach((viseme) => {
-      speechReactionTimeoutIds.push(
-        window.setTimeout(() => {
-          activateSpeechViseme(viseme.expressionName, viseme.label);
-        }, viseme.startMs)
-      );
-
-      speechReactionTimeoutIds.push(
-        window.setTimeout(() => {
-          if (activeSpeechExpressionName !== viseme.expressionName) {
-            return;
-          }
-
-          resetSpeechExpressions();
-          updateSnapshot({
-            currentState: "speak",
-            ...buildSpeechOverlaySnapshot({
-              mode: "viseme"
-            })
-          });
-        }, viseme.endMs)
-      );
-    });
+    activeSpeechReaction = {
+      visemes: speechReactionVisemes,
+      elapsedMs: 0,
+      totalDurationMs: Math.max(...speechReactionVisemes.map((viseme) => viseme.endMs), 0),
+      tailMs: SPEECH_EXPRESSION_BLEND_WINDOW_MS
+    };
   }
 
   function clearSpeechReaction(): void {
@@ -1814,6 +2095,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       // Passive emotion layer for smooth facial state transitions
       passiveEmotion?.update(deltaSeconds);
+
+      updateSpeechReaction(deltaSeconds);
 
       if (currentAvatar?.vrm) {
         currentAvatar.vrm.update(deltaSeconds);

@@ -16,6 +16,66 @@
     "oh": null
   },
   "lip_sync": {
-    "preferred_track_id": "advanced"
+    "preferred_track_id": "advanced",
+    "source_model": "assets/characters/maria/model.vrm",
+    "runtime_registered_visemes": [
+      "A",
+      "I",
+      "U",
+      "E",
+      "O"
+    ],
+    "legacy_blend_shape_groups": [
+      "A",
+      "I",
+      "U",
+      "E",
+      "O",
+      "Joy",
+      "Fun",
+      "Sorrow",
+      "Angry",
+      "love",
+      "surprise",
+      "speechless"
+    ],
+    "raw_mouth_targets": [
+      "B_MouthFunnel",
+      "B_MouthPucker",
+      "B_MouthLeft",
+      "B_MouthRight",
+      "B_MouthSmile_Left",
+      "B_MouthSmile_Right",
+      "B_MouthFrown_Left",
+      "B_MouthFrown_Right",
+      "B_MouthDimple_Left",
+      "B_MouthDimple_Right",
+      "B_MouthStretch_Left",
+      "B_MouthStretch_Right",
+      "B_MouthRoll_Lower",
+      "B_MouthRoll_Upper",
+      "B_MouthShrug_Lower",
+      "B_MouthShrug_Upper",
+      "B_MouthPress_Left",
+      "B_MouthPress_Right",
+      "B_MouthLower_DownLeft",
+      "B_MouthLower_DownRight",
+      "B_MouthUpper_UpLeft",
+      "B_MouthUpper_UpRight",
+      "mouth_a",
+      "mouth_i",
+      "mouth_u",
+      "mouth_e",
+      "mouth_o",
+      "mouth_joy",
+      "mouth_smile",
+      "mouth_smile_Left",
+      "mouth_smile_Right",
+      "mouth_sad",
+      "mouth_tehe",
+      "mouth_tang",
+      "mouth_wide"
+    ],
+    "notes": "Maria exposes the standard runtime A/I/U/E/O speech visemes through legacy VRM blend-shape groups and also contains additional latent mouth-control morph targets. Those latent targets are now documented here for future direct morph-target driving, but the current runtime still consumes only the registered VRM expression set."
   }
 }

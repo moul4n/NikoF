@@ -471,6 +471,7 @@ class TTSWorker:
                 raw_timing,
                 fallback=fallback_timing,
                 preferred_lip_sync_track_id=request.preferred_lip_sync_track_id,
+                source_text=str(response.get("text") or request.text),
             )
 
         return SpeechSynthesisContract(

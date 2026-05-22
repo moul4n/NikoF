@@ -4,8 +4,11 @@ import type {
   AvatarSpeechReactionInput
 } from "../avatar/runtime/avatarRuntime";
 import type {
+  BackendSpeechLipSyncPayloadDocument,
+  BackendSpeechMouthCueTrackDocument,
   BackendSessionEventDocument,
-  BackendSpeechSynthesisDocument
+  BackendSpeechSynthesisDocument,
+  BackendSpeechVisemeSlotDocument
 } from "../shared/types/character";
 import {
   resolveSpeechSynthesisAudioSource,
@@ -15,7 +18,21 @@ import {
 export type SpeechPlaybackStatus = "idle" | "audio" | "timing";
 export type SpeechPlaybackTransport = "none" | "audio_reference" | "timing_window";
 
-export interface SpeechPlaybackState {
+export interface SpeechPlaybackBundle {
+  playbackKey: string;
+  storedAt: string;
+  profileId: string | null;
+  locale: string | null;
+  text: string | null;
+  audioReference: string | null;
+  audioSource: string | null;
+  sourceResolutionReason: SpeechAudioSourceResolutionReason;
+  utteranceDurationMs: number | null;
+  visemeSlots: BackendSpeechVisemeSlotDocument[];
+  lipSync: BackendSpeechLipSyncPayloadDocument | null;
+}
+
+interface SpeechPlaybackSnapshot {
   status: SpeechPlaybackStatus;
   transport: SpeechPlaybackTransport;
   playbackKey: string | null;
@@ -28,35 +45,57 @@ export interface SpeechPlaybackState {
   locale: string | null;
   utteranceDurationMs: number | null;
   text: string | null;
+  lipSyncDefaultTrackId: string | null;
+  lipSyncTrackIds: string[];
+  lipSyncTimingSource: string | null;
+  lipSyncSourceSlotType: string | null;
+  lastBundle: SpeechPlaybackBundle | null;
 }
+
+export type SpeechPlaybackState = SpeechPlaybackSnapshot & {
+  replayLastBundle: () => void;
+};
 
 interface UseSpeechPlaybackBridgeOptions {
   runtime: AvatarRuntimeBridge;
   canonicalSynthesisEvent: BackendSessionEventDocument | null;
+  latestAvailableSynthesisEvent: BackendSessionEventDocument | null;
 }
 
 interface SpeechPlaybackStateSeed {
-  playbackKey: string;
-  audioReference: string | null;
+  bundle: SpeechPlaybackBundle;
   synthesisStatus: string | null;
-  profileId: string | null;
-  locale: string | null;
-  utteranceDurationMs: number | null;
-  text: string | null;
 }
 
 const AUDIO_PLAYBACK_STARTUP_TIMEOUT_MS = 8000;
+const SHARED_SPEECH_REPLAY_STORAGE_KEY = "nikof.speechPlaybackReplayRequest";
+
+interface SharedSpeechReplayRequest {
+  senderWindowId: string;
+  replayPlaybackKey: string;
+  synthesisStatus: string | null;
+  bundle: SpeechPlaybackBundle;
+}
 
 export function useSpeechPlaybackBridge({
   runtime,
-  canonicalSynthesisEvent
+  canonicalSynthesisEvent,
+  latestAvailableSynthesisEvent
 }: UseSpeechPlaybackBridgeOptions): SpeechPlaybackState {
-  const [speechPlaybackStatus, setSpeechPlaybackStatus] = useState<SpeechPlaybackState>(() => createIdleSpeechPlaybackState());
+  const [speechPlaybackStatus, setSpeechPlaybackStatus] = useState<SpeechPlaybackSnapshot>(() => createIdleSpeechPlaybackState(null));
+  const [speechPlaybackWindowId] = useState(() => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+
+    return `speech-playback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  });
   const [speechPlaybackBridge] = useState(() => ({
     activeAudio: null as HTMLAudioElement | null,
     cleanupActiveAudio: null as (() => void) | null,
     playbackTimeoutId: null as number | null,
     handledPlaybackKey: null as string | null,
+    hasResolvedInitialBundle: false,
     pendingPlaybackStateSeed: null as SpeechPlaybackStateSeed | null,
     pendingTimingMessage: null as string | null
   }));
@@ -66,6 +105,54 @@ export function useSpeechPlaybackBridge({
       stopSpeechPlayback(true);
     };
   }, []);
+
+  useEffect(() => {
+    const playbackKey = buildSpeechSynthesisPlaybackKey(latestAvailableSynthesisEvent);
+
+    if (!speechPlaybackBridge.hasResolvedInitialBundle) {
+      speechPlaybackBridge.hasResolvedInitialBundle = true;
+
+      if (!playbackKey || !latestAvailableSynthesisEvent?.synthesis) {
+        return;
+      }
+
+      const initialAudioResolution = resolveSpeechSynthesisAudioSource(latestAvailableSynthesisEvent.synthesis.audio_reference);
+      const initialBundle = buildSpeechPlaybackBundle(latestAvailableSynthesisEvent, playbackKey, initialAudioResolution);
+      speechPlaybackBridge.handledPlaybackKey = playbackKey;
+      setSpeechPlaybackStatus((currentState) =>
+        currentState.lastBundle?.playbackKey === initialBundle.playbackKey
+          ? currentState
+          : createIdleSpeechPlaybackState(initialBundle)
+      );
+      return;
+    }
+
+    if (!playbackKey || !latestAvailableSynthesisEvent?.synthesis) {
+      return;
+    }
+
+    const audioResolution = resolveSpeechSynthesisAudioSource(latestAvailableSynthesisEvent.synthesis.audio_reference);
+    const latestBundle = buildSpeechPlaybackBundle(latestAvailableSynthesisEvent, playbackKey, audioResolution);
+
+    setSpeechPlaybackStatus((currentState) => {
+      if (currentState.lastBundle?.playbackKey === latestBundle.playbackKey) {
+        return currentState;
+      }
+
+      if (currentState.status === "idle" && currentState.playbackKey === null) {
+        return createIdleSpeechPlaybackState(latestBundle);
+      }
+
+      return {
+        ...currentState,
+        lastBundle: latestBundle,
+        lipSyncDefaultTrackId: latestBundle.lipSync?.default_track_id ?? null,
+        lipSyncTrackIds: latestBundle.lipSync?.mouth_cue_tracks.map((track) => track.track_id) ?? [],
+        lipSyncTimingSource: latestBundle.lipSync?.debug?.timing_source ?? null,
+        lipSyncSourceSlotType: latestBundle.lipSync?.debug?.source_slot_type ?? null
+      };
+    });
+  }, [latestAvailableSynthesisEvent]);
 
   useEffect(() => {
     const playbackKey = buildSpeechSynthesisPlaybackKey(canonicalSynthesisEvent);
@@ -82,16 +169,16 @@ export function useSpeechPlaybackBridge({
     stopSpeechPlayback(false);
     speechPlaybackBridge.handledPlaybackKey = playbackKey;
 
-    const playbackStateSeed = buildSpeechPlaybackStateSeed(canonicalSynthesisEvent, playbackKey);
     const audioResolution = resolveSpeechSynthesisAudioSource(canonicalSynthesisEvent.synthesis.audio_reference);
-    const speechReactionInput = resolveSpeechReactionInput(canonicalSynthesisEvent.synthesis);
+    const playbackBundle = buildSpeechPlaybackBundle(canonicalSynthesisEvent, playbackKey, audioResolution);
+    const playbackStateSeed = buildSpeechPlaybackStateSeed(playbackBundle, canonicalSynthesisEvent);
+    const speechReactionInput = resolveSpeechReactionInput(playbackBundle);
     const durationMs = speechReactionInput.utteranceDurationMs;
 
-    if (audioResolution.audioSource) {
+    if (playbackBundle.audioSource) {
       speechPlaybackBridge.pendingPlaybackStateSeed = playbackStateSeed;
       speechPlaybackBridge.pendingTimingMessage = null;
-      const audioSource = audioResolution.audioSource;
-      beginAudioSpeechPlayback(audioSource, durationMs, playbackKey, speechReactionInput);
+      beginAudioSpeechPlayback(playbackBundle, durationMs, playbackKey, speechReactionInput);
       return;
     }
 
@@ -114,7 +201,44 @@ export function useSpeechPlaybackBridge({
     );
   }, [canonicalSynthesisEvent, runtime, speechPlaybackBridge]);
 
-  return speechPlaybackStatus;
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // Replay is initiated from the control surface window, so relay it to any
+    // display-only windows that are mounted against the same session shell.
+    const handleStorage = (event: StorageEvent): void => {
+      if (event.key !== SHARED_SPEECH_REPLAY_STORAGE_KEY || !event.newValue) {
+        return;
+      }
+
+      let replayRequest: SharedSpeechReplayRequest | null = null;
+
+      try {
+        replayRequest = JSON.parse(event.newValue) as SharedSpeechReplayRequest;
+      } catch {
+        return;
+      }
+
+      if (!replayRequest || replayRequest.senderWindowId === speechPlaybackWindowId) {
+        return;
+      }
+
+      beginReplayPlayback(replayRequest.bundle, replayRequest.replayPlaybackKey, replayRequest.synthesisStatus);
+    };
+
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [speechPlaybackWindowId]);
+
+  return {
+    ...speechPlaybackStatus,
+    replayLastBundle
+  };
 
   function clearSpeechPlaybackTimeout(): void {
     if (speechPlaybackBridge.playbackTimeoutId !== null) {
@@ -146,7 +270,7 @@ export function useSpeechPlaybackBridge({
       speechPlaybackBridge.handledPlaybackKey = null;
       speechPlaybackBridge.pendingPlaybackStateSeed = null;
       speechPlaybackBridge.pendingTimingMessage = null;
-      setSpeechPlaybackStatus(createIdleSpeechPlaybackState());
+      setSpeechPlaybackStatus((currentState) => createIdleSpeechPlaybackState(currentState.lastBundle));
     }
   }
 
@@ -195,7 +319,7 @@ export function useSpeechPlaybackBridge({
   }
 
   function beginAudioSpeechPlayback(
-    audioSource: string,
+    playbackBundle: SpeechPlaybackBundle,
     durationMs: number | null,
     playbackKey: string,
     speechReactionInput: AvatarSpeechReactionInput
@@ -210,23 +334,31 @@ export function useSpeechPlaybackBridge({
     clearSpeechPlaybackTimeout();
     releaseSpeechAudio();
 
-    const playbackAudio = new Audio(audioSource);
+    if (!playbackBundle.audioSource) {
+      stopSpeechPlayback(true);
+      return;
+    }
+
+    const playbackAudio = new Audio(playbackBundle.audioSource);
     playbackAudio.volume = 1.0;
     playbackAudio.muted = false;
     let settled = false;
+    let playbackStarted = false;
 
     speechPlaybackBridge.activeAudio = playbackAudio;
     setSpeechPlaybackStatus(
       buildSpeechPlaybackState(playbackStateSeed, {
         status: "audio",
         transport: "audio_reference",
-        audioSource,
+          audioSource: playbackBundle.audioSource,
         message: "Loading canonical audio reference."
       })
     );
 
     const cleanupPlaybackAudio = (): void => {
+      playbackAudio.removeEventListener("play", handlePlay);
       playbackAudio.removeEventListener("playing", handlePlaying);
+      playbackAudio.removeEventListener("timeupdate", handleTimeUpdate);
       playbackAudio.removeEventListener("ended", handleEnded);
       playbackAudio.removeEventListener("error", handleError);
       speechPlaybackBridge.cleanupActiveAudio = null;
@@ -260,10 +392,42 @@ export function useSpeechPlaybackBridge({
         buildSpeechPlaybackState(playbackStateSeed, {
           status: "idle",
           transport: "audio_reference",
-          audioSource,
+          audioSource: playbackBundle.audioSource,
           message: "Canonical audio playback completed."
         })
       );
+    };
+
+    const startPlaybackReaction = (message: string): void => {
+      if (settled || playbackStarted || speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
+        return;
+      }
+
+      playbackStarted = true;
+      clearSpeechPlaybackTimeout();
+      // Prefer the real browser-decoded clip length when available so mouth
+      // playback does not outlive the audio because of backend timing drift.
+      const resolvedAudioDurationMs = resolveAudioPlaybackDurationMs(playbackAudio);
+      const effectiveDurationMs = resolveEffectiveSpeechReactionDurationMs(durationMs, resolvedAudioDurationMs);
+      runtime.beginSpeechReaction({
+        ...speechReactionInput,
+        utteranceDurationMs: effectiveDurationMs
+      });
+      setSpeechPlaybackStatus(
+        buildSpeechPlaybackState(playbackStateSeed, {
+          status: "audio",
+          transport: "audio_reference",
+          audioSource: playbackBundle.audioSource,
+          message,
+          utteranceDurationMs: effectiveDurationMs
+        })
+      );
+
+      if (typeof effectiveDurationMs === "number" && effectiveDurationMs > 0) {
+        speechPlaybackBridge.playbackTimeoutId = window.setTimeout(() => {
+          finishPlayback();
+        }, effectiveDurationMs);
+      }
     };
 
     const fallbackToTiming = (errorMessage: string | null): void => {
@@ -295,11 +459,15 @@ export function useSpeechPlaybackBridge({
         buildSpeechPlaybackState(playbackStateSeed, {
           status: "idle",
           transport: "none",
-          audioSource,
+          audioSource: playbackBundle.audioSource,
           message: "Canonical audio reference was not browser-playable and no timing fallback was available.",
           error: errorMessage
         })
       );
+    };
+
+    const handlePlay = (): void => {
+      startPlaybackReaction("Playing canonical audio reference.");
     };
 
     const handlePlaying = (): void => {
@@ -314,21 +482,12 @@ export function useSpeechPlaybackBridge({
         return;
       }
 
-      runtime.beginSpeechReaction(speechReactionInput);
-      setSpeechPlaybackStatus(
-        buildSpeechPlaybackState(playbackStateSeed, {
-          status: "audio",
-          transport: "audio_reference",
-          audioSource,
-          message: "Playing canonical audio reference."
-        })
-      );
+      startPlaybackReaction("Playing canonical audio reference.");
+    };
 
-      if (typeof durationMs === "number" && durationMs > 0) {
-        clearSpeechPlaybackTimeout();
-        speechPlaybackBridge.playbackTimeoutId = window.setTimeout(() => {
-          finishPlayback();
-        }, durationMs);
+    const handleTimeUpdate = (): void => {
+      if (playbackAudio.currentTime > 0) {
+        startPlaybackReaction("Playing canonical audio reference.");
       }
     };
 
@@ -344,7 +503,9 @@ export function useSpeechPlaybackBridge({
       fallbackToTiming("Canonical audio reference failed to load in the browser.");
     };
 
+    playbackAudio.addEventListener("play", handlePlay);
     playbackAudio.addEventListener("playing", handlePlaying);
+    playbackAudio.addEventListener("timeupdate", handleTimeUpdate);
     playbackAudio.addEventListener("ended", handleEnded);
     playbackAudio.addEventListener("error", handleError);
     playbackAudio.addEventListener("loadedmetadata", () => {
@@ -359,6 +520,7 @@ export function useSpeechPlaybackBridge({
       });
     });
 
+    const audioSource = playbackBundle.audioSource;
     console.info("[SpeechPlayback] Attempting audio.play()", { audioSource, durationMs, playbackKey });
     void playbackAudio.play().then(() => {
       console.info("[SpeechPlayback] play() resolved successfully", {
@@ -368,6 +530,7 @@ export function useSpeechPlaybackBridge({
         volume: playbackAudio.volume,
         muted: playbackAudio.muted,
       });
+      startPlaybackReaction("Playing canonical audio reference.");
     }).catch((error: unknown) => {
       console.warn("[SpeechPlayback] play() rejected:", error);
       fallbackToTiming(error instanceof Error ? error.message : "Canonical audio playback could not start.");
@@ -377,9 +540,58 @@ export function useSpeechPlaybackBridge({
       return AUDIO_PLAYBACK_STARTUP_TIMEOUT_MS;
     }
   }
+
+  function beginReplayPlayback(
+    playbackBundle: SpeechPlaybackBundle,
+    replayPlaybackKey: string,
+    synthesisStatus: string | null
+  ): void {
+    const playbackStateSeed: SpeechPlaybackStateSeed = {
+      bundle: playbackBundle,
+      synthesisStatus
+    };
+    const speechReactionInput = resolveSpeechReactionInput(playbackBundle);
+    const durationMs = speechReactionInput.utteranceDurationMs;
+
+    stopSpeechPlayback(false);
+    speechPlaybackBridge.handledPlaybackKey = replayPlaybackKey;
+    speechPlaybackBridge.pendingPlaybackStateSeed = playbackStateSeed;
+    speechPlaybackBridge.pendingTimingMessage = buildTimingPlaybackMessage(playbackBundle.sourceResolutionReason);
+
+    if (playbackBundle.audioSource) {
+      beginAudioSpeechPlayback(playbackBundle, durationMs, replayPlaybackKey, speechReactionInput);
+      return;
+    }
+
+    if (typeof durationMs === "number" && durationMs > 0) {
+      beginTimingSpeechWindow(durationMs, replayPlaybackKey, speechReactionInput);
+    }
+  }
+
+  function replayLastBundle(): void {
+    const lastBundle = speechPlaybackStatus.lastBundle;
+    if (!lastBundle) {
+      return;
+    }
+
+    const replayPlaybackKey = `${lastBundle.playbackKey}|replay|${Date.now()}`;
+    beginReplayPlayback(lastBundle, replayPlaybackKey, speechPlaybackStatus.synthesisStatus);
+
+    if (typeof window !== "undefined") {
+      const replayRequest: SharedSpeechReplayRequest = {
+        senderWindowId: speechPlaybackWindowId,
+        replayPlaybackKey,
+        synthesisStatus: speechPlaybackStatus.synthesisStatus,
+        bundle: lastBundle
+      };
+
+      window.localStorage.setItem(SHARED_SPEECH_REPLAY_STORAGE_KEY, JSON.stringify(replayRequest));
+      window.localStorage.removeItem(SHARED_SPEECH_REPLAY_STORAGE_KEY);
+    }
+  }
 }
 
-function createIdleSpeechPlaybackState(): SpeechPlaybackState {
+function createIdleSpeechPlaybackState(lastBundle: SpeechPlaybackBundle | null): SpeechPlaybackSnapshot {
   return {
     status: "idle",
     transport: "none",
@@ -392,42 +604,68 @@ function createIdleSpeechPlaybackState(): SpeechPlaybackState {
     profileId: null,
     locale: null,
     utteranceDurationMs: null,
-    text: null
+    text: null,
+    lipSyncDefaultTrackId: lastBundle?.lipSync?.default_track_id ?? null,
+    lipSyncTrackIds: lastBundle?.lipSync?.mouth_cue_tracks.map((track) => track.track_id) ?? [],
+    lipSyncTimingSource: lastBundle?.lipSync?.debug?.timing_source ?? null,
+    lipSyncSourceSlotType: lastBundle?.lipSync?.debug?.source_slot_type ?? null,
+    lastBundle
   };
 }
 
 function buildSpeechPlaybackStateSeed(
-  event: BackendSessionEventDocument,
-  playbackKey: string
+  bundle: SpeechPlaybackBundle,
+  event: BackendSessionEventDocument
 ): SpeechPlaybackStateSeed {
   return {
-    playbackKey,
-    audioReference: normalizeOptionalText(event.synthesis?.audio_reference),
-    synthesisStatus: normalizeOptionalText(event.synthesis?.status) ?? normalizeOptionalText(event.status),
-    profileId: normalizeOptionalText(event.synthesis?.profile_id),
-    locale: normalizeOptionalText(event.synthesis?.locale),
-    utteranceDurationMs: event.synthesis?.timing?.utterance_duration_ms ?? null,
-    text: normalizeOptionalText(event.synthesis?.text)
+    bundle,
+    synthesisStatus: normalizeOptionalText(event.synthesis?.status) ?? normalizeOptionalText(event.status)
   };
 }
 
 function buildSpeechPlaybackState(
   playbackStateSeed: SpeechPlaybackStateSeed,
-  overrides: Partial<SpeechPlaybackState>
-): SpeechPlaybackState {
+  overrides: Partial<SpeechPlaybackSnapshot>
+): SpeechPlaybackSnapshot {
+  const bundle = playbackStateSeed.bundle;
   return {
     status: overrides.status ?? "idle",
     transport: overrides.transport ?? "none",
-    playbackKey: overrides.playbackKey ?? playbackStateSeed.playbackKey,
+    playbackKey: overrides.playbackKey ?? bundle.playbackKey,
     message: overrides.message ?? "No canonical synthesis playback is active.",
     error: overrides.error ?? null,
-    audioReference: overrides.audioReference ?? playbackStateSeed.audioReference,
+    audioReference: overrides.audioReference ?? bundle.audioReference,
     audioSource: overrides.audioSource ?? null,
     synthesisStatus: overrides.synthesisStatus ?? playbackStateSeed.synthesisStatus,
-    profileId: overrides.profileId ?? playbackStateSeed.profileId,
-    locale: overrides.locale ?? playbackStateSeed.locale,
-    utteranceDurationMs: overrides.utteranceDurationMs ?? playbackStateSeed.utteranceDurationMs,
-    text: overrides.text ?? playbackStateSeed.text
+    profileId: overrides.profileId ?? bundle.profileId,
+    locale: overrides.locale ?? bundle.locale,
+    utteranceDurationMs: overrides.utteranceDurationMs ?? bundle.utteranceDurationMs,
+    text: overrides.text ?? bundle.text,
+    lipSyncDefaultTrackId: overrides.lipSyncDefaultTrackId ?? bundle.lipSync?.default_track_id ?? null,
+    lipSyncTrackIds: overrides.lipSyncTrackIds ?? bundle.lipSync?.mouth_cue_tracks.map((track) => track.track_id) ?? [],
+    lipSyncTimingSource: overrides.lipSyncTimingSource ?? bundle.lipSync?.debug?.timing_source ?? null,
+    lipSyncSourceSlotType: overrides.lipSyncSourceSlotType ?? bundle.lipSync?.debug?.source_slot_type ?? null,
+    lastBundle: overrides.lastBundle ?? bundle
+  };
+}
+
+function buildSpeechPlaybackBundle(
+  event: BackendSessionEventDocument,
+  playbackKey: string,
+  audioResolution: ReturnType<typeof resolveSpeechSynthesisAudioSource>
+): SpeechPlaybackBundle {
+  return {
+    playbackKey,
+    storedAt: new Date().toISOString(),
+    profileId: normalizeOptionalText(event.synthesis?.profile_id),
+    locale: normalizeOptionalText(event.synthesis?.locale),
+    text: normalizeOptionalText(event.synthesis?.text),
+    audioReference: normalizeOptionalText(event.synthesis?.audio_reference),
+    audioSource: audioResolution.audioSource,
+    sourceResolutionReason: audioResolution.reason,
+    utteranceDurationMs: event.synthesis?.timing?.utterance_duration_ms ?? null,
+    visemeSlots: event.synthesis?.timing?.viseme_slots ?? [],
+    lipSync: event.synthesis?.timing?.lip_sync ?? null
   };
 }
 
@@ -455,16 +693,64 @@ function buildUnavailablePlaybackMessage(reason: SpeechAudioSourceResolutionReas
   return "Canonical synthesis is present, but it has no browser-playable audio reference or timing metadata.";
 }
 
+function resolveAudioPlaybackDurationMs(audio: HTMLAudioElement): number | null {
+  const durationSeconds = audio.duration;
+
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return null;
+  }
+
+  return durationSeconds * 1000;
+}
+
+function resolveEffectiveSpeechReactionDurationMs(
+  backendDurationMs: number | null,
+  audioDurationMs: number | null
+): number | null {
+  if (typeof backendDurationMs === "number" && backendDurationMs > 0 && typeof audioDurationMs === "number" && audioDurationMs > 0) {
+    return Math.min(backendDurationMs, audioDurationMs);
+  }
+
+  if (typeof audioDurationMs === "number" && audioDurationMs > 0) {
+    return audioDurationMs;
+  }
+
+  if (typeof backendDurationMs === "number" && backendDurationMs > 0) {
+    return backendDurationMs;
+  }
+
+  return null;
+}
+
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const trimmedValue = value?.trim();
   return trimmedValue ? trimmedValue : null;
 }
 
-function resolveSpeechReactionInput(synthesis: BackendSpeechSynthesisDocument): AvatarSpeechReactionInput {
+function resolveSpeechReactionInput(bundle: SpeechPlaybackBundle): AvatarSpeechReactionInput {
   return {
-    utteranceDurationMs: synthesis.timing?.utterance_duration_ms ?? null,
-    visemeSlots: synthesis.timing?.viseme_slots ?? []
+    utteranceDurationMs: bundle.utteranceDurationMs,
+    visemeSlots: bundle.visemeSlots,
+    mouthCueTrack: resolvePreferredMouthCueTrack(bundle.lipSync)
   };
+}
+
+function resolvePreferredMouthCueTrack(
+  lipSync: BackendSpeechLipSyncPayloadDocument | null
+): BackendSpeechMouthCueTrackDocument | null {
+  if (!lipSync || lipSync.mouth_cue_tracks.length === 0) {
+    return null;
+  }
+
+  const defaultTrackId = normalizeOptionalText(lipSync.default_track_id);
+  if (defaultTrackId) {
+    const matchingTrack = lipSync.mouth_cue_tracks.find((track) => track.track_id === defaultTrackId);
+    if (matchingTrack) {
+      return matchingTrack;
+    }
+  }
+
+  return lipSync.mouth_cue_tracks[0] ?? null;
 }
 
 function buildSpeechSynthesisPlaybackKey(event: BackendSessionEventDocument | null): string | null {

@@ -245,6 +245,55 @@ class GptSovitsSynthesisAdapterTests(unittest.TestCase):
         self.assertEqual(str(audio_path), contract.audio_reference)
         self.assertEqual(410, contract.timing.utterance_duration_ms)
 
+    def test_synthesize_generates_fallback_viseme_slots_from_text_when_provider_returns_duration_only(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            app_paths = build_app_paths(Path(temp_dir))
+            provider_root = app_paths.providers_root / "tts" / "gpt-sovits"
+            model_root = app_paths.tts_models_root / "gpt-sovits"
+            provider_root.mkdir(parents=True)
+            model_root.mkdir(parents=True)
+            audio_path = model_root / "fallback-viseme-preview.wav"
+            synthesize_script = provider_root / "synthesize.py"
+            synthesize_script.write_text(
+                "import json\n"
+                "from pathlib import Path\n"
+                "import sys\n"
+                "request = json.loads(sys.stdin.read())\n"
+                "audio_path = Path(request['model_root']) / 'fallback-viseme-preview.wav'\n"
+                "audio_path.write_bytes(b'RIFF')\n"
+                "response = {\n"
+                "    'status': 'ready',\n"
+                "    'text': request['text'],\n"
+                "    'locale': request['locale'],\n"
+                "    'audio_reference': str(audio_path),\n"
+                "    'timing': {\n"
+                "        'utterance_duration_ms': 1200,\n"
+                "        'segment_ranges': [{'start_ms': 0, 'end_ms': 1200, 'text': request['text']}],\n"
+                "        'audio_format': {\n"
+                "            'container': 'wav',\n"
+                "            'encoding': 'pcm_s16le',\n"
+                "            'sample_rate_hz': 32000,\n"
+                "            'channels': 1\n"
+                "        }\n"
+                "    }\n"
+                "}\n"
+                "sys.stdout.write(json.dumps(response))\n",
+                encoding="utf-8",
+            )
+            adapter = GptSovitsSynthesisAdapter(app_paths=app_paths)
+
+            contract = adapter.synthesize(
+                SpeechSynthesisRequest(text="Fallback viseme timing please.", locale="en-US")
+            )
+
+        self.assertEqual("ready", contract.status)
+        self.assertEqual(str(audio_path), contract.audio_reference)
+        self.assertEqual(1200, contract.timing.utterance_duration_ms)
+        self.assertGreater(len(contract.timing.viseme_slots), 0)
+        self.assertIsNotNone(contract.timing.lip_sync)
+        self.assertEqual("text_fallback_visemes", contract.timing.lip_sync.debug.timing_source)
+        self.assertGreater(len(contract.timing.lip_sync.mouth_cue_tracks), 0)
+
     def test_synthesize_serializes_overlapping_provider_invocations(self) -> None:
         with TemporaryDirectory() as temp_dir:
             app_paths = build_app_paths(Path(temp_dir))
