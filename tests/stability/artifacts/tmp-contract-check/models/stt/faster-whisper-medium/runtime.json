@@ -1,9 +1,0 @@
-﻿{
-    "model_size":  "medium",
-    "device":  "auto",
-    "compute_type":  "default",
-    "notes":  [
-                  "Machine-local Faster-Whisper Medium metadata belongs here after you place the approved model payload under NIKOF_STT_MODELS_ROOT\\faster-whisper-medium.",
-                  "Keep this file local only. Bootstrap and startup checks use it as a scaffold marker, not as payload proof."
-              ]
-}

@@ -467,7 +467,11 @@ class TTSWorker:
                 phoneme_slots=(),
                 viseme_slots=(),
             )
-            timing = _normalize_timing(raw_timing, fallback=fallback_timing)
+            timing = _normalize_timing(
+                raw_timing,
+                fallback=fallback_timing,
+                preferred_lip_sync_track_id=request.preferred_lip_sync_track_id,
+            )
 
         return SpeechSynthesisContract(
             profile_id=request.profile_id,

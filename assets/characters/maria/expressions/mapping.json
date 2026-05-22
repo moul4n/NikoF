@@ -14,5 +14,8 @@
     "ou": null,
     "ee": null,
     "oh": null
+  },
+  "lip_sync": {
+    "preferred_track_id": "advanced"
   }
 }

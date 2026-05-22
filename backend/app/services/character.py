@@ -27,6 +27,9 @@ class CharacterManifestSource(Protocol):
     def load_voice_profile(self, character_id: str) -> dict[str, object]:
         raise NotImplementedError
 
+    def load_expression_map(self, character_id: str) -> dict[str, object]:
+        raise NotImplementedError
+
 
 @dataclass(slots=True)
 class CharacterVoiceProfile:
@@ -35,6 +38,11 @@ class CharacterVoiceProfile:
     style: str | None = None
     notes: str | None = None
     settings: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class CharacterLipSyncPreferences:
+    preferred_track_id: str = "basic"
 
 
 @dataclass(slots=True)
@@ -91,6 +99,22 @@ class FileSystemCharacterManifestSource:
 
         return payload
 
+    def load_expression_map(self, character_id: str) -> dict[str, object]:
+        manifest = self.load_manifest(character_id)
+        if not manifest.expression_map:
+            return {}
+
+        expression_map_path = self._character_root(character_id) / manifest.expression_map
+        try:
+            payload = json.loads(expression_map_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return {}
+
+        if not isinstance(payload, dict):
+            return {}
+
+        return payload
+
     def _character_root(self, character_id: str) -> Path:
         manifest_path = self._manifest_path(character_id)
         return manifest_path.parent
@@ -137,6 +161,15 @@ class CharacterService:
             notes=(str(payload.get("notes")) if payload.get("notes") is not None else None),
             settings=settings,
         )
+
+    def get_character_lip_sync_preferences(self, character_id: str) -> CharacterLipSyncPreferences:
+        payload = self.manifest_source.load_expression_map(character_id)
+        lip_sync_payload = payload.get("lip_sync") if isinstance(payload, dict) else None
+        if not isinstance(lip_sync_payload, dict):
+            return CharacterLipSyncPreferences()
+
+        preferred_track_id = str(lip_sync_payload.get("preferred_track_id") or "").strip() or "basic"
+        return CharacterLipSyncPreferences(preferred_track_id=preferred_track_id)
 
     @staticmethod
     def _to_summary(manifest: CharacterManifest) -> CharacterSummary:

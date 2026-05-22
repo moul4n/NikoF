@@ -71,6 +71,7 @@ def _build_tts_preview_response(
     snapshot = services.session_service.get_snapshot()
     active_character = services.character_service.get_character_summary(snapshot.active_character_id)
     voice_profile = services.character_service.get_character_voice_profile(active_character.character_id)
+    lip_sync_preferences = services.character_service.get_character_lip_sync_preferences(active_character.character_id)
     synthesis = services.synthesis_service.synthesize(
         SpeechSynthesisRequest(
             text=normalized_text,
@@ -84,6 +85,7 @@ def _build_tts_preview_response(
                 "notes": voice_profile.notes,
                 **voice_profile.settings,
             },
+            preferred_lip_sync_track_id=lip_sync_preferences.preferred_track_id,
         )
     )
     synthesis_envelope = services.session_service.event_store.append(

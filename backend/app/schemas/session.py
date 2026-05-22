@@ -63,12 +63,44 @@ class SpeechVisemeSlot:
 
 
 @dataclass(slots=True, frozen=True)
+class SpeechMouthCueSlot:
+    cue: str
+    start_ms: int
+    end_ms: int
+    weight: float | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class SpeechMouthCueTrack:
+    track_id: str
+    cue_namespace: str
+    cues: tuple[SpeechMouthCueSlot, ...] = field(default_factory=tuple)
+
+
+@dataclass(slots=True, frozen=True)
+class SpeechLipSyncDebug:
+    timing_source: str | None = None
+    source_slot_type: str | None = None
+    generated_track_ids: tuple[str, ...] = field(default_factory=tuple)
+    phoneme_slot_count: int = 0
+    viseme_slot_count: int = 0
+
+
+@dataclass(slots=True, frozen=True)
+class SpeechLipSyncPayload:
+    default_track_id: str | None = None
+    mouth_cue_tracks: tuple[SpeechMouthCueTrack, ...] = field(default_factory=tuple)
+    debug: SpeechLipSyncDebug | None = None
+
+
+@dataclass(slots=True, frozen=True)
 class SpeechTimingMetadata:
     utterance_duration_ms: int
     segment_ranges: tuple[SpeechSegmentRange, ...] = field(default_factory=tuple)
     audio_format: AudioFormatMetadata | None = None
     phoneme_slots: tuple[SpeechPhonemeSlot, ...] = field(default_factory=tuple)
     viseme_slots: tuple[SpeechVisemeSlot, ...] = field(default_factory=tuple)
+    lip_sync: SpeechLipSyncPayload | None = None
 
 
 @dataclass(slots=True, frozen=True)

@@ -101,6 +101,7 @@ def run_user_text_turn(
     snapshot = services.session_service.get_snapshot()
     active_character = services.character_service.get_character_summary(snapshot.active_character_id)
     voice_profile = services.character_service.get_character_voice_profile(active_character.character_id)
+    lip_sync_preferences = services.character_service.get_character_lip_sync_preferences(active_character.character_id)
 
     speech_lifecycle_events: list[SpeechLifecycleEventEnvelope] = []
     if request.transcription is not None:
@@ -153,6 +154,7 @@ def run_user_text_turn(
                     "notes": voice_profile.notes,
                     **voice_profile.settings,
                 },
+                preferred_lip_sync_track_id=lip_sync_preferences.preferred_track_id,
             )
         )
     else:

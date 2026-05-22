@@ -19,6 +19,8 @@ tests/stability/artifacts/current/*
 !tests/stability/artifacts/current/.gitkeep
 tests/stability/artifacts/reports/*
 !tests/stability/artifacts/reports/.gitkeep
+tests/stability/artifacts/tmp-*/
+tests/stability/artifacts/display-signoff.png
 
 # Machine-local env files
 .env.local
@@ -27,6 +29,7 @@ tests/stability/artifacts/reports/*
 # Common local Python envs for bootstrap or backend work
 backend/.venv/
 .venv/
+.venv-test/
 
 # Python cache artifacts
 __pycache__/
@@ -36,10 +39,12 @@ __pycache__/
 # Frontend install and build outputs
 frontend/node_modules/
 frontend/dist/
-frontend/display/vrm-animation-debug/node_modules/
+frontend/test-results/
+.vite/
 
 # Machine-local Unity export workspace spillover
 .tmp-unity-temp/
+Logs/
 Library/
 ProjectSettings/
 UserSettings/
