@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 from typing import Literal
 
 
@@ -209,6 +210,24 @@ def _default_prerequisite_state(present: bool) -> BootstrapPrerequisiteState:
 
 def _path_exists(path: Path | None) -> bool:
     return path is not None and path.exists()
+
+
+def _resolve_local_command_path(command: str) -> Path | None:
+    resolved = shutil.which(command)
+    if resolved:
+        return Path(resolved)
+
+    if command.lower() == "ollama":
+        local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+        candidates = []
+        if local_app_data:
+            candidates.append(Path(local_app_data) / "Programs" / "Ollama" / "ollama.exe")
+        candidates.append(Path("C:/Program Files/Ollama/ollama.exe"))
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+    return None
 
 
 def _expected_root(prerequisite: BootstrapProviderPrerequisite) -> Path:
@@ -661,6 +680,11 @@ def get_bootstrap_provider_prerequisites(
         expected_paths = _resolve_bootstrap_expected_paths(resolved_paths, provider)
         match_mode = str(provider.get("matchMode") or "all")
         present, expected_path = _match_expected_paths(expected_paths, match_mode)
+        if provider_id == "provider-ollama":
+            ollama_command_path = _resolve_local_command_path("ollama")
+            present = ollama_command_path is not None
+            if ollama_command_path is not None:
+                expected_path = ollama_command_path
         remediation = provider.get("remediation")
         hook_id = None
         if isinstance(remediation, dict):

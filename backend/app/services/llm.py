@@ -16,6 +16,7 @@ from app.services.resource_monitor import get_resource_monitor
 OLLAMA_GENERATE_PATH = "/api/generate"
 DEFAULT_OLLAMA_MODEL_DIRECTORY = "ollama-llama3.1-8b"
 DEFAULT_OLLAMA_MODEL_NAME = "llama3.1:8b"
+DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS = 90
 RUNTIME_CONFIG_FILE_NAME = "runtime.json"
 
 
@@ -42,6 +43,7 @@ class TextGenerationRuntimeBinding:
     endpoint: str
     model_name: str
     configured: bool
+    timeout_seconds: int = DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS
 
 
 class TextGenerationInvocationError(RuntimeError):
@@ -70,6 +72,13 @@ def _normalize_model_name(raw_value: Any) -> str:
         return raw_value.strip()
 
     return DEFAULT_OLLAMA_MODEL_NAME
+
+
+def _coerce_int(raw_value: Any, default: int) -> int:
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _normalize_contract_status(raw_status: Any, *, has_reply_text: bool) -> str:
@@ -109,7 +118,7 @@ def _normalize_endpoint(raw_value: str | None) -> str:
     return f"{normalized}{OLLAMA_GENERATE_PATH}"
 
 
-def _read_json_response(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _read_json_response(url: str, payload: dict[str, Any], *, timeout_seconds: int = DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
     request = urllib_request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -118,7 +127,7 @@ def _read_json_response(url: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
     try:
-        with urllib_request.urlopen(request, timeout=10) as response:
+        with urllib_request.urlopen(request, timeout=max(1, timeout_seconds)) as response:
             raw_response = response.read().decode("utf-8")
     except (urllib_error.URLError, TimeoutError) as exc:
         raise TextGenerationInvocationError("connection-failed") from exc
@@ -179,6 +188,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             endpoint=endpoint,
             model_name=model_name,
             configured=configured,
+            timeout_seconds=max(1, _coerce_int(runtime_config.get("timeout_seconds"), DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS)),
         )
 
     def _build_contract(
@@ -215,6 +225,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
                     "prompt": request.prompt,
                     "stream": False,
                 },
+                timeout_seconds=binding.timeout_seconds,
             )
         except TextGenerationInvocationError as error:
             status = "unavailable" if str(error) == "connection-failed" else "error"

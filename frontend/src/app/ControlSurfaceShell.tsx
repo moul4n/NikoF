@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { CharacterCatalogPanel } from "../avatar/components/CharacterCatalogPanel.js";
 import { ControlSurfaceSummaryPanel } from "./ControlSurfaceSummaryPanel.js";
+import { ControlSurfaceTtsSettingsPanel } from "./ControlSurfaceTtsSettingsPanel.js";
 import { ResourceMonitorPanel } from "./ResourceMonitorPanel.js";
 import { useResourceMonitor } from "./useResourceMonitor.js";
 import type {
@@ -231,6 +232,7 @@ export function ControlSurfaceShell({
   speechLifecycleState,
   speechPlaybackStatus
 }: ControlSurfaceShellProps): JSX.Element {
+  const [activeSidebarTab, setActiveSidebarTab] = useState<"summary" | "tts">("summary");
   const resourceState = useResourceMonitor();
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
   const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
@@ -294,17 +296,41 @@ export function ControlSurfaceShell({
                 selectedCharacterId={selectedCharacterId}
                 onSelectCharacter={onSelectCharacter}
               />
-              <ControlSurfaceSummaryPanel
-                selectedCharacter={selectedCharacter}
-                backendStatusMessage={backendStatusMessage}
-                sessionId={backendSyncState.sessionId}
-                healthPayload={backendSyncState.healthPayload}
-                speechDeliveryLabel={speechDeliveryLabel}
-                speechPlaybackStatusLabel={speechPlaybackStatusLabel}
-                speechPlaybackTransportLabel={speechPlaybackTransportLabel}
-                speechPlaybackMessage={speechPlaybackStatus.playbackKey ? speechPlaybackStatus.message : null}
-                speechLifecycleNextCursor={speechLifecycleSnapshot?.nextCursor ?? null}
-              />
+              <div className="control-layout__settings-tabs" role="tablist" aria-label="Control surface settings tabs">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSidebarTab === "summary"}
+                  className={activeSidebarTab === "summary" ? "control-layout__settings-tab control-layout__settings-tab--active" : "control-layout__settings-tab"}
+                  onClick={() => setActiveSidebarTab("summary")}
+                >
+                  Summary
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSidebarTab === "tts"}
+                  className={activeSidebarTab === "tts" ? "control-layout__settings-tab control-layout__settings-tab--active" : "control-layout__settings-tab"}
+                  onClick={() => setActiveSidebarTab("tts")}
+                >
+                  TTS settings
+                </button>
+              </div>
+              {activeSidebarTab === "summary" ? (
+                <ControlSurfaceSummaryPanel
+                  selectedCharacter={selectedCharacter}
+                  backendStatusMessage={backendStatusMessage}
+                  sessionId={backendSyncState.sessionId}
+                  healthPayload={backendSyncState.healthPayload}
+                  speechDeliveryLabel={speechDeliveryLabel}
+                  speechPlaybackStatusLabel={speechPlaybackStatusLabel}
+                  speechPlaybackTransportLabel={speechPlaybackTransportLabel}
+                  speechPlaybackMessage={speechPlaybackStatus.playbackKey ? speechPlaybackStatus.message : null}
+                  speechLifecycleNextCursor={speechLifecycleSnapshot?.nextCursor ?? null}
+                />
+              ) : (
+                <ControlSurfaceTtsSettingsPanel />
+              )}
             </aside>
           </div>
 

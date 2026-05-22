@@ -64,6 +64,22 @@ class RuntimeBindingTests(unittest.TestCase):
         self.assertFalse(prerequisites["tts-model-gpt-sovits"].present)
         self.assertFalse(prerequisites["tts-provider-entrypoint"].present)
 
+    def test_ollama_scaffold_does_not_count_as_installed_runtime(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            app_paths = build_app_paths(Path(temp_dir))
+            provider_root = app_paths.providers_root / "llm" / "ollama"
+            provider_root.mkdir(parents=True)
+            (provider_root / "runtime.json").write_text("{}", encoding="utf-8")
+
+            with patch("app.core.settings._resolve_local_command_path", return_value=None):
+                prerequisites = {
+                    prerequisite.id: prerequisite
+                    for prerequisite in get_startup_runtime_prerequisites(app_paths=app_paths)
+                }
+
+        self.assertEqual("missing", prerequisites["provider-ollama"].state)
+        self.assertFalse(prerequisites["provider-ollama"].present)
+
     def test_ollama_binding_aligns_with_bootstrap_provider_layout(self) -> None:
         with TemporaryDirectory() as temp_dir:
             app_paths = build_app_paths(Path(temp_dir))
@@ -81,6 +97,7 @@ class RuntimeBindingTests(unittest.TestCase):
         self.assertEqual(app_paths.llm_models_root / "ollama-llama3.1-8b", binding.model_root)
         self.assertEqual("http://127.0.0.1:11434/api/generate", binding.endpoint)
         self.assertEqual("llama3.1:8b", binding.model_name)
+        self.assertEqual(90, binding.timeout_seconds)
         self.assertFalse(binding.configured)
 
     def test_ollama_binding_uses_endpoint_environment_without_local_payloads(self) -> None:
@@ -91,7 +108,7 @@ class RuntimeBindingTests(unittest.TestCase):
             provider_root.mkdir(parents=True)
             model_root.mkdir(parents=True)
             (provider_root / "runtime.json").write_text(
-                '{"endpoint": "http://127.0.0.1:11434", "model": "llama3.1:8b-instruct"}',
+                '{"endpoint": "http://127.0.0.1:11434", "model": "llama3.1:8b-instruct", "timeout_seconds": 75}',
                 encoding="utf-8",
             )
 
@@ -111,6 +128,7 @@ class RuntimeBindingTests(unittest.TestCase):
         self.assertTrue(binding.configured)
         self.assertEqual("http://127.0.0.1:11434/api/generate", binding.endpoint)
         self.assertEqual("llama3.1:8b-instruct", binding.model_name)
+        self.assertEqual(75, binding.timeout_seconds)
 
     def test_gpt_sovits_binding_prefers_synthesize_entrypoint_by_default(self) -> None:
         with TemporaryDirectory() as temp_dir:

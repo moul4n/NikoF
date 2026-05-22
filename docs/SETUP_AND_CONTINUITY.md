@@ -44,11 +44,12 @@ Expectations:
 1. Clone the repository.
 2. Read `README.md`, this document, and the current squad docs to understand the expected stack and work state.
 3. Run `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\bootstrap.ps1` from the repo root.
-4. Let bootstrap create or validate the local storage roots under `%LOCALAPPDATA%\NikoF` by default, or fall back to the documented repo-local sandbox only when `LOCALAPPDATA` is unavailable.
-5. Review the generated report under `.local/bootstrap/bootstrap-report.json` and the session helper `.local/bootstrap/session-env.ps1`.
-6. Review the printed provider states and the matching `.local/bootstrap/hints/*.txt` files for blocked providers or runtimes. A normal bootstrap run now scaffolds the Faster-Whisper Medium and GPT-SoVITS local-only `runtime.json` and `install-plan.json` files automatically, while only the safe Ollama model pull remains automated. Faster-Whisper and GPT-SoVITS payload acquisition and provider entrypoint placement are still explicit manual steps.
-7. Run repository validation commands, starting with the contract validation script, then backend and frontend startup checks.
-8. Continue work only after the environment matches the documented baseline.
+4. If you want the repo to perform the safe Windows bring-up work automatically, run `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -AllSafe` instead of doing the base install steps by hand.
+5. Let bootstrap create or validate the local storage roots under `%LOCALAPPDATA%\NikoF` by default, or fall back to the documented repo-local sandbox only when `LOCALAPPDATA` is unavailable.
+6. Review the generated report under `.local/bootstrap/bootstrap-report.json` and the session helper `.local/bootstrap/session-env.ps1`.
+7. Review the printed provider states and the matching `.local/bootstrap/hints/*.txt` files for blocked providers or runtimes. A normal bootstrap run now scaffolds the Faster-Whisper Medium and GPT-SoVITS local-only `runtime.json` and `install-plan.json` files automatically, while only the safe Ollama model pull remains automated. Faster-Whisper payload download is now available through the installer wrapper, while GPT-SoVITS payload acquisition and provider placement still require an approved local source path.
+8. Run repository validation commands, starting with the contract validation script, then backend and frontend startup checks.
+9. Continue work only after the environment matches the documented baseline.
 
 The bootstrap contract is successful when a second Windows machine can reconstruct the intended environment without needing undocumented chat history or the original developer's shell profile.
 
@@ -84,6 +85,16 @@ The bootstrap scaffold's current contract is intentionally conservative:
 - GPT-SoVITS scaffold files alone are not a ready install: bootstrap and backend startup now report `scaffolded` until a non-manifest payload exists under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` and a provider entrypoint exists under `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits`.
 - It does not blindly download Whisper, GPT-SoVITS, embedding, or other heavyweight payloads with uncertain redistribution or installer side effects.
 
+The companion installer wrapper now automates the safe subset of that contract on Windows:
+
+- It can install or reuse Git, Python, Node.js, Ollama, the repo `.venv`, backend dependencies, and frontend dependencies.
+- It can pull the repo baseline Ollama model through the existing safe bootstrap hook.
+- It can download Faster-Whisper Medium into the managed STT root and generate the local provider wrappers from repo code.
+- If Hugging Face is blocked on the target machine, it can instead copy the approved Faster-Whisper Medium payload from another machine-local export through `-SttModelSourcePath`.
+- It can now download and stage the current GPT-SoVITS v2Pro Windows package plus source tree through `-InstallGptSovitsV2Pro`, including the provider runtime, provider-side pretrained models, and the model-side v2Pro payload.
+- It still does not invent a voice profile. Even after `-InstallGptSovitsV2Pro`, actual synthesis requires `NIKOF_TTS_MODELS_ROOT\gpt-sovits\speakers\default.json` plus at least one reference wav under `NIKOF_TTS_MODELS_ROOT\gpt-sovits\reference-audio`.
+- If you already have an approved local GPT-SoVITS export, you can still use `-TtsProviderSourcePath` and `-TtsModelSourcePath` instead of the built-in download flow.
+
 Current concrete local asset expectations:
 
 - Ollama runtime install path stays machine-managed, but NikoF uses `NIKOF_PROVIDERS_ROOT\llm\ollama` for repo-facing notes or endpoint hints and `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b` for the local readiness marker after a successful `ollama pull llama3.1:8b`.
@@ -93,7 +104,8 @@ Current concrete local asset expectations:
 - GPT-SoVITS payloads live under `NIKOF_TTS_MODELS_ROOT\gpt-sovits` and remain outside git.
 - The backend-facing GPT-SoVITS wrapper lives under `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\synthesize.py` for one-shot invocation and may expose a persistent server through `api_v2.py`, `api.py`, or `api_server.py`.
 - Machine-local GPT-SoVITS runtime shaping can live in `runtime.json` under that TTS model root or the matching provider root. Keep speaker ids, reference audio paths, prompt text, and other vendor-specific payload details there rather than in repo-tracked config.
-- On the current dev machine, the working local GPT-SoVITS pair is `pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt` plus `pretrained_models/s2G488k.pth`. The attempted `pretrained_models/v2Pro/s2Gv2Pro.pth` override did not match the current provider runtime and failed during sidecar model load.
+- On the current dev machine, the managed GPT-SoVITS v2Pro install now starts successfully with `pretrained_models/s1v3.ckpt` plus `pretrained_models/v2Pro/s2Gv2Pro.pth`, but the provider root also needs the vendor `GPT_SoVITS/pretrained_models` subtree, including `GPT_SoVITS/pretrained_models/sv/pretrained_eres2netv2w24s4ep4.ckpt`.
+- Starting the sidecar is not the same as producing audio: the current remaining machine-local synthesis requirement is still a speaker manifest and reference wav.
 - The local-only runtime manifests live at `NIKOF_PROVIDERS_ROOT\llm\ollama\runtime.json`, `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b\runtime.json`, `NIKOF_STT_MODELS_ROOT\faster-whisper-medium\runtime.json`, `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\runtime.json`, `NIKOF_TTS_MODELS_ROOT\gpt-sovits\runtime.json`, and `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\runtime.json`.
 - The manual Faster-Whisper acquisition checklist lives at `NIKOF_STT_MODELS_ROOT\faster-whisper-medium\install-plan.json` and is created by the `stt-manual-medium` hook.
 - The manual GPT-SoVITS acquisition checklist lives at `NIKOF_TTS_MODELS_ROOT\gpt-sovits\install-plan.json` and is created by the `tts-manual-gpt-sovits` hook.

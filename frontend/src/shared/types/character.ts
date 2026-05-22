@@ -315,3 +315,18 @@ export interface BackendSttStateDocument {
   compute_type?: string | null;
   next_sequence: number;
 }
+
+export interface BackendTtsReferenceSettingsDocument {
+  schema_version: number;
+  prompt_text: string;
+  prompt_language: string;
+  text_language: string;
+  configured: boolean;
+  has_reference_audio: boolean;
+  reference_audio_path?: string | null;
+  reference_audio_file_name?: string | null;
+  speaker_manifest_path: string;
+  reference_audio_root: string;
+  max_reference_audio_bytes: number;
+  allowed_extensions: string[];
+}

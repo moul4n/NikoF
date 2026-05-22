@@ -8,6 +8,7 @@ from app.api.operator_routes import OperatorCommandRouteServices, register_opera
 from app.api.read_routes import ReadRouteServices, register_read_routes
 from app.api.resource_routes import register_resource_routes
 from app.api.stt_routes import register_stt_routes
+from app.api.tts_settings_routes import register_tts_settings_routes
 from app.api.session_routes import SessionTransportRouteServices, register_session_transport_routes
 from app.services.animation_commands import AnimationCommandTranslator
 from app.core.settings import get_app_paths
@@ -153,6 +154,8 @@ def build_api_route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="GET", path="/session/stt/devices", name="get_session_stt_devices"),
         RouteDefinition(method="PUT", path="/session/stt/device", name="put_session_stt_device"),
         RouteDefinition(method="PUT", path="/session/stt/listening", name="put_session_stt_listening"),
+        RouteDefinition(method="GET", path="/session/tts/settings", name="get_session_tts_settings"),
+        RouteDefinition(method="PUT", path="/session/tts/settings", name="put_session_tts_settings"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
         RouteDefinition(method="GET", path="/system/resources", name="get_system_resources"),
     ]
@@ -488,4 +491,5 @@ def register_api_routes(
     )
 
     register_stt_routes(router)
+    register_tts_settings_routes(router)
     register_resource_routes(router)

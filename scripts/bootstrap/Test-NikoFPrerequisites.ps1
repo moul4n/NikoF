@@ -104,7 +104,16 @@ function Test-NikoFTooling {
     $results = @()
 
     foreach ($tool in $Config.tools) {
-        $toolCommandPath = (Get-Command $tool.command -ErrorAction SilentlyContinue).Source
+        $toolCommand = Get-Command $tool.command -ErrorAction SilentlyContinue | Select-Object -First 1
+        $toolCommandPath = $null
+        if ($toolCommand) {
+            if ($toolCommand.Path) {
+                $toolCommandPath = $toolCommand.Path
+            }
+            elseif ($toolCommand.Source) {
+                $toolCommandPath = $toolCommand.Source
+            }
+        }
         $output = $null
         $isAvailable = $false
 
@@ -134,31 +143,40 @@ function Test-NikoFTooling {
     return $results
 }
 
-    function Resolve-NikoFCommandPath {
-        [CmdletBinding()]
-        param(
-            [Parameter(Mandatory)]
-            [string]$Command
-        )
+function Resolve-NikoFCommandPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Command
+    )
 
-            $resolvedCommandPath = (Get-Command $Command -ErrorAction SilentlyContinue).Source
-            if ($resolvedCommandPath) {
-                return $resolvedCommandPath
+    $resolvedCommand = Get-Command $Command -ErrorAction SilentlyContinue | Select-Object -First 1
+    $resolvedCommandPath = $null
+    if ($resolvedCommand) {
+        if ($resolvedCommand.Path) {
+            $resolvedCommandPath = $resolvedCommand.Path
         }
+        elseif ($resolvedCommand.Source) {
+            $resolvedCommandPath = $resolvedCommand.Source
+        }
+    }
+    if ($resolvedCommandPath) {
+        return $resolvedCommandPath
+    }
 
-        if ($Command -ieq 'ollama') {
-            foreach ($candidatePath in @(
-                (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
-                'C:\Program Files\Ollama\ollama.exe'
-            )) {
-                if ($candidatePath -and (Test-Path -LiteralPath $candidatePath)) {
-                    return $candidatePath
-                }
+    if ($Command -ieq 'ollama') {
+        foreach ($candidatePath in @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
+            'C:\Program Files\Ollama\ollama.exe'
+        )) {
+            if ($candidatePath -and (Test-Path -LiteralPath $candidatePath)) {
+                return $candidatePath
             }
         }
-
-        return $null
     }
+
+    return $null
+}
 
 function Resolve-NikoFProviderArtifactSpecs {
     [CmdletBinding()]
@@ -383,6 +401,7 @@ function Get-NikoFProviderStatus {
     $gptSovitsScaffoldArtifacts = @('runtime.json', 'install-plan.json')
 
     foreach ($provider in $Config.providers) {
+        $providerId = [string]$provider.id
         $rootPath = $StorageLayout.($provider.rootKey)
         $expectedRelativePaths = @()
         if ($provider.PSObject.Properties.Name -contains "expectedRelativePaths") {
@@ -407,8 +426,17 @@ function Get-NikoFProviderStatus {
         else {
             $expectedPaths.Where({ Test-Path -LiteralPath $_ }).Count -eq $expectedPaths.Count
         }
+        if ($providerId -eq 'provider-ollama') {
+            $ollamaCommandPath = Resolve-NikoFCommandPath -Command 'ollama'
+            $present = $null -ne $ollamaCommandPath
+        }
         $expectedPath = if ($present) {
-            $expectedPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if ($providerId -eq 'provider-ollama' -and $ollamaCommandPath) {
+                $ollamaCommandPath
+            }
+            else {
+                $expectedPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            }
         }
         else {
             $expectedPaths[0]
@@ -425,7 +453,7 @@ function Get-NikoFProviderStatus {
         $runtimeConfigPath = $artifactSpecs | Where-Object { $_.kind -eq 'runtime_config' } | Select-Object -ExpandProperty path -First 1
         $installPlanPath = $artifactSpecs | Where-Object { $_.kind -eq 'install_plan' } | Select-Object -ExpandProperty path -First 1
         $results += [pscustomobject]@{
-            id = $provider.id
+            id = $providerId
             display_name = $provider.displayName
             root_key = $provider.rootKey
             expected_path = $expectedPath
@@ -854,16 +882,16 @@ function Export-NikoFSessionEnvFile {
     )
 
     $envFilePath = Join-Path $StorageLayout.report_root $Config.storage.envFileName
-    $lines = @(
-        '$env:NIKOF_LOCAL_ROOT = "' + $StorageLayout.local_data_root + '"',
-        '$env:NIKOF_MODELS_ROOT = "' + $StorageLayout.models_root + '"',
-        '$env:NIKOF_LLM_MODELS_ROOT = "' + $StorageLayout.llm_models_root + '"',
-        '$env:NIKOF_STT_MODELS_ROOT = "' + $StorageLayout.stt_models_root + '"',
-        '$env:NIKOF_TTS_MODELS_ROOT = "' + $StorageLayout.tts_models_root + '"',
-        '$env:NIKOF_EMBEDDINGS_ROOT = "' + $StorageLayout.embeddings_root + '"',
-        '$env:NIKOF_PROVIDERS_ROOT = "' + $StorageLayout.providers_root + '"',
-        '$env:NIKOF_CACHE_ROOT = "' + $StorageLayout.cache_root + '"'
-    )
+    $lines = @"
+`$env:NIKOF_LOCAL_ROOT = "$($StorageLayout.local_data_root)"
+`$env:NIKOF_MODELS_ROOT = "$($StorageLayout.models_root)"
+`$env:NIKOF_LLM_MODELS_ROOT = "$($StorageLayout.llm_models_root)"
+`$env:NIKOF_STT_MODELS_ROOT = "$($StorageLayout.stt_models_root)"
+`$env:NIKOF_TTS_MODELS_ROOT = "$($StorageLayout.tts_models_root)"
+`$env:NIKOF_EMBEDDINGS_ROOT = "$($StorageLayout.embeddings_root)"
+`$env:NIKOF_PROVIDERS_ROOT = "$($StorageLayout.providers_root)"
+`$env:NIKOF_CACHE_ROOT = "$($StorageLayout.cache_root)"
+"@
 
     Set-Content -LiteralPath $envFilePath -Value $lines -Encoding Ascii
     return $envFilePath

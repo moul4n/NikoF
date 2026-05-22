@@ -105,5 +105,25 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\bootstrap.ps1
 
 It creates the documented local storage roots, checks the base toolchain, writes a machine-local bootstrap report under `.local/bootstrap/`, and prints the manual next steps for heavyweight providers and models that stay outside Git.
 
+When you want the repo to do the safe bring-up work for you on a fresh machine, use the installer wrapper instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -AllSafe
+```
+
+`-AllSafe` installs or reuses the Windows base toolchain, creates the repo `.venv`, installs backend and frontend dependencies, installs Ollama when missing, pulls the baseline Ollama model, downloads Faster-Whisper Medium into the managed STT root, generates the local Faster-Whisper provider wrappers, and runs the current bootstrap plus contract and backend prerequisite checks.
+
+If Hugging Face is blocked on the current machine, you can stage the approved Faster-Whisper payload from another machine-local copy instead of downloading it here:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -SttModelSourcePath D:\Exports\faster-whisper-medium -Validate
+```
+
+GPT-SoVITS remains a local-source handoff because the repo does not commit an approved vendor runtime payload. When you have a working local export from another machine, stage it into the managed roots with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -SttModelSourcePath D:\Exports\faster-whisper-medium -TtsProviderSourcePath D:\Exports\gpt-sovits-provider -TtsModelSourcePath D:\Exports\gpt-sovits-model -Validate
+```
+
 Detailed structure and contracts live in [docs/ARCHITECTURE.md](/c:/Users/fletc/Sources/NikoF/docs/ARCHITECTURE.md). Delivery stages, dependencies, and exit criteria live in [docs/IMPLEMENTATION_PLAN.md](/c:/Users/fletc/Sources/NikoF/docs/IMPLEMENTATION_PLAN.md).
 Fresh-machine bootstrap, local model storage policy, and squad continuity expectations live in [docs/SETUP_AND_CONTINUITY.md](/c:/Users/fletc/Sources/NikoF/docs/SETUP_AND_CONTINUITY.md).

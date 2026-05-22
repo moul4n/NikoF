@@ -155,6 +155,17 @@ class GPTSoVITSServerOwnershipTests(unittest.TestCase):
 
         self.assertEqual("api_server.py", config.server_script)
 
+    def test_load_server_config_uses_runtime_timeout_override(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            app_paths = build_app_paths(Path(temp_dir))
+            provider_root = app_paths.providers_root / "tts" / "gpt-sovits"
+            provider_root.mkdir(parents=True)
+            (provider_root / "runtime.json").write_text('{"timeout_seconds": 90}', encoding="utf-8")
+
+            config = load_server_config(app_paths)
+
+        self.assertEqual(90, config.startup_timeout_seconds)
+
     def test_start_refuses_external_healthy_listener(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -174,6 +185,23 @@ class GPTSoVITSServerOwnershipTests(unittest.TestCase):
 
         self.assertFalse(started)
         self.assertIsNone(manager.owner_pid)
+
+    def test_wait_for_healthy_uses_configured_startup_timeout(self) -> None:
+        config = GPTSoVITSServerConfig(startup_timeout_seconds=1.0)
+        manager = GPTSoVITSServerManager(config=config)
+        manager._process = MagicMock()
+        manager._process.poll.return_value = None
+
+        with patch("app.services.tts_server._http_json_request") as http_request, patch(
+            "app.services.tts_server.time.time",
+            side_effect=[10.0, 10.0, 11.1],
+        ), patch("app.services.tts_server.time.sleep"):
+            http_request.side_effect = [GPTSoVITSServerError("still loading"), {"status": "ready"}]
+
+            healthy = manager._wait_for_healthy()
+
+        self.assertFalse(healthy)
+        self.assertEqual(1, http_request.call_count)
 
     def test_synthesize_waits_for_transient_recovery_before_restart(self) -> None:
         manager = GPTSoVITSServerManager()

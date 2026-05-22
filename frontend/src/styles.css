@@ -136,6 +136,37 @@ select {
   overflow-wrap: anywhere;
 }
 
+.control-layout__settings-tabs {
+  display: inline-flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.control-layout__settings-tab {
+  border: 1px solid rgba(160, 175, 200, 0.24);
+  background: rgba(21, 31, 48, 0.76);
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.5rem 0.95rem;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.control-layout__settings-tab:hover,
+.control-layout__settings-tab:focus-visible {
+  border-color: rgba(123, 211, 193, 0.72);
+  background: rgba(28, 45, 63, 0.88);
+  transform: translateY(-1px);
+}
+
+.control-layout__settings-tab--active {
+  border-color: rgba(123, 211, 193, 0.8);
+  background: rgba(30, 63, 71, 0.72);
+}
+
 .app-shell__display {
   width: min(1500px, 100%);
   display: grid;
@@ -416,6 +447,69 @@ select {
   margin: 0;
   color: #a9b6ca;
   font-size: 0.92rem;
+}
+
+.tts-settings-panel__form {
+  display: grid;
+  gap: 1rem;
+}
+
+.tts-settings-panel__field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.tts-settings-panel__label {
+  color: #8ca0bf;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tts-settings-panel__input,
+.tts-settings-panel__textarea {
+  width: 100%;
+  border: 1px solid rgba(160, 175, 200, 0.22);
+  border-radius: 14px;
+  background: rgba(12, 19, 31, 0.92);
+  color: #eef4ff;
+  padding: 0.8rem 0.9rem;
+}
+
+.tts-settings-panel__textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.tts-settings-panel__input:focus-visible,
+.tts-settings-panel__textarea:focus-visible,
+.tts-settings-panel__button:focus-visible {
+  outline: 2px solid rgba(123, 211, 193, 0.85);
+  outline-offset: 2px;
+}
+
+.tts-settings-panel__hint {
+  color: #a9b6ca;
+  font-size: 0.92rem;
+}
+
+.tts-settings-panel__actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.tts-settings-panel__button {
+  border: 1px solid rgba(123, 211, 193, 0.8);
+  background: rgba(30, 63, 71, 0.72);
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+}
+
+.tts-settings-panel__button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .operator-panel__actions {

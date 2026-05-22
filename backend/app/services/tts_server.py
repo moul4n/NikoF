@@ -69,6 +69,7 @@ class GPTSoVITSServerConfig:
     weights_root: str = "./weights"
     reference_audio_root: str = "./reference-audio"
     speaker_manifest: str = "./speakers/default.json"
+    startup_timeout_seconds: float = SERVER_STARTUP_TIMEOUT_SECONDS
     log_root: Path = Path(".")
 
     @property
@@ -124,6 +125,18 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
     raw_server_script = str(config_data.get("server_script") or "").strip()
     server_script = raw_server_script or _resolve_default_server_script(provider_root)
 
+    startup_timeout_seconds = SERVER_STARTUP_TIMEOUT_SECONDS
+    raw_startup_timeout = config_data.get("timeout_seconds")
+    if raw_startup_timeout is None:
+        raw_startup_timeout = config_data.get("startup_timeout_seconds")
+    if raw_startup_timeout is not None:
+        try:
+            parsed_startup_timeout = float(raw_startup_timeout)
+            if parsed_startup_timeout > 0:
+                startup_timeout_seconds = parsed_startup_timeout
+        except (TypeError, ValueError):
+            pass
+
     return GPTSoVITSServerConfig(
         host=str(config_data.get("server_host", DEFAULT_SERVER_HOST)).strip() or DEFAULT_SERVER_HOST,
         port=port,
@@ -134,6 +147,7 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
         weights_root=str(config_data.get("weights_root", "./weights")),
         reference_audio_root=str(config_data.get("reference_audio_root", "./reference-audio")),
         speaker_manifest=str(config_data.get("speaker_manifest", "./speakers/default.json")),
+        startup_timeout_seconds=startup_timeout_seconds,
         log_root=_default_log_root(paths),
     )
 
@@ -384,7 +398,7 @@ class GPTSoVITSServerManager:
 
     def _wait_for_healthy(self) -> bool:
         """Poll the server until it responds healthy or timeout."""
-        deadline = time.time() + SERVER_STARTUP_TIMEOUT_SECONDS
+        deadline = time.time() + self.config.startup_timeout_seconds
         while time.time() < deadline:
             if self._process is not None and self._process.poll() is not None:
                 logger.error(

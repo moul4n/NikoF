@@ -10,6 +10,12 @@ From the repo root:
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\bootstrap.ps1
 ```
 
+When you want the repo to install the safe prerequisites on a Windows machine instead of only reporting them, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -AllSafe
+```
+
 Optional override for the local storage root:
 
 ```powershell
@@ -35,6 +41,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\bootstrap.ps1 -Loca
 - It does not silently install vendor runtimes with uncertain licensing or machine-specific side effects.
 - It does not modify frontend code or machine-global environment variables.
 - Manual LLM, STT, and TTS hooks scaffold local-only `runtime.json` and `install-plan.json` files, but they never download vendor payloads for you.
+
+The new installer wrapper keeps that contract explicit:
+
+- `install-prerequisites.ps1 -AllSafe` installs or reuses Git, Python, Node.js, the repo `.venv`, backend and frontend dependencies, Ollama, the baseline Ollama model, and the Faster-Whisper Medium payload plus provider wrappers.
+- If Hugging Face is blocked on the target machine, pass `-SttModelSourcePath` to copy an approved Faster-Whisper Medium payload from another machine-local export instead of downloading it.
+- GPT-SoVITS is still a source-path handoff because the approved runtime and weights are machine-local artifacts, not repo assets.
+- If you have those approved GPT-SoVITS artifacts on another machine, pass `-TtsProviderSourcePath` and `-TtsModelSourcePath` so the installer can copy them into the managed local roots and then rerun validation.
 
 ## Canonical Local Path Contract
 
@@ -95,6 +108,11 @@ Current hook-side manifest scaffolding for the local LLM and TTS lane:
 - `tts-manual-gpt-sovits` writes `NIKOF_TTS_MODELS_ROOT\gpt-sovits\runtime.json` plus `NIKOF_TTS_MODELS_ROOT\gpt-sovits\install-plan.json`, then stops so you can acquire the approved GPT-SoVITS payload manually.
 - `tts-provider-manual` writes `NIKOF_PROVIDERS_ROOT\tts\gpt-sovits\runtime.json`, then stops so you can place the local provider entrypoint without committing vendor code.
 - `ollama-install-windows` does not install Ollama, but the reported runtime config path is `NIKOF_PROVIDERS_ROOT\llm\ollama\runtime.json` if you need a non-default endpoint.
+
+The companion installer can now acquire the current GPT-SoVITS v2Pro baseline directly:
+
+- `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -InstallGptSovitsV2Pro` downloads the Windows package and source archive, stages the provider runtime and pretrained-model requirements, stages the model-side v2Pro payload, and rewrites the local GPT-SoVITS runtime manifests as UTF-8 without BOM.
+- That flow intentionally stops short of inventing a voice profile. You still need `NIKOF_TTS_MODELS_ROOT\gpt-sovits\speakers\default.json` plus at least one reference wav under `NIKOF_TTS_MODELS_ROOT\gpt-sovits\reference-audio` before a real `tts_preview` can succeed.
 
 Current hook-side manifest scaffolding for the required STT lane:
 

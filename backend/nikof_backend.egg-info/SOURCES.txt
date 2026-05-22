@@ -49,4 +49,5 @@ tests/test_operator_command_surface.py
 tests/test_provider_adapter_wiring.py
 tests/test_runtime_bindings.py
 tests/test_stt_sidecar_runtime.py
+tests/test_stt_surface.py
 tests/test_tts_sidecar_runtime.py
