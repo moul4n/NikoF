@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from app.services.llm import TextGenerationSidecarManager, TextGenerationSidecarStatus, get_text_generation_sidecar_manager
 from app.services.resource_monitor import get_resource_monitor, ResourceSnapshot
 from app.services.stt_worker import STTWorkerStatus, get_stt_worker
 from app.services.tts_worker import get_tts_worker, TTSWorkerStatus
@@ -19,6 +20,7 @@ class ResourceStatusResponse:
     owned_processes: list[dict[str, Any]]
     system_memory: dict[str, Any]
     subsystems: list[dict[str, Any]]
+    llm_sidecar: dict[str, Any]
     tts_worker: dict[str, Any]
     stt_worker: dict[str, Any]
     warnings: list[str]
@@ -91,6 +93,35 @@ def _serialize_subsystems(snap: ResourceSnapshot) -> list[dict[str, Any]]:
     ]
 
 
+def _serialize_llm_sidecar(status: TextGenerationSidecarStatus) -> dict[str, Any]:
+    return {
+        "state": status.state.value if hasattr(status.state, "value") else str(status.state),
+        "profile_id": status.profile_id,
+        "family": status.family,
+        "configured": status.configured,
+        "available": status.available,
+        "loaded": status.loaded,
+        "model_name": status.model_name,
+        "endpoint": status.endpoint,
+        "timeout_seconds": status.timeout_seconds,
+        "last_error": status.last_error,
+        "requests_processed": status.requests_processed,
+        "average_latency_ms": round(status.average_latency_ms, 1) if status.average_latency_ms else None,
+        "last_request_epoch": status.last_request_epoch,
+        "vram_allocated_mb": round(status.vram_allocated_mb, 1) if status.vram_allocated_mb else None,
+        "ram_allocated_mb": round(status.ram_allocated_mb, 1) if status.ram_allocated_mb else None,
+        "process_managed": status.process_managed,
+        "process_running": status.process_running,
+        "process_healthy": status.process_healthy,
+        "started_by_backend": status.started_by_backend,
+        "owner_pid": status.owner_pid,
+        "health_url": status.health_url,
+        "startup_timeout_seconds": status.startup_timeout_seconds,
+        "stdout_log_path": status.stdout_log_path,
+        "stderr_log_path": status.stderr_log_path,
+    }
+
+
 def _serialize_tts_worker(status: TTSWorkerStatus) -> dict[str, Any]:
     return {
         "state": status.state.value if hasattr(status.state, "value") else str(status.state),
@@ -124,9 +155,12 @@ def _serialize_stt_worker(status: STTWorkerStatus) -> dict[str, Any]:
     }
 
 
-def build_resource_status_response() -> ResourceStatusResponse:
+def build_resource_status_response(
+    llm_sidecar_manager: TextGenerationSidecarManager | None = None,
+) -> ResourceStatusResponse:
     monitor = get_resource_monitor()
     snap = monitor.snapshot()
+    llm_manager = llm_sidecar_manager or get_text_generation_sidecar_manager()
     tts_worker = get_tts_worker()
     stt_worker = get_stt_worker()
 
@@ -138,6 +172,7 @@ def build_resource_status_response() -> ResourceStatusResponse:
         owned_processes=_serialize_owned_processes(snap),
         system_memory=_serialize_system_memory(snap),
         subsystems=_serialize_subsystems(snap),
+        llm_sidecar=_serialize_llm_sidecar(llm_manager.status()),
         tts_worker=_serialize_tts_worker(tts_worker.status()),
         stt_worker=_serialize_stt_worker(stt_worker.status()),
         warnings=list(snap.warnings),
@@ -158,6 +193,7 @@ def register_resource_routes(router: Any) -> None:
             "owned_processes": response.owned_processes,
             "system_memory": response.system_memory,
             "subsystems": response.subsystems,
+            "llm_sidecar": response.llm_sidecar,
             "tts_worker": response.tts_worker,
             "stt_worker": response.stt_worker,
             "warnings": response.warnings,

@@ -69,6 +69,13 @@ const SPEECH_EXPRESSION_BLEND_WINDOW_MS = 64;
 const SPEECH_EXPRESSION_MIN_WEIGHT = 0.001;
 const SPEECH_SHORT_SILENCE_SKIP_MS = 120;
 const SPEECH_SHORT_GAP_BRIDGE_MS = 90;
+const MIN_BASE_ANIMATION_TRANSITION_MS = 260;
+const MAX_BASE_ANIMATION_TRANSITION_MS = 520;
+const LOOP_BASE_ANIMATION_TRANSITION_MS = 320;
+const MIN_RETURN_TO_IDLE_TRANSITION_MS = 500;
+const MAX_RETURN_TO_IDLE_TRANSITION_MS = 760;
+const MIN_RETURN_TO_IDLE_LEAD_MS = 580;
+const MAX_RETURN_TO_IDLE_LEAD_MS = 920;
 const LOWER_BODY_ROTATION_BONES: Array<{
   debugName: AvatarLowerBodyRotationBoneName;
   vrmBoneName: VRMHumanBoneNameValue;
@@ -188,6 +195,18 @@ interface RigOverlayState {
   joints: RigOverlayJoint[];
 }
 
+interface GazeDebugMarkerState {
+  root: THREE.Group;
+  lineGeometry: THREE.BufferGeometry;
+  lineMaterial: THREE.LineBasicMaterial;
+  linePositionAttribute: THREE.BufferAttribute;
+  markerGeometry: THREE.SphereGeometry;
+  headMaterial: THREE.MeshBasicMaterial;
+  targetMaterial: THREE.MeshBasicMaterial;
+  headMarker: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  targetMarker: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+}
+
 interface ActiveBaseAnimationState {
   command: SemanticAnimationCommand;
   payload: SemanticAnimationRuntimePayload;
@@ -196,6 +215,7 @@ interface ActiveBaseAnimationState {
   baselinePosition: THREE.Vector3;
   baselineQuaternion: THREE.Quaternion;
   humanoidPlayback: HumanoidChannelPlayback | null;
+  asyncBridgeReady: boolean;
   elapsedSeconds: number;
 }
 
@@ -303,6 +323,28 @@ interface AvatarRuntimeDebugApi {
   getLowerBodyRotationSnapshot: () => AvatarLowerBodyRotationDebugSnapshot | null;
   getLowerBodyRotationRange: (sampleCount?: number) => AvatarLowerBodyRotationRangeDebugSnapshot;
   getPlaybackProgress: () => AvatarPlaybackProgressDebugSnapshot;
+  getAttentionDebugSnapshot: () => {
+    attentionTarget: { normalizedX: number; normalizedY: number; confidence: number | null } | null;
+    hasPassiveEyeDrift: boolean;
+    hasVrmLookAt: boolean;
+    lookAtAutoUpdate: boolean | null;
+    lookAtYawDegrees: number | null;
+    lookAtPitchDegrees: number | null;
+    lookAtApplierType: string | null;
+    lookAtRangeMapHorizontalInner: number | null;
+    lookAtRangeMapHorizontalOuter: number | null;
+    lookAtRangeMapVerticalDown: number | null;
+    lookAtRangeMapVerticalUp: number | null;
+    leftEyeQuaternion: [number, number, number, number] | null;
+    rightEyeQuaternion: [number, number, number, number] | null;
+    lookExpressionValues: {
+      lookLeft: number | null;
+      lookRight: number | null;
+      lookUp: number | null;
+      lookDown: number | null;
+    };
+    lookAtTargetPosition: { x: number; y: number; z: number } | null;
+  };
 }
 
 type ResolvedAnimationPlayback = AvatarRuntimeResolvedPlayback;
@@ -313,6 +355,33 @@ declare global {
   }
 }
 
+function cloneSemanticAnimationCommand(command: SemanticAnimationCommand): SemanticAnimationCommand {
+  return { ...command };
+}
+
+function resolveCanonicalAnimationCommand(command: SemanticAnimationCommand): SemanticAnimationCommand {
+  return command.source === "shared"
+    ? {
+        ...command,
+        id: resolveCanonicalSharedSemanticAnimationId(command.id)
+      }
+    : command;
+}
+
+function isIdleAnimationCommand(command: SemanticAnimationCommand): boolean {
+  return resolveCanonicalAnimationCommand(command).id.startsWith("idle.");
+}
+
+function resolveIdleAnimationCommand(command: SemanticAnimationCommand): SemanticAnimationCommand {
+  const canonicalCommand = resolveCanonicalAnimationCommand(command);
+  return canonicalCommand.playback === "loop"
+    ? canonicalCommand
+    : {
+        ...canonicalCommand,
+        playback: "loop"
+      };
+}
+
 export interface AvatarRuntimeSnapshot {
   mounted: boolean;
   currentCharacterId: CharacterId | null;
@@ -320,6 +389,7 @@ export interface AvatarRuntimeSnapshot {
   mountPoints: AvatarRuntimeMountPoints | null;
   pendingAnimation: SemanticAnimationCommand | null;
   baseAnimation: SemanticAnimationCommand | null;
+  idleAnimation: SemanticAnimationCommand | null;
   currentModelUrl: string | null;
   loadState: AvatarRuntimeLoadState;
   activeEmotion: AvatarRuntimeEmotionName | null;
@@ -338,8 +408,14 @@ export interface AvatarRuntimeBridge {
   setRigOverlayEnabled: (enabled: boolean) => void;
   setAnimationPlaybackPath: (playbackPath: AvatarAnimationPlaybackPath) => void;
   setEmotion: (emotion: AvatarRuntimeEmotionName | null) => void;
+  setAttentionTarget: (target: { normalizedX: number; normalizedY: number; confidence?: number | null } | null) => void;
+  setAttentionDebugMarkerEnabled: (enabled: boolean) => void;
   beginSpeechReaction: (input: AvatarSpeechReactionInput) => void;
   clearSpeechReaction: () => void;
+  setIdleAnimation: (
+    command: SemanticAnimationCommand,
+    options?: { source?: "manual" | "system" }
+  ) => void;
   play: (command: SemanticAnimationCommand | null) => void;
   subscribe: (listener: AvatarRuntimeListener) => () => void;
   snapshot: () => AvatarRuntimeSnapshot;
@@ -427,6 +503,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     mountPoints: null,
     pendingAnimation: null,
     baseAnimation: null,
+    idleAnimation: cloneSemanticAnimationCommand(DEFAULT_BASE_ANIMATION_COMMAND),
     currentModelUrl: null,
     loadState: "idle",
     activeEmotion: null,
@@ -444,9 +521,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let animationFrameId: number | null = null;
   let currentAvatar: LoadedAvatar | null = null;
   let activeBaseAnimation: ActiveBaseAnimationState | null = null;
+  let selectedIdleAnimation = cloneSemanticAnimationCommand(DEFAULT_BASE_ANIMATION_COMMAND);
   let debugProfileView: AvatarDebugProfileView = "front";
   let rigOverlayEnabled = false;
   let rigOverlayState: RigOverlayState | null = null;
+  let gazeDebugMarkerState: GazeDebugMarkerState | null = null;
+  let attentionDebugMarkerEnabled = false;
   let animationPlaybackPath: AvatarAnimationPlaybackPath = "vrma";
   let vrmaPlayback: VrmaPlaybackBridge | null = null;
   let officialPlayback: OfficialMixamoPlaybackBridge | null = null;
@@ -458,6 +538,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let activeLoadTargetKey: string | null = null;
   let activeLoadPromise: Promise<void> | null = null;
   let activeSpeechReaction: ActiveSpeechReactionState | null = null;
+  let attentionTarget: { normalizedX: number; normalizedY: number; confidence: number | null } | null = null;
   let activeSpeechExpressionName: string | null = null;
   let activeSpeechExpressionNames = new Set<string>();
   let renderFrameCount = 0;
@@ -476,6 +557,15 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   const maxLowerBodyDebugHistory = 360;
   const listeners = new Set<AvatarRuntimeListener>();
   const clock = new THREE.Clock();
+  const attentionForward = new THREE.Vector3();
+  const attentionHeadPosition = new THREE.Vector3();
+  const attentionRight = new THREE.Vector3();
+  const attentionTowardCamera = new THREE.Vector3();
+  const attentionUp = new THREE.Vector3();
+  const attentionWorldPoint = new THREE.Vector3();
+  let trackedAttentionLookAtOverrideActive = false;
+  let trackedAttentionYawDegrees = 0;
+  let trackedAttentionPitchDegrees = 0;
   const debugFrontProfileTargetForward = new THREE.Vector3(0, 0, 1);
   const debugSideProfileYawOffsetQuaternion = new THREE.Quaternion().setFromAxisAngle(
     new THREE.Vector3(0, 1, 0),
@@ -509,6 +599,116 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     }
 
     return normalizeYawDegrees(actualDegrees - expectedDegrees);
+  }
+
+  function resolveAttentionWeight(): number {
+    if (snapshot.speechReactionMode === "viseme") {
+      return 0.9;
+    }
+    if (snapshot.speechReactionMode === "coarse") {
+      return 0.82;
+    }
+    return 0.72;
+  }
+
+  function clearTrackedAttentionLookAtOverride(): void {
+    if (!trackedAttentionLookAtOverrideActive) {
+      trackedAttentionYawDegrees = 0;
+      trackedAttentionPitchDegrees = 0;
+      return;
+    }
+
+    const lookAt = currentAvatar?.vrm?.lookAt as unknown as {
+      autoUpdate?: boolean;
+      reset?: () => void;
+      yaw?: number;
+      pitch?: number;
+    } | null;
+
+    if (lookAt) {
+      lookAt.autoUpdate = true;
+
+      if (typeof lookAt.reset === "function") {
+        lookAt.reset();
+      } else {
+        if (typeof lookAt.yaw === "number") {
+          lookAt.yaw = 0;
+        }
+        if (typeof lookAt.pitch === "number") {
+          lookAt.pitch = 0;
+        }
+      }
+    }
+
+    trackedAttentionLookAtOverrideActive = false;
+    trackedAttentionYawDegrees = 0;
+    trackedAttentionPitchDegrees = 0;
+  }
+
+  function syncTrackedAttention(deltaSeconds: number): void {
+    if (!passiveEyeDrift || !camera || !attentionTarget) {
+      syncGazeDebugMarker(null, null);
+      clearTrackedAttentionLookAtOverride();
+      passiveEyeDrift?.clearTrackedGaze();
+      return;
+    }
+
+    const headNode = currentAvatar?.vrm?.humanoid?.getNormalizedBoneNode("head") ?? null;
+    if (headNode) {
+      headNode.getWorldPosition(attentionHeadPosition);
+    } else if (currentAvatar?.vrm?.scene) {
+      currentAvatar.vrm.scene.getWorldPosition(attentionHeadPosition);
+      attentionHeadPosition.y += 1.45;
+    } else {
+      syncGazeDebugMarker(null, null);
+      passiveEyeDrift.clearTrackedGaze();
+      return;
+    }
+
+    attentionTowardCamera.copy(camera.position).sub(attentionHeadPosition);
+    if (attentionTowardCamera.lengthSq() <= 1e-6) {
+      syncGazeDebugMarker(null, null);
+      passiveEyeDrift.clearTrackedGaze();
+      return;
+    }
+
+    attentionTowardCamera.normalize();
+    attentionRight.set(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+    attentionUp.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+
+    const horizontalOffset = (0.5 - attentionTarget.normalizedX) * 1.05;
+    const verticalOffset = (0.5 - attentionTarget.normalizedY) * 0.7;
+    const confidenceWeight = THREE.MathUtils.clamp(attentionTarget.confidence ?? 0.85, 0.55, 1);
+    const targetDistance = THREE.MathUtils.lerp(0.18, 0.32, confidenceWeight);
+    const lookAt = currentAvatar?.vrm?.lookAt as unknown as {
+      autoUpdate?: boolean;
+      yaw?: number;
+      pitch?: number;
+    } | null;
+
+    attentionWorldPoint.copy(attentionHeadPosition)
+      .addScaledVector(attentionTowardCamera, targetDistance)
+      .addScaledVector(attentionRight, horizontalOffset)
+      .addScaledVector(attentionUp, verticalOffset);
+
+    syncGazeDebugMarker(attentionHeadPosition, attentionWorldPoint);
+
+    if (lookAt && typeof lookAt.yaw === "number" && typeof lookAt.pitch === "number") {
+      const desiredYawDegrees = THREE.MathUtils.clamp((0.5 - attentionTarget.normalizedX) * 640, -60, 60) * confidenceWeight;
+      const desiredPitchDegrees = THREE.MathUtils.clamp((attentionTarget.normalizedY - 0.5) * 460, -40, 40) * confidenceWeight;
+
+      trackedAttentionYawDegrees = THREE.MathUtils.damp(trackedAttentionYawDegrees, desiredYawDegrees, 12, deltaSeconds);
+      trackedAttentionPitchDegrees = THREE.MathUtils.damp(trackedAttentionPitchDegrees, desiredPitchDegrees, 12, deltaSeconds);
+      lookAt.autoUpdate = false;
+      lookAt.yaw = trackedAttentionYawDegrees;
+      lookAt.pitch = trackedAttentionPitchDegrees;
+      trackedAttentionLookAtOverrideActive = true;
+      passiveEyeDrift.clearTrackedGaze();
+      return;
+    }
+
+    clearTrackedAttentionLookAtOverride();
+    passiveEyeDrift.trackGaze(attentionWorldPoint, resolveAttentionWeight() * confidenceWeight);
   }
 
   function resolveExpectedProfileQuaternion(avatar: LoadedAvatar): THREE.Quaternion {
@@ -1047,6 +1247,109 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     rigOverlayState = null;
   }
 
+  function createGazeDebugLineMaterial(): THREE.LineBasicMaterial {
+    return new THREE.LineBasicMaterial({
+      color: 0xffc857,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.92,
+      toneMapped: false,
+    });
+  }
+
+  function createGazeDebugMarkerMaterial(color: number): THREE.MeshBasicMaterial {
+    return new THREE.MeshBasicMaterial({
+      color,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.9,
+      toneMapped: false,
+    });
+  }
+
+  function createGazeDebugMarkerState(): GazeDebugMarkerState {
+    const root = new THREE.Group();
+    root.name = "gaze_debug_marker";
+    root.visible = false;
+
+    const lineGeometry = new THREE.BufferGeometry();
+    const linePositionAttribute = new THREE.BufferAttribute(new Float32Array(6), 3);
+    lineGeometry.setAttribute("position", linePositionAttribute);
+    const lineMaterial = createGazeDebugLineMaterial();
+    const line = new THREE.Line(lineGeometry, lineMaterial);
+    line.frustumCulled = false;
+    line.renderOrder = 1000;
+    root.add(line);
+
+    const markerGeometry = new THREE.SphereGeometry(0.026, 18, 18);
+    const headMaterial = createGazeDebugMarkerMaterial(0x72d6c9);
+    const targetMaterial = createGazeDebugMarkerMaterial(0xff6b6b);
+    const headMarker = new THREE.Mesh(markerGeometry, headMaterial);
+    headMarker.scale.setScalar(0.75);
+    headMarker.frustumCulled = false;
+    headMarker.renderOrder = 1001;
+    const targetMarker = new THREE.Mesh(markerGeometry, targetMaterial);
+    targetMarker.scale.setScalar(1.15);
+    targetMarker.frustumCulled = false;
+    targetMarker.renderOrder = 1001;
+    root.add(headMarker, targetMarker);
+
+    return {
+      root,
+      lineGeometry,
+      lineMaterial,
+      linePositionAttribute,
+      markerGeometry,
+      headMaterial,
+      targetMaterial,
+      headMarker,
+      targetMarker,
+    };
+  }
+
+  function removeGazeDebugMarkerHelper(): void {
+    if (!gazeDebugMarkerState) {
+      return;
+    }
+
+    scene?.remove(gazeDebugMarkerState.root);
+    gazeDebugMarkerState.lineGeometry.dispose();
+    gazeDebugMarkerState.lineMaterial.dispose();
+    gazeDebugMarkerState.markerGeometry.dispose();
+    gazeDebugMarkerState.headMaterial.dispose();
+    gazeDebugMarkerState.targetMaterial.dispose();
+    gazeDebugMarkerState = null;
+  }
+
+  function syncGazeDebugMarker(headPosition: THREE.Vector3 | null, targetPosition: THREE.Vector3 | null): void {
+    const isDisplayViewer = snapshot.mountPoints?.viewerVariant === "display";
+    if (!attentionDebugMarkerEnabled || !isDisplayViewer || !scene || !headPosition || !targetPosition) {
+      if (gazeDebugMarkerState) {
+        gazeDebugMarkerState.root.visible = false;
+      }
+      return;
+    }
+
+    if (!gazeDebugMarkerState) {
+      gazeDebugMarkerState = createGazeDebugMarkerState();
+      scene.add(gazeDebugMarkerState.root);
+    }
+
+    const positions = gazeDebugMarkerState.linePositionAttribute.array as Float32Array;
+    positions[0] = headPosition.x;
+    positions[1] = headPosition.y;
+    positions[2] = headPosition.z;
+    positions[3] = targetPosition.x;
+    positions[4] = targetPosition.y;
+    positions[5] = targetPosition.z;
+    gazeDebugMarkerState.linePositionAttribute.needsUpdate = true;
+    gazeDebugMarkerState.headMarker.position.copy(headPosition);
+    gazeDebugMarkerState.targetMarker.position.copy(targetPosition);
+    gazeDebugMarkerState.root.visible = true;
+  }
+
   function resolveRigOverlayBoneNode(vrm: VRM, boneName: VRMHumanBoneNameValue): THREE.Object3D | null {
     return vrm.humanoid.getRawBoneNode(boneName) ?? vrm.humanoid.getNormalizedBoneNode(boneName);
   }
@@ -1294,6 +1597,94 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     };
   }
 
+  function getAttentionDebugSnapshot(): {
+    attentionTarget: { normalizedX: number; normalizedY: number; confidence: number | null } | null;
+    hasPassiveEyeDrift: boolean;
+    hasVrmLookAt: boolean;
+    lookAtAutoUpdate: boolean | null;
+    lookAtYawDegrees: number | null;
+    lookAtPitchDegrees: number | null;
+    lookAtApplierType: string | null;
+    lookAtRangeMapHorizontalInner: number | null;
+    lookAtRangeMapHorizontalOuter: number | null;
+    lookAtRangeMapVerticalDown: number | null;
+    lookAtRangeMapVerticalUp: number | null;
+    leftEyeQuaternion: [number, number, number, number] | null;
+    rightEyeQuaternion: [number, number, number, number] | null;
+    lookExpressionValues: {
+      lookLeft: number | null;
+      lookRight: number | null;
+      lookUp: number | null;
+      lookDown: number | null;
+    };
+    lookAtTargetPosition: { x: number; y: number; z: number } | null;
+  } {
+    const lookAt = currentAvatar?.vrm?.lookAt ?? null;
+    const lookAtTarget = lookAt?.target ?? null;
+    const lookAtApplier = lookAt ? (lookAt as unknown as { applier?: Record<string, unknown> }).applier ?? null : null;
+    const leftEyeNode = currentAvatar?.vrm?.humanoid?.getRawBoneNode("leftEye") ?? null;
+    const rightEyeNode = currentAvatar?.vrm?.humanoid?.getRawBoneNode("rightEye") ?? null;
+    const expressionManager = currentAvatar?.vrm?.expressionManager ?? null;
+
+    function resolveRangeMapOutputScale(name: string): number | null {
+      if (!lookAtApplier) {
+        return null;
+      }
+
+      const rangeMap = (lookAtApplier as Record<string, unknown>)[name] as { outputScale?: unknown } | undefined;
+      return typeof rangeMap?.outputScale === "number" ? roundComparisonNumber(rangeMap.outputScale) : null;
+    }
+
+    function resolveExpressionValue(name: string): number | null {
+      if (!expressionManager?.getExpression(name)) {
+        return null;
+      }
+
+      const value = expressionManager.getValue(name);
+      return typeof value === "number" ? roundComparisonNumber(value) : null;
+    }
+
+    return {
+      attentionTarget: attentionTarget
+        ? {
+            normalizedX: attentionTarget.normalizedX,
+            normalizedY: attentionTarget.normalizedY,
+            confidence: attentionTarget.confidence,
+          }
+        : null,
+      hasPassiveEyeDrift: passiveEyeDrift !== null,
+      hasVrmLookAt: Boolean(lookAt),
+      lookAtAutoUpdate: lookAt ? Boolean((lookAt as unknown as { autoUpdate?: boolean }).autoUpdate) : null,
+      lookAtYawDegrees: lookAt ? roundComparisonNumber((lookAt as unknown as { yaw?: number }).yaw ?? 0) : null,
+      lookAtPitchDegrees: lookAt ? roundComparisonNumber((lookAt as unknown as { pitch?: number }).pitch ?? 0) : null,
+      lookAtApplierType:
+        lookAtApplier && typeof (lookAtApplier as { type?: unknown }).type === "string"
+          ? (lookAtApplier as { type: string }).type
+          : lookAtApplier && typeof (lookAtApplier as { constructor?: { type?: unknown } }).constructor?.type === "string"
+            ? String((lookAtApplier as { constructor: { type: string } }).constructor.type)
+            : null,
+      lookAtRangeMapHorizontalInner: resolveRangeMapOutputScale("rangeMapHorizontalInner"),
+      lookAtRangeMapHorizontalOuter: resolveRangeMapOutputScale("rangeMapHorizontalOuter"),
+      lookAtRangeMapVerticalDown: resolveRangeMapOutputScale("rangeMapVerticalDown"),
+      lookAtRangeMapVerticalUp: resolveRangeMapOutputScale("rangeMapVerticalUp"),
+      leftEyeQuaternion: leftEyeNode ? roundQuaternionValues(leftEyeNode.quaternion) : null,
+      rightEyeQuaternion: rightEyeNode ? roundQuaternionValues(rightEyeNode.quaternion) : null,
+      lookExpressionValues: {
+        lookLeft: resolveExpressionValue("lookLeft"),
+        lookRight: resolveExpressionValue("lookRight"),
+        lookUp: resolveExpressionValue("lookUp"),
+        lookDown: resolveExpressionValue("lookDown"),
+      },
+      lookAtTargetPosition: lookAtTarget
+        ? {
+            x: roundComparisonNumber(lookAtTarget.position.x),
+            y: roundComparisonNumber(lookAtTarget.position.y),
+            z: roundComparisonNumber(lookAtTarget.position.z),
+          }
+        : null,
+    };
+  }
+
   if (import.meta.env.DEV) {
     const debugApi: AvatarRuntimeDebugApi = Object.freeze({
       getProfileOrientationSnapshot: () => getProfileOrientationSnapshot(),
@@ -1303,6 +1694,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       getLowerBodyRotationSnapshot: () => collectLowerBodyRotationDebugSnapshot(),
       getLowerBodyRotationRange: (sampleCount?: number) => getLowerBodyRotationRangeDebugSnapshot(sampleCount),
       getPlaybackProgress: () => getPlaybackProgressDebugSnapshot(),
+      getAttentionDebugSnapshot: () => getAttentionDebugSnapshot(),
     });
 
     Object.defineProperty(window, "__NIKOF_AVATAR_DEBUG__", {
@@ -1310,10 +1702,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       value: debugApi,
       writable: false
     });
-
-    console.info(
-      "[vrma:debug] Debug API available at window.__NIKOF_AVATAR_DEBUG__"
-    );
   }
 
   function emitChange(): void {
@@ -1787,6 +2175,78 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return payload ?? null;
   }
 
+  function resolveAnimationDurationMs(payload: SemanticAnimationRuntimePayload): number {
+    return Math.max(payload.durationMs, resolveFinalFrameElapsedSeconds(payload) * 1000, 1000 / 30);
+  }
+
+  function resolveAdaptiveBaseAnimationTransitionMs(
+    command: SemanticAnimationCommand,
+    payload: SemanticAnimationRuntimePayload
+  ): number {
+    if (command.playback === "loop") {
+      return LOOP_BASE_ANIMATION_TRANSITION_MS;
+    }
+
+    return Math.round(
+      THREE.MathUtils.clamp(
+        resolveAnimationDurationMs(payload) * 0.22,
+        MIN_BASE_ANIMATION_TRANSITION_MS,
+        MAX_BASE_ANIMATION_TRANSITION_MS
+      )
+    );
+  }
+
+  function resolveReturnToIdleTransitionMs(baseAnimationState: ActiveBaseAnimationState): number {
+    return Math.round(
+      THREE.MathUtils.clamp(
+        resolveAnimationDurationMs(baseAnimationState.payload) * 0.28,
+        MIN_RETURN_TO_IDLE_TRANSITION_MS,
+        MAX_RETURN_TO_IDLE_TRANSITION_MS
+      )
+    );
+  }
+
+  function resolveReturnToIdleLeadMs(baseAnimationState: ActiveBaseAnimationState): number {
+    const transitionMs = resolveReturnToIdleTransitionMs(baseAnimationState);
+    const durationMs = resolveAnimationDurationMs(baseAnimationState.payload);
+    const maxLeadMs = Math.max(
+      transitionMs + 120,
+      Math.min(MAX_RETURN_TO_IDLE_LEAD_MS, durationMs * 0.62)
+    );
+
+    return Math.round(
+      THREE.MathUtils.clamp(
+        durationMs * 0.38,
+        Math.max(MIN_RETURN_TO_IDLE_LEAD_MS, transitionMs + 120),
+        maxLeadMs
+      )
+    );
+  }
+
+  function applySelectedIdleAnimation(source: "manual" | "system"): void {
+    if (!activeBaseAnimation) {
+      activateBaseAnimation(selectedIdleAnimation);
+      return;
+    }
+
+    if (activeBaseAnimation.command.playback !== "loop") {
+      return;
+    }
+
+    if (source === "manual" || isIdleAnimationCommand(activeBaseAnimation.command)) {
+      activateBaseAnimation(selectedIdleAnimation);
+    }
+  }
+
+  function restoreSelectedIdleAnimation(baseAnimationState: ActiveBaseAnimationState): void {
+    activateBaseAnimation(selectedIdleAnimation, {
+      transitionMs: resolveReturnToIdleTransitionMs(baseAnimationState),
+      holdPreviousPoseDuringAsyncLoad: true,
+      allowIncomingTransition: true,
+      resumeExistingLoop: true
+    });
+  }
+
   function resolveHumanoidPlayback(
     vrm: VRM | null,
     payload: SemanticAnimationRuntimePayload
@@ -1822,16 +2282,34 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return;
     }
 
+    const shouldRestoreIdleAfterUpdate = activeBaseAnimation.command.playback !== "loop";
+    const cycleDurationSeconds = shouldRestoreIdleAfterUpdate
+      ? Math.max(resolveAnimationDurationMs(activeBaseAnimation.payload) / 1000, 1 / 30)
+      : null;
+    const restoreIdleAtElapsedSeconds = shouldRestoreIdleAfterUpdate
+      ? Math.max(0, cycleDurationSeconds! - resolveReturnToIdleLeadMs(activeBaseAnimation) / 1000)
+      : null;
+
     // VRMA path: let the VRMA mixer handle playback directly
     if (activeBaseAnimation.playbackPath === "vrma" && vrmaPlayback) {
       if (activeBaseAnimation.command.playback === "loop") {
         activeBaseAnimation.elapsedSeconds += deltaSeconds;
       } else {
-        const cycleDurationSeconds = Math.max(resolveFinalFrameElapsedSeconds(activeBaseAnimation.payload), 1 / 30);
-        activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds);
+        activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
+      }
+
+      if (!activeBaseAnimation.asyncBridgeReady && activeBaseAnimation.humanoidPlayback) {
+        activeBaseAnimation.humanoidPlayback.apply(activeBaseAnimation.elapsedSeconds);
+        if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
+          restoreSelectedIdleAnimation(activeBaseAnimation);
+        }
+        return;
       }
 
       vrmaPlayback.update(deltaSeconds);
+      if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
+        restoreSelectedIdleAnimation(activeBaseAnimation);
+      }
       return;
     }
 
@@ -1839,11 +2317,21 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       if (activeBaseAnimation.command.playback === "loop") {
         activeBaseAnimation.elapsedSeconds += deltaSeconds;
       } else {
-        const cycleDurationSeconds = Math.max(resolveFinalFrameElapsedSeconds(activeBaseAnimation.payload), 1 / 30);
-        activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds);
+        activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
+      }
+
+      if (!activeBaseAnimation.asyncBridgeReady && activeBaseAnimation.humanoidPlayback) {
+        activeBaseAnimation.humanoidPlayback.apply(activeBaseAnimation.elapsedSeconds);
+        if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
+          restoreSelectedIdleAnimation(activeBaseAnimation);
+        }
+        return;
       }
 
       officialPlayback.update(deltaSeconds);
+      if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
+        restoreSelectedIdleAnimation(activeBaseAnimation);
+      }
       return;
     }
 
@@ -1851,21 +2339,42 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       // Let elapsed time grow continuously; the mixer's LoopRepeat handles wrapping internally.
       activeBaseAnimation.elapsedSeconds += deltaSeconds;
     } else {
-      const cycleDurationSeconds = Math.max(resolveFinalFrameElapsedSeconds(activeBaseAnimation.payload), 1 / 30);
-      activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds);
+      activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
     }
 
     activeBaseAnimation.humanoidPlayback?.apply(activeBaseAnimation.elapsedSeconds);
+
+    if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
+      restoreSelectedIdleAnimation(activeBaseAnimation);
+    }
   }
 
-  function activateBaseAnimation(command: SemanticAnimationCommand): void {
-    const canonicalCommand =
-      command.source === "shared"
-        ? {
-            ...command,
-            id: resolveCanonicalSharedSemanticAnimationId(command.id)
-          }
-        : command;
+  function hasActiveOfficialClip(clipId: string): boolean {
+    const clip = officialPlayback?.getDebugSnapshot().clips.find((candidate) => candidate.clipId === clipId);
+    return Boolean(clip && clip.enabled && (clip.running || clip.effectiveWeight > 0.001));
+  }
+
+  function hasActiveVrmaClip(clipId: string): boolean {
+    const clip = vrmaPlayback?.getDebugSnapshot().clips.find((candidate) => candidate.clipId === clipId);
+    return Boolean(clip && clip.enabled && (clip.running || clip.effectiveWeight > 0.001));
+  }
+
+  function activateBaseAnimation(
+    command: SemanticAnimationCommand,
+    options?: {
+      transitionMs?: number;
+      holdPreviousPoseDuringAsyncLoad?: boolean;
+      allowIncomingTransition?: boolean;
+      resumeExistingLoop?: boolean;
+    }
+  ): void {
+    const canonicalCommand = resolveCanonicalAnimationCommand(command);
+    if (isIdleAnimationCommand(canonicalCommand)) {
+      selectedIdleAnimation = cloneSemanticAnimationCommand(resolveIdleAnimationCommand(canonicalCommand));
+      updateSnapshot({
+        idleAnimation: cloneSemanticAnimationCommand(selectedIdleAnimation)
+      });
+    }
     const resolvedPayload = resolveBaseAnimationPayload(canonicalCommand);
 
     if (!resolvedPayload || !currentAvatar) {
@@ -1880,8 +2389,30 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return;
     }
 
-    stopBaseAnimation();
+    const previousBaseAnimation = activeBaseAnimation;
     const resolvedPlayback = resolveHumanoidPlayback(currentAvatar.vrm, resolvedPayload);
+    const asyncPreviewPlayback =
+      resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma"
+        ? resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer").playback
+        : null;
+    const blendFromPreviousBaseAnimation =
+      previousBaseAnimation !== null &&
+      previousBaseAnimation.command.id !== canonicalCommand.id &&
+      previousBaseAnimation.playbackPath === resolvedPlayback.playbackPath &&
+      (resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma");
+    const preservePreviousPoseDuringAsyncLoad =
+      previousBaseAnimation !== null &&
+      (options?.holdPreviousPoseDuringAsyncLoad === true ||
+        (!blendFromPreviousBaseAnimation &&
+          (resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma")));
+    const transitionMs = previousBaseAnimation
+      ? options?.transitionMs ?? resolveAdaptiveBaseAnimationTransitionMs(canonicalCommand, resolvedPayload)
+      : 0;
+
+    if (!blendFromPreviousBaseAnimation && !preservePreviousPoseDuringAsyncLoad) {
+      stopBaseAnimation();
+    }
+
     activeBaseAnimation = {
       command: canonicalCommand,
       payload: resolvedPayload,
@@ -1889,13 +2420,31 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       root: currentAvatar.root,
       baselinePosition: currentAvatar.root.position.clone(),
       baselineQuaternion: currentAvatar.root.quaternion.clone(),
-      humanoidPlayback: resolvedPlayback.playback,
+      humanoidPlayback: resolvedPlayback.playback ?? asyncPreviewPlayback,
+      asyncBridgeReady: resolvedPlayback.playbackPath !== "official" && resolvedPlayback.playbackPath !== "vrma",
       elapsedSeconds: 0,
     };
+
+    if (
+      (resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma") &&
+      asyncPreviewPlayback &&
+      !preservePreviousPoseDuringAsyncLoad
+    ) {
+      // Apply frame 0 immediately so the first click shows a posed preview while
+      // the async official/VRMA bridge finishes loading the authored clip.
+      asyncPreviewPlayback.apply(0);
+      currentAvatar.root.updateMatrixWorld(true);
+    }
 
     if (resolvedPlayback.playbackPath === "official" && officialPlayback) {
       const playbackBridge = officialPlayback;
       const expectedCommandId = canonicalCommand.id;
+      const previousCommandId = blendFromPreviousBaseAnimation ? previousBaseAnimation?.command.id ?? null : null;
+      const shouldTransitionFromPrevious = previousCommandId !== null && hasActiveOfficialClip(previousCommandId);
+      const shouldResumeExistingLoop =
+        options?.resumeExistingLoop === true &&
+        canonicalCommand.playback === "loop" &&
+        isIdleSemanticAnimationPayload(resolvedPayload);
       const sourcePath = resolvedPayload.sourceAsset?.path?.trim() ?? "";
       const sourceUrl = sourcePath.startsWith("/") ? sourcePath : `/${sourcePath}`;
 
@@ -1907,9 +2456,18 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         const fallbackPlayback = resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer");
         activeBaseAnimation.playbackPath = fallbackPlayback.playbackPath;
         activeBaseAnimation.humanoidPlayback = fallbackPlayback.playback;
+        activeBaseAnimation.asyncBridgeReady = true;
+        if (previousCommandId) {
+          playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
+        }
         activeBaseAnimation.humanoidPlayback?.apply(0);
         activeBaseAnimation.root.updateMatrixWorld(true);
         activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+        updateSnapshot({
+          pendingAnimation: null,
+          baseAnimation: command,
+          error: null
+        });
       };
 
       if (!sourcePath.toLowerCase().endsWith(".fbx")) {
@@ -1922,12 +2480,33 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
           return;
         }
 
+        activeBaseAnimation.asyncBridgeReady = true;
+        activeBaseAnimation.humanoidPlayback = null;
+
         playbackBridge.play(canonicalCommand.id, {
-          loop: canonicalCommand.playback === "loop"
+          loop: canonicalCommand.playback === "loop",
+          transitionMs: shouldTransitionFromPrevious && options?.allowIncomingTransition === true ? transitionMs : 0,
+          restart: !shouldResumeExistingLoop
+        });
+
+        if (shouldTransitionFromPrevious && previousCommandId) {
+          playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
+        }
+
+        updateSnapshot({
+          pendingAnimation: null,
+          baseAnimation: command,
+          error: null
         });
       }).catch((err) => {
         console.warn(`[activateBase] Official Mixamo load failed for ${canonicalCommand.id}:`, err);
         fallbackToMixer();
+      });
+
+      updateSnapshot({
+        pendingAnimation: canonicalCommand,
+        baseAnimation: snapshot.baseAnimation,
+        error: null
       });
 
       return;
@@ -1937,6 +2516,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     if (resolvedPlayback.playbackPath === "vrma" && vrmaPlayback) {
       const playbackBridge = vrmaPlayback;
       const expectedCommandId = canonicalCommand.id;
+      const previousCommandId = blendFromPreviousBaseAnimation ? previousBaseAnimation?.command.id ?? null : null;
+      const shouldTransitionFromPrevious = previousCommandId !== null && hasActiveVrmaClip(previousCommandId);
+      const shouldResumeExistingLoop =
+        options?.resumeExistingLoop === true &&
+        canonicalCommand.playback === "loop" &&
+        isIdleSemanticAnimationPayload(resolvedPayload);
 
       const fallbackToMixer = (): void => {
         if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
@@ -1946,9 +2531,18 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         const fallbackPlayback = resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer");
         activeBaseAnimation.playbackPath = fallbackPlayback.playbackPath;
         activeBaseAnimation.humanoidPlayback = fallbackPlayback.playback;
+        activeBaseAnimation.asyncBridgeReady = true;
+        if (previousCommandId) {
+          playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
+        }
         activeBaseAnimation.humanoidPlayback?.apply(0);
         activeBaseAnimation.root.updateMatrixWorld(true);
         activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
+        updateSnapshot({
+          pendingAnimation: null,
+          baseAnimation: command,
+          error: null
+        });
       };
 
       probeVrmaAsset(canonicalCommand.id, snapshot.currentCharacterId ?? undefined).then((resolution) => {
@@ -1963,9 +2557,18 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
             return;
           }
 
+          activeBaseAnimation.asyncBridgeReady = true;
+          activeBaseAnimation.humanoidPlayback = null;
+
           playbackBridge.play(canonicalCommand.id, {
-            loop: canonicalCommand.playback === "loop"
+            loop: canonicalCommand.playback === "loop",
+            transitionMs: shouldTransitionFromPrevious && options?.allowIncomingTransition === true ? transitionMs : 0,
+            restart: !shouldResumeExistingLoop
           });
+
+          if (shouldTransitionFromPrevious && previousCommandId) {
+            playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
+          }
 
           // For in-place VRMA clips, preserve the load-time ground offset.
           // Re-grounding after frame 0 would treat authored hip/foot motion as
@@ -1973,12 +2576,23 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
           playbackBridge.update(0);
           currentAvatar.vrm?.update(0);
           activeBaseAnimation.root.updateMatrixWorld(true);
+          updateSnapshot({
+            pendingAnimation: null,
+            baseAnimation: command,
+            error: null
+          });
         }).catch((err) => {
           console.warn(`[activateBase] VRMA load failed for ${canonicalCommand.id}:`, err);
           fallbackToMixer();
         });
       }).catch(() => {
         fallbackToMixer();
+      });
+
+      updateSnapshot({
+        pendingAnimation: canonicalCommand,
+        baseAnimation: snapshot.baseAnimation,
+        error: null
       });
     } else {
       // Mixer path: apply frame 0 so skeleton is in posed position
@@ -2009,6 +2623,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   function clearCurrentAvatar(): void {
     if (!scene || !currentAvatar) {
       removeRigOverlayHelper();
+      removeGazeDebugMarkerHelper();
       stopBaseAnimation();
       if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
       if (officialPlayback) { officialPlayback.dispose(); officialPlayback = null; }
@@ -2021,6 +2636,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     }
 
     removeRigOverlayHelper();
+  removeGazeDebugMarkerHelper();
     stopBaseAnimation();
     if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
     if (officialPlayback) { officialPlayback.dispose(); officialPlayback = null; }
@@ -2083,6 +2699,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       const deltaSeconds = clock.getDelta();
 
       updateBaseAnimation(deltaSeconds);
+
+      syncTrackedAttention(deltaSeconds);
 
       // Passive blink runs independently of body animation
       passiveBlink?.update(deltaSeconds);
@@ -2470,6 +3088,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       window.removeEventListener("resize", handleResize);
       stopRenderLoop();
       clearCurrentAvatar();
+      removeGazeDebugMarkerHelper();
 
       if (viewportElement) {
         viewportElement.replaceChildren();
@@ -2536,12 +3155,43 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       setActiveEmotion(emotion);
     },
 
+    setAttentionTarget(target) {
+      attentionTarget = target
+        ? {
+            normalizedX: THREE.MathUtils.clamp(target.normalizedX, 0, 1),
+            normalizedY: THREE.MathUtils.clamp(target.normalizedY, 0, 1),
+            confidence: target.confidence ?? null,
+          }
+        : null;
+
+      if (!attentionTarget) {
+        passiveEyeDrift?.clearTrackedGaze();
+      }
+    },
+
+    setAttentionDebugMarkerEnabled(enabled) {
+      attentionDebugMarkerEnabled = enabled;
+
+      if (!enabled && gazeDebugMarkerState) {
+        gazeDebugMarkerState.root.visible = false;
+      }
+    },
+
     beginSpeechReaction(input) {
       beginSpeechReaction(input);
     },
 
     clearSpeechReaction() {
       clearSpeechReaction();
+    },
+
+    setIdleAnimation(command, options) {
+      selectedIdleAnimation = cloneSemanticAnimationCommand(resolveIdleAnimationCommand(command));
+      updateSnapshot({
+        idleAnimation: cloneSemanticAnimationCommand(selectedIdleAnimation),
+        error: null
+      });
+      applySelectedIdleAnimation(options?.source ?? "manual");
     },
 
     play(command) {

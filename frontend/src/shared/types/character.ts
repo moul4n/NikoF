@@ -237,11 +237,17 @@ export interface BackendSpeechSynthesisDocument {
   timing?: BackendSpeechTimingMetadataDocument | null;
 }
 
+export interface BackendAssistantFeelingDocument {
+  name: string;
+  intensity?: number | null;
+}
+
 export interface BackendAssistantMessageDocument {
   profile_id: string;
   status: string;
   text: string;
   locale: string;
+  feeling?: BackendAssistantFeelingDocument | null;
 }
 
 export type BackendSessionEventType =
@@ -356,6 +362,37 @@ export interface BackendSttStateDocument {
   compute_type?: string | null;
   next_sequence: number;
   transcript_chunks?: BackendSttTranscriptChunkDocument[];
+}
+
+export interface BackendAttentionInputDeviceDocument {
+  device_id: string;
+  label: string;
+  default: boolean;
+}
+
+export interface BackendAttentionSubjectDocument {
+  normalized_x: number;
+  normalized_y: number;
+  face_width?: number | null;
+  face_height?: number | null;
+}
+
+export interface BackendAttentionStateDocument {
+  schema_version: number;
+  state: string;
+  available: boolean;
+  enabled: boolean;
+  tracking: boolean;
+  selected_device_id?: string | null;
+  selected_device_label?: string | null;
+  confidence?: number | null;
+  subject?: BackendAttentionSubjectDocument | null;
+  last_observed_at?: number | null;
+  last_error?: string | null;
+  fps_target: number;
+  frame_width: number;
+  frame_height: number;
+  next_sequence: number;
 }
 
 export interface BackendTtsReferenceSettingsDocument {

@@ -10,6 +10,7 @@
     "stability:control-summary": "pwsh -NoProfile -File ../scripts/testing/Invoke-StabilitySuite.ps1 -Scenario frontend-stage1-character-flow-runtime"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
     "@pixiv/three-vrm": "^3.4.0",
     "@pixiv/three-vrm-animation": "^3.4.0",
     "react": "^18.3.1",

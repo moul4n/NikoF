@@ -114,32 +114,21 @@ def build_api_contract_snapshot() -> dict[str, Any]:
 
 
 def build_api_router() -> Any:
-    (
-        session_service,
-        character_service,
-        _transcription_service,
-        synthesis_service,
-        text_generation_service,
-        speech_lifecycle_service,
-        speech_lifecycle_live_delivery,
-        session_event_factory,
-        _turn_pipeline_publisher,
-    ) = _build_services()
-    animation_service = _build_animation_service()
-    session_animation_live_delivery = _build_session_animation_live_delivery_service()
+    runtime_services = build_default_api_runtime_services()
     route_definitions = _route_definitions()
 
     return compose_api_router(
         route_definitions=route_definitions,
-        session_service=session_service,
-        character_service=character_service,
-        animation_service=animation_service,
-        session_animation_live_delivery=session_animation_live_delivery,
-        speech_lifecycle_service=speech_lifecycle_service,
-        speech_lifecycle_live_delivery=speech_lifecycle_live_delivery,
-        text_generation_service=text_generation_service,
-        synthesis_service=synthesis_service,
-        session_event_factory=session_event_factory,
+        session_service=runtime_services.session_service,
+        character_service=runtime_services.character_service,
+        animation_service=runtime_services.animation_service,
+        session_animation_live_delivery=runtime_services.session_animation_live_delivery,
+        speech_lifecycle_service=runtime_services.speech_lifecycle_service,
+        speech_lifecycle_live_delivery=runtime_services.speech_lifecycle_live_delivery,
+        text_generation_service=runtime_services.text_generation_service,
+        synthesis_service=runtime_services.synthesis_service,
+        session_event_factory=runtime_services.session_event_factory,
+        memory_service=runtime_services.memory_service,
         build_active_character_response=_build_active_character_response,
         serialize_dataclass_payload=_serialize_dataclass_payload,
     )

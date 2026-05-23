@@ -118,6 +118,7 @@ The companion installer wrapper now automates the safe subset of that contract o
 Current concrete local asset expectations:
 
 - Ollama runtime install path stays machine-managed, but NikoF uses `NIKOF_PROVIDERS_ROOT\llm\ollama` for repo-facing notes or endpoint hints and `NIKOF_LLM_MODELS_ROOT\ollama-llama3.1-8b` for the local readiness marker after a successful `ollama pull llama3.1:8b`.
+- If the local machine wants the backend to own the Ollama process instead of attaching to an already-running daemon, keep that in `NIKOF_PROVIDERS_ROOT\llm\ollama\runtime.json` with `manage_process: true`, an optional `serve_command` array, and any non-default `health_url`, `startup_timeout_seconds`, or `health_timeout_seconds` overrides.
 - Faster-Whisper Medium payloads live under `NIKOF_STT_MODELS_ROOT\faster-whisper-medium` and remain outside git.
 - The backend-facing Faster-Whisper wrapper lives under `NIKOF_PROVIDERS_ROOT\stt\faster-whisper\transcribe.py` or `main.py`.
 - Machine-local Faster-Whisper runtime shaping can live in `runtime.json` under that STT model root or the matching provider root. Keep machine-specific model and execution details there rather than in repo-tracked config.

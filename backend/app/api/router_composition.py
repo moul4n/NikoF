@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable
 
 from app.api.active_character_routes import ActiveCharacterRouteServices, register_active_character_routes
+from app.api.attention_routes import register_attention_routes
+from app.api.llm_routes import register_llm_routes
 from app.api.operator_routes import OperatorCommandRouteServices, register_operator_command_routes
 from app.api.read_routes import ReadRouteServices, register_read_routes
 from app.api.resource_routes import register_resource_routes
@@ -28,7 +30,13 @@ from app.services.animation import (
     SessionAnimationLiveDeliveryService,
 )
 from app.services.character import CharacterService, FileSystemCharacterManifestSource
-from app.services.llm import TextGenerationRequest, TextGenerationService, build_text_generation_service_registry
+from app.services.companion_memory import CompanionMemoryService, build_companion_memory_service
+from app.services.llm import (
+    TextGenerationRequest,
+    TextGenerationService,
+    TextGenerationSidecarManager,
+    get_text_generation_sidecar_manager,
+)
 from app.services.session import InMemorySessionService, SessionService
 from app.services.speech import (
     DefaultSessionEventFactory,
@@ -89,19 +97,24 @@ class ApiRouteRegistrationServices:
     text_generation_service: TextGenerationService
     synthesis_service: SpeechSynthesisService
     session_event_factory: SessionEventFactory
+    memory_service: CompanionMemoryService | None = None
 
 
 @dataclass(slots=True)
 class DefaultApiRuntimeServices:
     session_service: SessionService
     character_service: CharacterService
+    animation_service: AnimationService
+    session_animation_live_delivery: SessionAnimationLiveDeliveryService
     transcription_service: SpeechTranscriptionService
     synthesis_service: SpeechSynthesisService
     text_generation_service: TextGenerationService
+    llm_sidecar_manager: TextGenerationSidecarManager
     speech_lifecycle_service: SpeechLifecycleSnapshotService
     speech_lifecycle_live_delivery: SpeechLifecycleLiveDeliveryService
     session_event_factory: SessionEventFactory
     turn_pipeline_publisher: TurnPipelinePublisher
+    memory_service: CompanionMemoryService | None = None
 
     def as_legacy_tuple(self) -> tuple[
         SessionService,
@@ -154,6 +167,15 @@ def build_api_route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="GET", path="/session/stt/devices", name="get_session_stt_devices"),
         RouteDefinition(method="PUT", path="/session/stt/device", name="put_session_stt_device"),
         RouteDefinition(method="PUT", path="/session/stt/listening", name="put_session_stt_listening"),
+        RouteDefinition(method="GET", path="/session/llm", name="get_session_llm_state"),
+        RouteDefinition(method="POST", path="/session/llm/control", name="post_session_llm_control"),
+        RouteDefinition(method="GET", path="/session/attention", name="get_session_attention_state"),
+        RouteDefinition(method="GET", path="/session/attention/live", name="get_session_attention_live"),
+        RouteDefinition(method="GET", path="/session/attention/devices", name="get_session_attention_devices"),
+        RouteDefinition(method="PUT", path="/session/attention/device", name="put_session_attention_device"),
+        RouteDefinition(method="PUT", path="/session/attention/enabled", name="put_session_attention_enabled"),
+        RouteDefinition(method="PUT", path="/session/attention/tracking", name="put_session_attention_tracking"),
+        RouteDefinition(method="POST", path="/session/attention/observations", name="post_session_attention_observations"),
         RouteDefinition(method="GET", path="/session/tts/settings", name="get_session_tts_settings"),
         RouteDefinition(method="PUT", path="/session/tts/settings", name="put_session_tts_settings"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
@@ -172,6 +194,8 @@ def build_default_session_animation_live_delivery_service() -> SessionAnimationL
 def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
     app_paths = get_app_paths()
     character_service = CharacterService(FileSystemCharacterManifestSource())
+    animation_service = build_default_animation_service()
+    session_animation_live_delivery = build_default_session_animation_live_delivery_service()
     character_summaries = character_service.list_character_summaries()
     available_character_ids = [summary.character_id for summary in character_summaries]
     default_character_id = next(
@@ -187,10 +211,12 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
         )
     )
     synthesis_service: SpeechSynthesisService = QueuedSynthesisService(get_tts_worker(app_paths), eager=False)
-    text_generation_service = build_text_generation_service_registry(app_paths=app_paths).resolve(
+    llm_sidecar_manager = get_text_generation_sidecar_manager(app_paths)
+    text_generation_service = llm_sidecar_manager.resolve(
         TextGenerationRequest(prompt="", locale="en-US")
     )
     session_event_factory = DefaultSessionEventFactory()
+    memory_service = build_companion_memory_service(app_paths=app_paths)
     speech_lifecycle_service = StubSpeechLifecycleSnapshotService(
         event_store=session_service.event_store,
         transcription_service=StubSpeechTranscriptionService(),
@@ -214,18 +240,25 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
             text_generation_service=text_generation_service,
             synthesis_service=synthesis_service,
             session_event_factory=session_event_factory,
+            memory_service=memory_service,
+            animation_service=animation_service,
+            session_animation_live_delivery=session_animation_live_delivery,
         )
     )
     return DefaultApiRuntimeServices(
         session_service=session_service,
         character_service=character_service,
+        animation_service=animation_service,
+        session_animation_live_delivery=session_animation_live_delivery,
         transcription_service=transcription_service,
         synthesis_service=synthesis_service,
         text_generation_service=text_generation_service,
+        llm_sidecar_manager=llm_sidecar_manager,
         speech_lifecycle_service=speech_lifecycle_service,
         speech_lifecycle_live_delivery=speech_lifecycle_live_delivery,
         session_event_factory=session_event_factory,
         turn_pipeline_publisher=turn_pipeline_publisher,
+        memory_service=memory_service,
     )
 
 
@@ -410,6 +443,7 @@ def compose_api_router(
     text_generation_service: TextGenerationService,
     synthesis_service: SpeechSynthesisService,
     session_event_factory: SessionEventFactory,
+    memory_service: CompanionMemoryService | None = None,
     build_active_character_response: BuildActiveCharacterResponse,
     serialize_dataclass_payload: SerializePayload,
 ) -> Any:
@@ -432,6 +466,7 @@ def compose_api_router(
             text_generation_service=text_generation_service,
             synthesis_service=synthesis_service,
             session_event_factory=session_event_factory,
+            memory_service=memory_service,
         ),
         build_active_character_response=build_active_character_response,
         serialize_dataclass_payload=serialize_dataclass_payload,
@@ -487,9 +522,14 @@ def register_api_routes(
             text_generation_service=services.text_generation_service,
             synthesis_service=services.synthesis_service,
             session_event_factory=services.session_event_factory,
+            memory_service=services.memory_service,
+            animation_service=services.animation_service,
+            session_animation_live_delivery=services.session_animation_live_delivery,
         ),
     )
 
     register_stt_routes(router)
+    register_llm_routes(router)
+    register_attention_routes(router)
     register_tts_settings_routes(router)
     register_resource_routes(router)

@@ -59,6 +59,7 @@ def build_operator_services(default_services) -> OperatorCommandRouteServices:
         text_generation_service=default_services.text_generation_service,
         synthesis_service=default_services.synthesis_service,
         session_event_factory=default_services.session_event_factory,
+        memory_service=default_services.memory_service,
     )
 
 
@@ -138,6 +139,63 @@ class OllamaTextGenerationAdapterTests(unittest.TestCase):
 
         self.assertEqual("ready", contract.status)
         self.assertEqual("Keep the backend seam narrow.", contract.text)
+
+    def test_generate_parses_structured_llm_payload_when_requested(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            app_paths = build_app_paths(Path(temp_dir))
+            provider_root = app_paths.providers_root / "llm" / "ollama"
+            model_root = app_paths.llm_models_root / "ollama-llama3.1-8b"
+            provider_root.mkdir(parents=True)
+            model_root.mkdir(parents=True)
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), _OllamaHandler)
+            _OllamaHandler.response_payload = {
+                "model": "llama3.1:8b",
+                "response": json.dumps(
+                    {
+                        "reply_text": "I can answer that and wave after speaking.",
+                        "thinking_summary": "User asked for a spoken answer with a follow-up gesture.",
+                        "feeling": {"name": "warm", "intensity": 0.6},
+                        "voice_tone": {"style": "gentle", "pace": "steady", "energy": 0.35},
+                        "animation_cues": [{"cue": "wave", "layer": "upper", "intensity": 0.7, "duration_ms": 1400}],
+                        "memory_writebacks": [{"namespace": "memory", "summary": "User prefers concise answers.", "salience": 0.82, "source": "player", "tags": ["preference"]}],
+                    }
+                ),
+                "done": True,
+            }
+            server_thread = threading.Thread(target=server.serve_forever)
+            server_thread.start()
+            try:
+                (provider_root / "runtime.json").write_text(
+                    json.dumps(
+                        {
+                            "endpoint": f"http://127.0.0.1:{server.server_address[1]}",
+                            "model": "llama3.1:8b",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                adapter = OllamaTextGenerationAdapter(app_paths=app_paths)
+
+                contract = adapter.generate(
+                    TextGenerationRequest(
+                        prompt="Respond with structured JSON.",
+                        locale="en-US",
+                        expect_structured_output=True,
+                    )
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join()
+
+        self.assertEqual("ready", contract.status)
+        self.assertEqual("I can answer that and wave after speaking.", contract.text)
+        self.assertEqual("User asked for a spoken answer with a follow-up gesture.", contract.thinking_summary)
+        self.assertEqual("warm", contract.feeling.name)
+        self.assertEqual("gentle", contract.voice_tone.style)
+        self.assertEqual("wave", contract.animation_cues[0].cue)
+        self.assertEqual("memory", contract.memory_writebacks[0].namespace)
 
 
 class GptSovitsSynthesisAdapterTests(unittest.TestCase):
@@ -533,7 +591,16 @@ class OperatorCommandProviderWiringTests(unittest.TestCase):
 
             server = ThreadingHTTPServer(("127.0.0.1", 0), _OllamaHandler)
             _OllamaHandler.response_payload = {
-                "response": "Local LLaMA lane is live.",
+                "response": json.dumps(
+                    {
+                        "reply_text": "Local LLaMA lane is live.",
+                        "thinking_summary": "The local structured LLM lane is active.",
+                        "feeling": {"name": "steady", "intensity": 0.4},
+                        "voice_tone": {"style": "default", "pace": "steady", "energy": 0.35},
+                        "animation_cues": [],
+                        "memory_writebacks": [],
+                    }
+                ),
                 "done": True,
             }
             server_thread = threading.Thread(target=server.serve_forever)
@@ -672,7 +739,16 @@ class OperatorCommandProviderWiringTests(unittest.TestCase):
 
             server = ThreadingHTTPServer(("127.0.0.1", 0), _OllamaHandler)
             _OllamaHandler.response_payload = {
-                "response": "I can keep the answer short and clear.",
+                "response": json.dumps(
+                    {
+                        "reply_text": "I can keep the answer short and clear.",
+                        "thinking_summary": "Keep the spoken reply concise for TTS.",
+                        "feeling": {"name": "calm", "intensity": 0.45},
+                        "voice_tone": {"style": "default", "pace": "steady", "energy": 0.3},
+                        "animation_cues": [{"cue": "nod", "layer": "upper", "intensity": 0.25, "duration_ms": 900}],
+                        "memory_writebacks": [],
+                    }
+                ),
                 "done": True,
             }
             _OllamaHandler.last_request_payload = None
@@ -718,12 +794,14 @@ class OperatorCommandProviderWiringTests(unittest.TestCase):
             self.assertEqual("ready", response.status)
             self.assertIsNotNone(_OllamaHandler.last_request_payload)
             prompt = str(_OllamaHandler.last_request_payload["prompt"])
-            self.assertIn("Return only the exact reply text to speak.", prompt)
+            self.assertIn("Return exactly one JSON object and nothing else.", prompt)
+            self.assertIn("[PERSONA]", prompt)
             self.assertIn("Preferred delivery style: default.", prompt)
             self.assertIn("Voice notes: Replace with a real local TTS voice profile after asset review.", prompt)
             self.assertEqual("test-vrm-01-default", captured_payload["voice_profile_id"])
             self.assertEqual("test-vrm-01-default", captured_payload["voice_profile"]["profile_id"])
             self.assertEqual("default", captured_payload["voice_profile"]["style"])
+            self.assertEqual("steady", captured_payload["voice_profile"]["llm_voice_tone"]["pace"])
             self.assertEqual("niko-default", captured_payload["synthesis_options"]["speaker"])
             self.assertEqual(str(reference_audio_path), captured_payload["synthesis_options"]["reference_audio"])
             self.assertEqual("default", captured_payload["synthesis_options"]["style"])

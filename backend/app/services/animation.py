@@ -19,13 +19,25 @@ from app.services.session import InvalidEventCursor
 DEFAULT_SHARED_ANIMATION_IDS = frozenset(
     {
         DEFAULT_FALLBACK_SEMANTIC_ID,
+        "dance.hiphop.loop",
+        "emote.angry.once",
+        "emote.excited.once",
+        "emote.happy.alt.once",
+        "emote.happy.once",
+        "emote.reject.once",
+        "emote.surprised.once",
+        "gesture.clap.once",
+        "gesture.crazy.once",
+        "greet.wave.small.once",
+        "idle.confident",
         "idle.default",
+        "idle.happy",
+        "idle.sad",
         "listen.attentive.loop",
         "listen.loop",
         "speak.loop",
         "reply.speaking.loop",
         "greet.wave.once",
-        "gesture.punch.once",
     }
 )
 
@@ -35,7 +47,6 @@ SESSION_LIFECYCLE_TO_SEMANTIC_ID = {
     "idle": DEFAULT_FALLBACK_SEMANTIC_ID,
     "listen": "listen.loop",
     "speak": "speak.loop",
-    "debug.punch": "gesture.punch.once",
 }
 
 DEFAULT_PLAYBACK_LIBRARY = {
@@ -74,10 +85,22 @@ DEFAULT_PLAYBACK_LIBRARY = {
         expected_duration_ms=1400,
         loop=False,
     ),
-    "gesture.punch.once": AnimationPlayback(
+    "greet.wave.small.once": AnimationPlayback(
         mode="oneshot",
         blend_hint="upper_body_additive",
-        expected_duration_ms=1000,
+        expected_duration_ms=5100,
+        loop=False,
+    ),
+    "gesture.clap.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=1167,
+        loop=False,
+    ),
+    "gesture.crazy.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=5000,
         loop=False,
     ),
 }
@@ -103,7 +126,7 @@ def _resolve_session_semantic_id(lifecycle_state: str) -> str:
 
 
 def _default_playback_for(semantic_id: str) -> AnimationPlayback:
-    if semantic_id.endswith(".loop"):
+    if semantic_id.startswith("idle.") or semantic_id.endswith(".loop"):
         return AnimationPlayback(
             mode="loop",
             blend_hint="base_full_body",

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import type { CharacterCatalogEntry } from "../../shared/types/character";
+import { listSharedSemanticAnimationPayloads } from "../runtime/defaultBaseAnimation";
 import type { AvatarRuntimeBridge } from "../runtime/avatarRuntime";
 import { getAvatarRuntimeMountPoints } from "../runtime/mountPoints";
 
@@ -12,10 +13,45 @@ const DISPLAY_EMOTION_OPTIONS = [
   { value: "surprised", label: "Surprised" }
 ] as const;
 
+const DISPLAY_ANIMATION_BUTTON_EXCLUDED_IDS = new Set(["idle.default", "listen.loop", "speak.loop"]);
+const DISPLAY_IDLE_SELECTOR_IDS = ["idle.neutral", "idle.happy", "idle.sad"] as const;
+const DISPLAY_IDLE_SELECTOR_ID_SET = new Set<string>(DISPLAY_IDLE_SELECTOR_IDS);
+
+const DISPLAY_ANIMATION_OPTIONS = listSharedSemanticAnimationPayloads()
+  .filter((payload) => !DISPLAY_ANIMATION_BUTTON_EXCLUDED_IDS.has(payload.semanticId))
+  .map((payload) => ({
+    id: payload.semanticId,
+    label: formatSemanticAnimationLabel(payload.semanticId),
+    playbackLabel: payload.playback === "loop" ? "Loop" : "Once",
+    command: {
+      id: payload.semanticId,
+      source: "shared",
+      playback: payload.playback
+    } as const
+  }));
+
+const DISPLAY_IDLE_OPTIONS = DISPLAY_IDLE_SELECTOR_IDS.flatMap((semanticId) =>
+  DISPLAY_ANIMATION_OPTIONS.filter((option) => option.id === semanticId)
+);
+
+const DISPLAY_ONE_SHOT_OPTIONS = DISPLAY_ANIMATION_OPTIONS.filter((option) => option.command.playback === "once");
+
+const DISPLAY_LOOP_MOTION_OPTIONS = DISPLAY_ANIMATION_OPTIONS.filter(
+  (option) => option.command.playback === "loop" && !DISPLAY_IDLE_SELECTOR_ID_SET.has(option.id)
+);
+
 interface AvatarStageProps {
   runtime: AvatarRuntimeBridge;
   selectedCharacter: CharacterCatalogEntry | null;
   variant?: "embedded" | "display";
+}
+
+function formatSemanticAnimationLabel(semanticId: string): string {
+  return semanticId
+    .split(/[._-]+/)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
 }
 
 function describeOverlayChannel(channel: ReturnType<AvatarRuntimeBridge["snapshot"]>["overlayChannels"][number]): string {
@@ -66,6 +102,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
     activeOverlayChannels.length > 0 ? activeOverlayChannels.map(describeOverlayChannel).join(" + ") : "overlay idle";
   const runtimeActivityLabel = `base ${baseLayerLabel} · ${overlayActivityLabel}`;
   const headerStatusLabel = `${runtimeStatusLabel} · ${runtimeActivityLabel}`;
+  const selectedIdleLabel = formatSemanticAnimationLabel(snapshot.idleAnimation?.id ?? "idle.neutral");
 
   const shellTitle = variant === "display" ? "Dedicated avatar render window" : "Default character shell";
   const shellEyebrow = variant === "display" ? "Display surface" : "Avatar runtime";
@@ -81,6 +118,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
       : "The default shell is now rendering the imported VRM.";
   const displayCharacterLabel = selectedCharacter?.summary.displayName ?? "Waiting for backend-confirmed selection";
   const emotionControlsEnabled = Boolean(selectedCharacter) && snapshot.loadState === "ready";
+  const animationControlsEnabled = Boolean(selectedCharacter) && snapshot.loadState === "ready";
 
   return (
     <section className={variant === "display" ? "avatar-stage avatar-stage--display" : "avatar-stage"} aria-labelledby="avatar-stage-title">
@@ -112,26 +150,119 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
           {snapshot.loadState === "ready" ? <p className="avatar-stage__viewport-message">{readyMessage}</p> : null}
         </div>
         {variant === "display" ? (
-          <div className="avatar-stage__emotion-controls" aria-label="Facial expression controls">
-            {DISPLAY_EMOTION_OPTIONS.map((option) => {
-              const isActive = snapshot.activeEmotion === option.value;
+          <>
+            <div className="avatar-stage__emotion-controls" aria-label="Facial expression controls">
+              {DISPLAY_EMOTION_OPTIONS.map((option) => {
+                const isActive = snapshot.activeEmotion === option.value;
 
-              return (
-                <button
-                  key={option.label}
-                  type="button"
-                  className={isActive ? "avatar-stage__emotion-button avatar-stage__emotion-button--active" : "avatar-stage__emotion-button"}
-                  aria-pressed={isActive}
-                  disabled={!emotionControlsEnabled}
-                  onClick={() => {
-                    runtime.setEmotion(option.value);
-                  }}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={isActive ? "avatar-stage__emotion-button avatar-stage__emotion-button--active" : "avatar-stage__emotion-button"}
+                    aria-pressed={isActive}
+                    disabled={!emotionControlsEnabled}
+                    onClick={() => {
+                      runtime.setEmotion(option.value);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <section className="avatar-stage__animation-controls" aria-label="Animation test controls">
+              <div className="avatar-stage__animation-controls-header">
+                <p className="eyebrow">Local motion tests</p>
+                <p className="avatar-stage__animation-controls-summary">
+                  Choose the current return idle, then fire one-shot shared motions and let them settle back to that selected idle.
+                </p>
+              </div>
+              <div className="avatar-stage__animation-section">
+                <div className="avatar-stage__animation-section-header">
+                  <p className="avatar-stage__animation-section-title">Idle selector</p>
+                  <p className="avatar-stage__animation-controls-summary">Current return idle: {selectedIdleLabel}</p>
+                </div>
+                <div className="avatar-stage__animation-grid avatar-stage__animation-grid--compact">
+                  {DISPLAY_IDLE_OPTIONS.map((option) => {
+                    const isActive = snapshot.idleAnimation?.id === option.id;
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={isActive ? "avatar-stage__animation-button avatar-stage__animation-button--active" : "avatar-stage__animation-button"}
+                        aria-pressed={isActive}
+                        disabled={!animationControlsEnabled}
+                        onClick={() => {
+                          runtime.setIdleAnimation(option.command, { source: "manual" });
+                        }}
+                      >
+                        <span className="avatar-stage__animation-button-title">{option.label}</span>
+                        <span className="avatar-stage__animation-button-summary">Selected idle</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="avatar-stage__animation-section">
+                <div className="avatar-stage__animation-section-header">
+                  <p className="avatar-stage__animation-section-title">One-shot motions</p>
+                  <p className="avatar-stage__animation-controls-summary">Trigger a single motion, then return to the selected idle.</p>
+                </div>
+                <div className="avatar-stage__animation-grid">
+                  {DISPLAY_ONE_SHOT_OPTIONS.map((option) => {
+                    const isActive = snapshot.baseAnimation?.id === option.id || snapshot.pendingAnimation?.id === option.id;
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={isActive ? "avatar-stage__animation-button avatar-stage__animation-button--active" : "avatar-stage__animation-button"}
+                        aria-pressed={isActive}
+                        disabled={!animationControlsEnabled}
+                        onClick={() => {
+                          runtime.play(option.command);
+                        }}
+                      >
+                        <span className="avatar-stage__animation-button-title">{option.label}</span>
+                        <span className="avatar-stage__animation-button-summary">{option.playbackLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {DISPLAY_LOOP_MOTION_OPTIONS.length > 0 ? (
+                <div className="avatar-stage__animation-section">
+                  <div className="avatar-stage__animation-section-header">
+                    <p className="avatar-stage__animation-section-title">Continuous motions</p>
+                    <p className="avatar-stage__animation-controls-summary">Optional looped motions that can temporarily replace the current idle.</p>
+                  </div>
+                  <div className="avatar-stage__animation-grid">
+                    {DISPLAY_LOOP_MOTION_OPTIONS.map((option) => {
+                      const isActive = snapshot.baseAnimation?.id === option.id || snapshot.pendingAnimation?.id === option.id;
+
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={isActive ? "avatar-stage__animation-button avatar-stage__animation-button--active" : "avatar-stage__animation-button"}
+                          aria-pressed={isActive}
+                          disabled={!animationControlsEnabled}
+                          onClick={() => {
+                            runtime.play(option.command);
+                          }}
+                        >
+                          <span className="avatar-stage__animation-button-title">{option.label}</span>
+                          <span className="avatar-stage__animation-button-summary">{option.playbackLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </>
         ) : null}
         {variant === "display" ? null : (
           <aside id={mountPoints.overlayElementId} className="avatar-stage__overlay">

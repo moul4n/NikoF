@@ -91,6 +91,32 @@ class DefaultAnimationServiceTests(unittest.TestCase):
         self.assertIsNone(command.resolution.override_character_id)
         self.assertEqual(command.playback.mode, "oneshot")
 
+    def test_resolves_imported_generic_shared_animation_ids(self) -> None:
+        service = DefaultAnimationService()
+
+        cases = (
+            ("idle.happy", "loop"),
+            ("gesture.clap.once", "oneshot"),
+        )
+
+        for semantic_id, playback_mode in cases:
+            with self.subTest(semantic_id=semantic_id):
+                command = service.resolve_intent(
+                    AnimationIntent(
+                        intent_id=f"anim-intent-{semantic_id}",
+                        session_id="session-imported-shared-1",
+                        character_id="test-vrm-01",
+                        intent_type="gesture",
+                        semantic_id=semantic_id,
+                        source="assistant_reply",
+                    )
+                )
+
+                self.assertEqual(command.semantic_id, semantic_id)
+                self.assertEqual(command.resolution.selected_source, "shared_library")
+                self.assertEqual(command.resolution.selected_asset_id, semantic_id)
+                self.assertEqual(command.playback.mode, playback_mode)
+
     def test_uses_character_override_when_shared_semantic_is_missing(self) -> None:
         service = DefaultAnimationService(
             character_overrides={
@@ -180,26 +206,6 @@ class DefaultAnimationServiceTests(unittest.TestCase):
         self.assertEqual(command.playback.mode, "loop")
         self.assertEqual(command.playback.expected_duration_ms, 8333)
         self.assertEqual(command.parameters["session_state"], "speak")
-
-    def test_resolves_debug_punch_lifecycle_state_to_backend_owned_punch_oneshot(self) -> None:
-        service = DefaultAnimationService()
-
-        command = service.resolve_session_command(
-            SessionSnapshot(
-                session_id="session-scaffold-01",
-                active_character_id="test-vrm-01",
-                lifecycle_state="debug.punch",
-            )
-        )
-
-        self.assertEqual(command.semantic_id, "gesture.punch.once")
-        self.assertEqual(command.resolution.selected_source, "shared_library")
-        self.assertEqual(command.resolution.selected_asset_id, "gesture.punch.once")
-        self.assertEqual(command.resolved_state, "selected")
-        self.assertEqual(command.playback.mode, "oneshot")
-        self.assertEqual(command.playback.expected_duration_ms, 1000)
-        self.assertEqual(command.parameters["session_state"], "debug.punch")
-
 
 class SessionAnimationContractSnapshotTests(unittest.TestCase):
     def test_contract_snapshot_exposes_session_animation_route_and_idle_default_payload(self) -> None:

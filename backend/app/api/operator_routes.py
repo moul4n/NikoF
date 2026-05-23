@@ -6,7 +6,9 @@ from app.schemas.session import (
     OperatorCommandRequest,
     OperatorCommandResponse,
 )
+from app.services.animation import AnimationService, SessionAnimationLiveDeliveryService
 from app.services.character import CharacterService
+from app.services.companion_memory import CompanionMemoryService
 from app.services.llm import TextGenerationService
 from app.services.session import SessionService
 from app.services.speech import (
@@ -28,6 +30,9 @@ class OperatorCommandRouteServices:
     text_generation_service: TextGenerationService
     synthesis_service: SpeechSynthesisService
     session_event_factory: SessionEventFactory
+    memory_service: CompanionMemoryService | None = None
+    animation_service: AnimationService | None = None
+    session_animation_live_delivery: SessionAnimationLiveDeliveryService | None = None
 
 
 def _build_text_question_response(
@@ -48,6 +53,9 @@ def _build_text_question_response(
             text_generation_service=services.text_generation_service,
             synthesis_service=services.synthesis_service,
             session_event_factory=services.session_event_factory,
+            memory_service=services.memory_service,
+            animation_service=services.animation_service,
+            session_animation_live_delivery=services.session_animation_live_delivery,
         ),
     )
     return OperatorCommandResponse(

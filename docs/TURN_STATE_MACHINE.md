@@ -353,6 +353,11 @@ Expected event types:
 
 Use for backend-authored animation commands and state transitions.
 
+The current implementation has two sources for this stream:
+
+- deterministic lifecycle-state snapshots such as `idle`, `listen`, and `speak`
+- transient assistant cue snapshots published after a successful structured LLM turn
+
 Expected event types:
 
 - `session.animation`

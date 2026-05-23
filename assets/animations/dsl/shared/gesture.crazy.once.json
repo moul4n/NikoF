@@ -1,18 +1,18 @@
 {
-    "semantic_id": "gesture.punch.once",
+    "semantic_id": "gesture.crazy.once",
     "stage": "staged_raw_unity_source",
     "approved_for_shared_library": false,
     "promotion_status": "not_promoted",
     "source": {
         "kind": "unity_text_animation_clip",
-        "path": "assets/animations/raw/Action Idle To Fight Idle.anim",
+        "path": "assets/animations/raw/GestureCrazy.fbx",
         "provenance": "raw_source_asset"
     },
     "unity_clip": {
-        "name": "Action Idle To Fight Idle",
+        "name": "mixamo.com",
         "sample_rate": 30,
         "start_time": 0.0,
-        "stop_time": 1.0,
+        "stop_time": 5.0,
         "loop_time": 0.0
     }
 }

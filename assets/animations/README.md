@@ -25,7 +25,7 @@ Validation rule:
 
 Practical flow:
 
-1. add or update the raw source asset under `assets/animations/raw/`
+1. drop new bulk FBX candidates under `assets/animations/raw/inbox/`, or add/update an approved raw source asset under `assets/animations/raw/`
 2. refresh the staged sidecar under `assets/animations/dsl/shared/{semantic_id}.json`
 3. generate `assets/animations/generated/shared/{semantic_id}/{semantic_id}.runtime.json`
 4. review the generated semantic candidate under `assets/animations/dsl/generated/shared/{semantic_id}.json`

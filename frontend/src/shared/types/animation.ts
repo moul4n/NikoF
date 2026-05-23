@@ -1,10 +1,24 @@
 export const semanticAnimationIds = [
+  "dance.hiphop.loop",
+  "emote.acknowledge",
+  "emote.angry.once",
+  "emote.excited.once",
+  "emote.happy.alt.once",
+  "emote.happy.once",
+  "emote.reject.once",
+  "emote.surprised.once",
+  "gesture.clap.once",
+  "gesture.crazy.once",
+  "greet.wave.once",
+  "greet.wave.small.once",
+  "idle.confident",
   "idle.default",
-  "idle.neutral",
   "idle.focused",
+  "idle.happy",
+  "idle.neutral",
   "listen.loop",
-  "speak.loop",
-  "emote.acknowledge"
+  "idle.sad",
+  "speak.loop"
 ] as const;
 
 export type SemanticAnimationId = (typeof semanticAnimationIds)[number] | (string & {});

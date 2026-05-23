@@ -23,11 +23,19 @@ class ApplicationShell:
 @asynccontextmanager
 async def _lifespan(app: Any) -> AsyncIterator[None]:
     """Manage async services that need startup/shutdown hooks."""
+    from app.services.attention_worker import get_attention_worker
+    from app.services.llm import get_text_generation_sidecar_manager
     from app.services.stt_worker import get_stt_worker
     from app.services.tts_worker import get_tts_worker
 
+    attention_worker = get_attention_worker()
+    llm_sidecar_manager = get_text_generation_sidecar_manager()
     stt_worker = get_stt_worker()
     tts_worker = get_tts_worker()
+    await attention_worker.start()
+    logger.info("Attention worker started")
+    if llm_sidecar_manager.start():
+        logger.info("LLM sidecar started")
     await stt_worker.start()
     logger.info("STT worker sidecar started")
     await tts_worker.start()
@@ -35,6 +43,10 @@ async def _lifespan(app: Any) -> AsyncIterator[None]:
 
     yield
 
+    await attention_worker.stop()
+    logger.info("Attention worker shut down")
+    llm_sidecar_manager.stop()
+    logger.info("LLM sidecar shut down")
     await stt_worker.stop()
     logger.info("STT worker shut down")
     await tts_worker.stop()

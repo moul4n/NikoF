@@ -17,13 +17,78 @@
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     },
-    "gesture.punch.once": {
-      "path": "assets/animations/dsl/shared/gesture.punch.once.json",
+    "idle.neutral": {
+      "path": "assets/animations/dsl/shared/idle.neutral.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     },
-    "idle.neutral": {
-      "path": "assets/animations/dsl/shared/idle.neutral.json",
+    "emote.angry.once": {
+      "path": "assets/animations/dsl/shared/emote.angry.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "gesture.clap.once": {
+      "path": "assets/animations/dsl/shared/gesture.clap.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "emote.excited.once": {
+      "path": "assets/animations/dsl/shared/emote.excited.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "idle.confident": {
+      "path": "assets/animations/dsl/shared/idle.confident.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "idle.happy": {
+      "path": "assets/animations/dsl/shared/idle.happy.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "emote.happy.once": {
+      "path": "assets/animations/dsl/shared/emote.happy.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "emote.happy.alt.once": {
+      "path": "assets/animations/dsl/shared/emote.happy.alt.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "dance.hiphop.loop": {
+      "path": "assets/animations/dsl/shared/dance.hiphop.loop.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "greet.wave.small.once": {
+      "path": "assets/animations/dsl/shared/greet.wave.small.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "emote.reject.once": {
+      "path": "assets/animations/dsl/shared/emote.reject.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "idle.sad": {
+      "path": "assets/animations/dsl/shared/idle.sad.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "emote.surprised.once": {
+      "path": "assets/animations/dsl/shared/emote.surprised.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "greet.wave.once": {
+      "path": "assets/animations/dsl/shared/greet.wave.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
+    },
+    "gesture.crazy.once": {
+      "path": "assets/animations/dsl/shared/gesture.crazy.once.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     }

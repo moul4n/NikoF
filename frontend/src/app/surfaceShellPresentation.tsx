@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { AvatarStage } from "../avatar/components/AvatarStage";
 import {
   SurfaceModeSwitch,
@@ -16,6 +16,7 @@ import {
   resolveSpeechLifecycleDeliveryLabel,
   type SpeechLifecycleLoadState
 } from "./useSpeechLifecycleState";
+import { useAttentionState } from "./useAttentionState";
 import type { SpeechPlaybackState } from "./useSpeechPlaybackBridge";
 import type { SessionAnimationLoadState } from "./useSessionAnimationState";
 import {
@@ -197,12 +198,41 @@ export function DisplaySurfaceShell({
   devDisplayPlaybackPath,
   onSelectDevDisplayPlaybackPath
 }: DisplaySurfaceShellProps): JSX.Element {
+  const attentionState = useAttentionState();
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
   const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
   const displayReplySnapshot = resolveDisplayReplySnapshot(speechLifecycleSnapshot);
   const controlSurfaceHref = buildSurfaceHref("control");
   const displaySurfaceHref = buildSurfaceHref("display");
   const backendAnimationId = sessionAnimationState.snapshot?.semanticCommand.id ?? null;
+
+  useEffect(() => {
+    runtime.setAttentionDebugMarkerEnabled(attentionState.state.showTrackingDebugMarker);
+  }, [attentionState.state.showTrackingDebugMarker, runtime]);
+
+  useEffect(() => {
+    const attentionSnapshot = attentionState.state.snapshot;
+
+    if (
+      attentionState.state.status !== "ready" ||
+      !attentionSnapshot?.enabled ||
+      !attentionSnapshot.tracking ||
+      !attentionSnapshot.subject
+    ) {
+      runtime.setAttentionTarget(null);
+      return;
+    }
+
+    runtime.setAttentionTarget({
+      normalizedX: attentionSnapshot.subject.normalized_x,
+      normalizedY: attentionSnapshot.subject.normalized_y,
+      confidence: attentionSnapshot.confidence ?? null,
+    });
+
+    return () => {
+      runtime.setAttentionTarget(null);
+    };
+  }, [attentionState.state.snapshot, attentionState.state.status, runtime]);
 
   return (
     <div className="app-shell app-shell--display">

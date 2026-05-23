@@ -119,7 +119,6 @@ export function createMixerPlayback(
   }
 
   const tracks: THREE.KeyframeTrack[] = [];
-  const trackReport: string[] = [];
 
   for (const bone of comparison.bones) {
     const humanBodyBone = bone.humanBodyBone ?? null;
@@ -127,7 +126,6 @@ export function createMixerPlayback(
     const samples = bone.localRotationSamples;
 
     if (!vrmBoneName || !samples) {
-      trackReport.push(`SKIP ${humanBodyBone ?? bone.name}: no mapping or no samples`);
       continue;
     }
 
@@ -137,18 +135,15 @@ export function createMixerPlayback(
       samples.z.length !== timesS.length ||
       samples.w.length !== timesS.length
     ) {
-      trackReport.push(`SKIP ${humanBodyBone}: sample count mismatch`);
       continue;
     }
 
     const boneNode = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
 
     if (!boneNode) {
-      trackReport.push(`SKIP ${humanBodyBone}: getNormalizedBoneNode returned null`);
       continue;
     }
 
-    trackReport.push(`OK ${humanBodyBone} → node="${boneNode.name}" q[0]=(${samples.x[0].toFixed(3)},${samples.y[0].toFixed(3)},${samples.z[0].toFixed(3)},${samples.w[0].toFixed(3)})`);
     tracks.push(
       new THREE.QuaternionKeyframeTrack(
         `${boneNode.name}.quaternion`,
@@ -157,8 +152,6 @@ export function createMixerPlayback(
       )
     );
   }
-
-  console.log(`[mixerPlayback] ${tracks.length} rotation tracks created from ${comparison.bones.length} bones:\n` + trackReport.join("\n"));
 
   // Add Hips position track if available (root translation for proper grounded animation)
   for (const bone of comparison.bones) {

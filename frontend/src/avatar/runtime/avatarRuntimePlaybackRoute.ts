@@ -71,6 +71,19 @@ export function resolveAvatarRuntimePlayback(
   // when preferred path is "vrma", return null playback so the caller
   // knows to delegate to the VRMA subsystem instead of the legacy mixer.
   if (preferredPath === "vrma") {
+    const declaredAdapter = routeDeclaredAdapter();
+    if (declaredAdapter) {
+      return declaredAdapter;
+    }
+
+    const sourcePath = payload.sourceAsset?.path?.toLowerCase() ?? "";
+    if (sourcePath.endsWith(".fbx")) {
+      return {
+        playback: null,
+        playbackPath: "official"
+      };
+    }
+
     return {
       playback: null,
       playbackPath: "vrma"

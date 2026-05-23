@@ -13,6 +13,10 @@ import type { VRM } from "@pixiv/three-vrm";
 export interface PassiveEyeDriftController {
   /** Call every frame with the frame delta in seconds. */
   update(deltaSeconds: number): void;
+  /** Blend tracked attention with the natural drift path. */
+  trackGaze(worldPoint: THREE.Vector3, weight?: number): void;
+  /** Clear tracked attention and return to pure passive drift. */
+  clearTrackedGaze(): void;
   /** Override gaze — eyes lock to the given world-space point (camera tracking). */
   lockGaze(worldPoint: THREE.Vector3): void;
   /** Release gaze lock — returns to forward + micro-saccades. */
@@ -71,6 +75,9 @@ export function createPassiveEyeDriftController(
   let gazeTarget: THREE.Object3D | null = null;
   let gazeLocked = false;
   const lockPoint = new THREE.Vector3(0, 0, cfg.gazeDepth);
+  let trackedGazeActive = false;
+  let trackedGazeWeight = 0;
+  const trackedGazePoint = new THREE.Vector3(0, 0, cfg.gazeDepth);
 
   // Fixation drift state
   const fixationOffset = new THREE.Vector2(0, 0);
@@ -88,6 +95,7 @@ export function createPassiveEyeDriftController(
   // Working vectors
   const worldGazePoint = new THREE.Vector3();
   const headWorldPos = new THREE.Vector3();
+  const localGazePoint = new THREE.Vector3();
 
   function randomInRange(min: number, max: number): number {
     return min + Math.random() * (max - min);
@@ -130,6 +138,16 @@ export function createPassiveEyeDriftController(
     return headWorldPos;
   }
 
+  function applyWorldGazePoint(target: THREE.Object3D, worldPoint: THREE.Vector3, deltaSeconds: number): void {
+    localGazePoint.copy(worldPoint);
+
+    if (target.parent) {
+      target.parent.worldToLocal(localGazePoint);
+    }
+
+    target.position.lerp(localGazePoint, 1 - Math.exp(-cfg.lockTransitionSpeed * deltaSeconds));
+  }
+
   function update(deltaSeconds: number): void {
     const target = ensureGazeTarget();
     if (!target) return;
@@ -139,7 +157,7 @@ export function createPassiveEyeDriftController(
     if (gazeLocked) {
       // Smoothly move toward locked gaze point
       worldGazePoint.copy(lockPoint);
-      target.position.lerp(worldGazePoint, 1 - Math.exp(-cfg.lockTransitionSpeed * deltaSeconds));
+      applyWorldGazePoint(target, worldGazePoint, deltaSeconds);
       return;
     }
 
@@ -188,7 +206,22 @@ export function createPassiveEyeDriftController(
       headPos.z - cfg.gazeDepth
     );
 
-    target.position.lerp(worldGazePoint, 1 - Math.exp(-cfg.lockTransitionSpeed * deltaSeconds));
+    if (trackedGazeActive) {
+      worldGazePoint.lerp(trackedGazePoint, trackedGazeWeight);
+    }
+
+    applyWorldGazePoint(target, worldGazePoint, deltaSeconds);
+  }
+
+  function trackGaze(worldPoint: THREE.Vector3, weight = 0.8): void {
+    trackedGazeActive = true;
+    trackedGazeWeight = THREE.MathUtils.clamp(weight, 0, 0.98);
+    trackedGazePoint.copy(worldPoint);
+  }
+
+  function clearTrackedGaze(): void {
+    trackedGazeActive = false;
+    trackedGazeWeight = 0;
   }
 
   function lockGaze(worldPoint: THREE.Vector3): void {
@@ -213,6 +246,8 @@ export function createPassiveEyeDriftController(
 
   return {
     update,
+    trackGaze,
+    clearTrackedGaze,
     lockGaze,
     releaseGaze,
     get isGazeLocked() { return gazeLocked; },

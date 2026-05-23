@@ -13,6 +13,7 @@ import type {
   SemanticAnimationRuntimeSourceAsset,
   SemanticAnimationRuntimeSampling
 } from "../../shared/types/animation";
+import sharedAnimationRegistry from "../../../../assets/animations/dsl/shared/animations.json";
 
 export interface SharedAnimationRuntimeSidecarDocument {
   semantic_id?: string;
@@ -93,6 +94,17 @@ type SharedAnimationRuntimeSidecarModule = {
   default: SharedAnimationRuntimeSidecarDocument;
 };
 
+type SharedAnimationRegistryDocument = {
+  sidecars?: Record<
+    string,
+    {
+      path?: string;
+      stage?: string;
+      approved_for_shared_library?: boolean;
+    }
+  >;
+};
+
 const sharedSemanticAnimationPlaybackAdapterOverrides: Partial<Record<string, SemanticAnimationRuntimePlaybackAdapter>> = {
   "idle.default": "vrma",
   "idle.neutral": "official_mixamo_fbx",
@@ -103,6 +115,10 @@ const sharedSemanticAnimationPlaybackAdapterOverrides: Partial<Record<string, Se
 const legacySharedSemanticAnimationAliases: Readonly<Record<string, string>> = {
   idle1v3: "idle.neutral"
 };
+
+const sharedAnimationRegistryDocument = sharedAnimationRegistry as SharedAnimationRegistryDocument;
+
+const registeredSharedSemanticAnimationIds = Object.keys(sharedAnimationRegistryDocument.sidecars ?? {});
 
 const sharedAnimationRuntimeSidecarModules = Object.values(
   import.meta.glob<SharedAnimationRuntimeSidecarModule>(
@@ -511,6 +527,19 @@ function buildSharedSemanticAnimationPayloadCatalog(): Map<string, SemanticAnima
   );
 }
 
+function inferSemanticAnimationPlaybackMode(semanticId: string): SemanticAnimationPlaybackMode {
+  return semanticId.endsWith(".once") ? "once" : "loop";
+}
+
+function createRegisteredSharedSemanticAnimationFallbackPayload(semanticId: string): SemanticAnimationRuntimePayload {
+  return {
+    semanticId,
+    playback: inferSemanticAnimationPlaybackMode(semanticId),
+    durationMs: 1,
+    playbackAdapter: sharedSemanticAnimationPlaybackAdapterOverrides[semanticId]
+  };
+}
+
 function compareSharedSemanticAnimationPayloads(
   left: SemanticAnimationRuntimePayload,
   right: SemanticAnimationRuntimePayload
@@ -567,7 +596,15 @@ export function resolveCanonicalSharedSemanticAnimationId(semanticId: string): s
 }
 
 export function listSharedSemanticAnimationPayloads(): SemanticAnimationRuntimePayload[] {
-  return [...sharedSemanticAnimationPayloadCatalog.values()].sort(compareSharedSemanticAnimationPayloads);
+  const catalogEntries = new Map(sharedSemanticAnimationPayloadCatalog);
+
+  registeredSharedSemanticAnimationIds.forEach((semanticId) => {
+    if (!catalogEntries.has(semanticId)) {
+      catalogEntries.set(semanticId, createRegisteredSharedSemanticAnimationFallbackPayload(semanticId));
+    }
+  });
+
+  return [...catalogEntries.values()].sort(compareSharedSemanticAnimationPayloads);
 }
 
 export function resolveSharedSemanticAnimationPayload(

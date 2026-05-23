@@ -1,0 +1,39 @@
+{
+    "dsl_version": "1.0.0",
+    "kind": "semantic_animation_asset_candidate",
+    "stage": "generated_candidate",
+    "promotion_status": "not_promoted",
+    "semantic_id": "emote.angry.once",
+    "scope": "shared",
+    "base": {
+        "clip_ref": {
+            "path": "assets/animations/generated/shared/emote.angry.once/emote.angry.once.runtime.json"
+        },
+        "playback": "oneshot",
+        "body_scope": "full_body",
+        "root_motion": "driven",
+        "timing": {
+            "duration_ms": 19167,
+            "fade_in_ms": 200,
+            "fade_out_ms": 200
+        },
+        "retarget_profile": "shared_humanoid_muscle_v1"
+    },
+    "layers": {
+        "speech": {
+            "supported": false
+        },
+        "expression": {
+            "supported": false
+        }
+    },
+    "fallback": {
+        "semantic_id": "emote.angry.once"
+    },
+    "provenance": {
+        "raw_source_path": "assets/animations/raw/EmoteAngry.fbx",
+        "staged_sidecar_path": "assets/animations/dsl/shared/emote.angry.once.json",
+        "generated_runtime_path": "assets/animations/generated/shared/emote.angry.once/emote.angry.once.runtime.json",
+        "exporter": "unity_batch_raw_anim_exporter"
+    }
+}

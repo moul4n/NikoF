@@ -124,11 +124,46 @@ class SpeechSynthesisContract:
 
 
 @dataclass(slots=True, frozen=True)
+class AssistantFeelingContract:
+    name: str
+    intensity: float | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class AssistantVoiceToneContract:
+    style: str | None = None
+    pace: str | None = None
+    energy: float | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class AssistantAnimationCueContract:
+    cue: str
+    layer: str = "face"
+    intensity: float | None = None
+    duration_ms: int | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class AssistantMemoryWriteContract:
+    namespace: str
+    summary: str
+    salience: float | None = None
+    source: str | None = None
+    tags: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(slots=True, frozen=True)
 class AssistantMessageContract:
     profile_id: str
     status: str
     text: str
     locale: str
+    thinking_summary: str | None = None
+    feeling: AssistantFeelingContract | None = None
+    voice_tone: AssistantVoiceToneContract | None = None
+    animation_cues: tuple[AssistantAnimationCueContract, ...] = field(default_factory=tuple)
+    memory_writebacks: tuple[AssistantMemoryWriteContract, ...] = field(default_factory=tuple)
 
 
 def build_baseline_speech_adapter_profiles() -> tuple[SpeechAdapterProfile, ...]:

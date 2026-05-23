@@ -29,9 +29,9 @@ export interface OfficialMixamoPlaybackDebugSnapshot {
 
 export interface OfficialMixamoPlaybackBridge {
   loadClip(url: string, clipId: string): Promise<OfficialMixamoClipHandle>;
-  play(clipId: string, options?: { loop?: boolean }): void;
-  stop(clipId: string): void;
-  stopAll(): void;
+  play(clipId: string, options?: { loop?: boolean; transitionMs?: number; restart?: boolean }): void;
+  stop(clipId: string, options?: { fadeOutMs?: number }): void;
+  stopAll(fadeOutMs?: number): void;
   update(deltaSeconds: number): void;
   getDebugSnapshot(): OfficialMixamoPlaybackDebugSnapshot;
   dispose(): void;
@@ -174,23 +174,42 @@ export function createOfficialMixamoPlayback(vrm: VRM): OfficialMixamoPlaybackBr
     return handle;
   }
 
-  function play(clipId: string, options?: { loop?: boolean }): void {
+  function play(clipId: string, options?: { loop?: boolean; transitionMs?: number; restart?: boolean }): void {
     const handle = activeClips.get(clipId);
     if (!handle) {
       return;
     }
 
     const loop = options?.loop ?? true;
+    const transitionMs = options?.transitionMs ?? 0;
+    const restart = options?.restart ?? true;
     handle.action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     handle.action.clampWhenFinished = !loop;
-    handle.action.reset();
-    handle.action.setEffectiveWeight(1);
+    handle.action.stopFading();
+    if (restart) {
+      handle.action.reset();
+    }
+    handle.action.enabled = true;
+
+    if (transitionMs > 0) {
+      handle.action.fadeIn(transitionMs / 1000);
+    } else {
+      handle.action.setEffectiveWeight(1);
+    }
+
     handle.action.play();
   }
 
-  function stop(clipId: string): void {
+  function stop(clipId: string, options?: { fadeOutMs?: number }): void {
     const handle = activeClips.get(clipId);
     if (!handle) {
+      return;
+    }
+
+    const fadeOutMs = options?.fadeOutMs ?? 0;
+
+    if (fadeOutMs > 0) {
+      handle.action.fadeOut(fadeOutMs / 1000);
       return;
     }
 
@@ -198,9 +217,9 @@ export function createOfficialMixamoPlayback(vrm: VRM): OfficialMixamoPlaybackBr
     handle.action.setEffectiveWeight(0);
   }
 
-  function stopAll(): void {
+  function stopAll(fadeOutMs?: number): void {
     for (const clipId of activeClips.keys()) {
-      stop(clipId);
+      stop(clipId, { fadeOutMs: fadeOutMs ?? 0 });
     }
   }
 

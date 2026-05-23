@@ -14,7 +14,7 @@ The contract is semantic and engine-neutral:
 
 The repository now uses this split:
 
-- Backend: resolves semantic commands such as `idle.neutral`, `listen.loop`, `speak.loop`, and `gesture.punch.once`.
+- Backend: resolves semantic commands such as `idle.neutral`, `listen.loop`, and `speak.loop`.
 - Frontend: realizes those commands through approved runtime metadata.
 - Default fallback semantic id: `idle.neutral`.
 - Current stable base playback route: `idle.neutral` uses the official Mixamo FBX playback adapter in the frontend.
@@ -38,6 +38,7 @@ The current backend-owned read surface is session animation snapshot delivery on
 - Plain HTTP returns the current deterministic snapshot.
 - `Accept: text/event-stream` reuses the same semantic snapshot shape through ordered live delivery.
 - `PUT /session/lifecycle-state` updates the lifecycle state that drives the resolved session base animation.
+- Assistant turns may also publish transient cue-driven snapshots into the same live-delivery stream when the LLM returns structured `animation_cues` metadata. These cue snapshots do not mutate the base lifecycle state; they give the frontend animation stack an ordered semantic command to layer on top of the current session state.
 
 Current snapshot shape:
 
@@ -102,7 +103,6 @@ Current lifecycle-state mapping:
 - `idle` -> `idle.neutral`
 - `listen` -> `listen.loop`
 - `speak` -> `speak.loop`
-- `debug.punch` -> `gesture.punch.once`
 
 The backend-selected `resolution.selected_asset_id` must stay backend-safe. It can be a semantic asset id or alias, but it must not be a raw path.
 
@@ -170,6 +170,13 @@ Animation live delivery reuses the same backend-owned ordering discipline alread
 - deterministic session ordering
 
 The currently implemented live stream is still the session animation snapshot stream, not a separate engine-native playback feed. That is intentional. It keeps the backend surface semantic while the frontend remains free to improve local playback without changing transport meaning.
+
+Current structured assistant lane:
+
+- The shared turn executor accepts `assistant.animation_cues` from the structured LLM contract.
+- The backend normalizes generic cue aliases such as `wave`, `happy`, `small_wave`, `wink`, or `subtle_wink` onto approved shared semantic ids.
+- The first normalized cue is published as a transient `session.animation` snapshot through the existing live-delivery channel.
+- The frontend remains responsible for deciding how that semantic command is blended with the current idle, listen, or speak state.
 
 ## Viewer Responsibilities
 

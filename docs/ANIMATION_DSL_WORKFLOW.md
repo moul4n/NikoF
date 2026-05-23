@@ -25,7 +25,7 @@ Current stable examples:
 
 - `idle.neutral` is the default fallback semantic id and uses the official Mixamo FBX playback route.
 - `idle.default`, `listen.loop`, and `speak.loop` currently play through promoted VRMA inventory.
-- `gesture.punch.once` remains a useful generated/runtime validation slice.
+- Current shared one-shots and idles are driven from the generated/runtime inventory that remains registered in `assets/animations/dsl/shared/animations.json`.
 
 ## Workflow
 

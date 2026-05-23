@@ -258,7 +258,7 @@ export function DevAnimationSwitcherPanel({
       </div>
 
       <p className="surface-panel__summary">
-        This panel is dev-only and only affects the local display window. Switch back to the backend default, hold a neutral T-pose, or pick any generated shared animation from the dropdown.
+        This panel is dev-only and only affects the local display window. Switch back to the backend default, hold a neutral T-pose, or trigger any generated shared animation directly from the button grid.
       </p>
       <p className="surface-panel__message">
         Backend snapshot: {backendAnimationId ?? "Unavailable, so the local idle fallback will be used when override is off."}
@@ -267,37 +267,36 @@ export function DevAnimationSwitcherPanel({
         <p className="surface-panel__message">Display runtime is still mounting the avatar. Local animation overrides unlock once the first model load is ready.</p>
       ) : null}
 
-      <div className="dev-animation-panel__field">
-        <label className="dev-animation-panel__label" htmlFor="dev-display-animation-select">
-          Generated animation
-        </label>
-        <select
-          id="dev-display-animation-select"
-          className="dev-animation-panel__select"
-          value={selectedSharedAnimationOption?.id ?? ""}
-          disabled={!controlsEnabled || DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.length === 0}
-          onChange={(event: { currentTarget: HTMLSelectElement }) => {
-            const optionId = event.currentTarget.value.trim();
+      <div className="dev-animation-panel__section">
+        <p className="dev-animation-panel__section-label">Generated animations</p>
+        <div className="dev-animation-panel__list dev-animation-panel__list--compact" role="group" aria-label="Generated display animations">
+          {DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.map((option) => {
+            const isActive = option.id === selectedOptionId;
 
-            if (optionId) {
-              onSelectOption(optionId);
-            }
-          }}
-        >
-          <option value="">Select a generated animation...</option>
-          {DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+            return (
+              <button
+                key={option.id}
+                type="button"
+                className={isActive ? "dev-animation-panel__button dev-animation-panel__button--active" : "dev-animation-panel__button"}
+                aria-pressed={isActive}
+                disabled={!controlsEnabled}
+                onClick={() => onSelectOption(option.id)}
+              >
+                <span className="dev-animation-panel__button-title">{option.label}</span>
+                <span className="dev-animation-panel__button-summary">{option.description}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <p className="dev-animation-panel__selected-summary">
         {selectedSharedAnimationOption?.description ??
-          "Choose a generated animation from the dropdown to preview it locally in the display surface."}
+          "Choose a generated animation button to preview it locally in the display surface."}
       </p>
 
-      <div className="dev-animation-panel__list" role="group" aria-label="Display animation override">
+      <div className="dev-animation-panel__section">
+        <p className="dev-animation-panel__section-label">Override mode</p>
+        <div className="dev-animation-panel__list" role="group" aria-label="Display animation override">
         {DEV_DISPLAY_ACTION_OPTIONS.map((option) => {
           const isActive = option.id === selectedOptionId;
 
@@ -315,6 +314,7 @@ export function DevAnimationSwitcherPanel({
             </button>
           );
         })}
+        </div>
       </div>
     </section>
   );

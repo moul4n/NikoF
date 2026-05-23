@@ -3,17 +3,17 @@
     "kind": "semantic_animation_asset_candidate",
     "stage": "generated_candidate",
     "promotion_status": "not_promoted",
-    "semantic_id": "gesture.punch.once",
+    "semantic_id": "greet.wave.small.once",
     "scope": "shared",
     "base": {
         "clip_ref": {
-            "path": "assets/animations/generated/shared/gesture.punch.once/gesture.punch.once.runtime.json"
+            "path": "assets/animations/generated/shared/greet.wave.small.once/greet.wave.small.once.runtime.json"
         },
         "playback": "oneshot",
         "body_scope": "full_body",
-        "root_motion": "driven",
+        "root_motion": "in_place",
         "timing": {
-            "duration_ms": 1000,
+            "duration_ms": 5100,
             "fade_in_ms": 200,
             "fade_out_ms": 200
         },
@@ -28,12 +28,12 @@
         }
     },
     "fallback": {
-        "semantic_id": "gesture.punch.once"
+        "semantic_id": "greet.wave.small.once"
     },
     "provenance": {
-        "raw_source_path": "assets/animations/raw/Action Idle To Fight Idle.anim",
-        "staged_sidecar_path": "assets/animations/dsl/shared/gesture.punch.once.json",
-        "generated_runtime_path": "assets/animations/generated/shared/gesture.punch.once/gesture.punch.once.runtime.json",
+        "raw_source_path": "assets/animations/raw/GreetWaveSmall.fbx",
+        "staged_sidecar_path": "assets/animations/dsl/shared/greet.wave.small.once.json",
+        "generated_runtime_path": "assets/animations/generated/shared/greet.wave.small.once/greet.wave.small.once.runtime.json",
         "exporter": "unity_batch_raw_anim_exporter"
     }
 }

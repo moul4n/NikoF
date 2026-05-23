@@ -1,0 +1,3075 @@
+{
+    "schema_version": "1.0.0",
+    "kind": "normalized_humanoid_animation_clip",
+    "stage": "generated_candidate",
+    "promotion_status": "not_promoted",
+    "semantic_id": "idle.confident",
+    "scope": "shared",
+    "channel_space": "unity_humanoid_muscle",
+    "source": {
+        "kind": "unity_text_animation_clip",
+        "path": "assets/animations/raw/PoseHandOnHip.fbx",
+        "importer": "unity_batchmode_temp_project",
+        "source_asset_path": "Assets/Imported/source.fbx"
+    },
+    "playback": {
+        "mode": "loop",
+        "loop": true,
+        "sample_rate": 30,
+        "duration_ms": 33,
+        "sample_count": 2,
+        "root_motion": "in_place"
+    },
+    "sampling": {
+        "times_s": [
+            0.0,
+            0.03333299979567528
+        ]
+    },
+    "export_audit": {
+        "extraction_mode": "curve_bindings_plus_derived_hints_and_idle_bone_local_comparison",
+        "curve_binding_channel_count": 130,
+        "humanoid_muscle_channel_count": 123,
+        "root_transform_channel_count": 7,
+        "derived_hint_channel_count": 10,
+        "samples_humanoid_bone_transforms": true,
+        "uses_animator_get_bone_transform": true,
+        "limb_rotation_space": "comparison_metadata_contains_bone_local_rotations",
+        "lower_arm_rotation_hint_source": "quaternion_composed_from_elbow_flex_and_forearm_twist",
+        "recommended_next_experiment": "compare idle.confident grounded stance frames against the sampled bone-local rotations before promoting this route beyond idle clips",
+        "bone_transform_comparison": {
+            "clip_gate_semantic_id": "idle.confident",
+            "comparison_kind": "idle_bone_local_rotation_reference",
+            "sampling_mode": "sampled_humanoid_pose_to_animator_bone_local_rotations",
+            "avatar_source": "temporary_humanoid_reference_rig",
+            "uses_runtime_sampling_times": true,
+            "bone_count": 22,
+            "anchor": {
+                "type": "feet",
+                "bones": [
+                    "LeftFoot",
+                    "RightFoot",
+                    "LeftToes",
+                    "RightToes"
+                ]
+            },
+            "bones": [
+                {
+                    "name": "hips",
+                    "human_body_bone": "Hips",
+                    "group": "torso",
+                    "muscle_channels": [],
+                    "first_local_rotation": {
+                        "x": 0.03489900007843971,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9993910193443298
+                    },
+                    "final_local_rotation": {
+                        "x": 0.03489900007843971,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9993910193443298
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.03489900007843971,
+                            0.03489900007843971
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            0.9993910193443298,
+                            0.9993910193443298
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [
+                            0.0049430001527071,
+                            0.0049430001527071
+                        ],
+                        "y": [
+                            0.9674909710884094,
+                            0.9674909710884094
+                        ],
+                        "z": [
+                            -0.026726000010967256,
+                            -0.026726000010967256
+                        ]
+                    }
+                },
+                {
+                    "name": "spine",
+                    "human_body_bone": "Spine",
+                    "group": "torso",
+                    "muscle_channels": [
+                        "spine.front_back",
+                        "spine.left_right",
+                        "spine.twist.left_right"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.026177000254392625,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9996569752693176
+                    },
+                    "final_local_rotation": {
+                        "x": 0.026177000254392625,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9996569752693176
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.026177000254392625,
+                            0.026177000254392625
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            0.9996569752693176,
+                            0.9996569752693176
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "chest",
+                    "human_body_bone": "Chest",
+                    "group": "torso",
+                    "muscle_channels": [
+                        "chest.front_back",
+                        "chest.left_right",
+                        "chest.twist.left_right"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.021815000101923944,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9997619986534119
+                    },
+                    "final_local_rotation": {
+                        "x": 0.021815000101923944,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9997619986534119
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.021815000101923944,
+                            0.021815000101923944
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            0.9997619986534119,
+                            0.9997619986534119
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "upperChest",
+                    "human_body_bone": "UpperChest",
+                    "group": "torso",
+                    "muscle_channels": [
+                        "upperchest.front_back",
+                        "upperchest.left_right",
+                        "upperchest.twist.left_right"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.013089999556541443,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9999139904975891
+                    },
+                    "final_local_rotation": {
+                        "x": 0.013089999556541443,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9999139904975891
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.013089999556541443,
+                            0.013089999556541443
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            0.9999139904975891,
+                            0.9999139904975891
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "neck",
+                    "human_body_bone": "Neck",
+                    "group": "head",
+                    "muscle_channels": [
+                        "neck.nod.down_up",
+                        "neck.tilt.left_right",
+                        "neck.turn.left_right"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.026177000254392625,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9996569752693176
+                    },
+                    "final_local_rotation": {
+                        "x": 0.026177000254392625,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9996569752693176
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.026177000254392625,
+                            0.026177000254392625
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            0.9996569752693176,
+                            0.9996569752693176
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "head",
+                    "human_body_bone": "Head",
+                    "group": "head",
+                    "muscle_channels": [
+                        "head.nod.down_up",
+                        "head.tilt.left_right",
+                        "head.turn.left_right"
+                    ],
+                    "first_local_rotation": {
+                        "x": -0.017451999709010125,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9998480081558228
+                    },
+                    "final_local_rotation": {
+                        "x": -0.017451999709010125,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 0.9998480081558228
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            -0.017451999709010125,
+                            -0.017451999709010125
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            0.9998480081558228,
+                            0.9998480081558228
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftShoulder",
+                    "human_body_bone": "LeftShoulder",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "left.shoulder.down_up",
+                        "left.shoulder.front_back"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.026177000254392625,
+                        "w": 0.9996569752693176
+                    },
+                    "final_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.026177000254392625,
+                        "w": 0.9996569752693176
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.0,
+                            0.0
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.026177000254392625,
+                            0.026177000254392625
+                        ],
+                        "w": [
+                            0.9996569752693176,
+                            0.9996569752693176
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftUpperArm",
+                    "human_body_bone": "LeftUpperArm",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "left.arm.down_up",
+                        "left.arm.front_back",
+                        "left.arm.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.3959980010986328,
+                        "y": -0.026726000010967256,
+                        "z": 0.33687999844551089,
+                        "w": 0.8538050055503845
+                    },
+                    "final_local_rotation": {
+                        "x": 0.3959980010986328,
+                        "y": -0.026726000010967256,
+                        "z": 0.33687999844551089,
+                        "w": 0.8538050055503845
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.3959980010986328,
+                            0.3959980010986328
+                        ],
+                        "y": [
+                            -0.026726000010967256,
+                            -0.026726000010967256
+                        ],
+                        "z": [
+                            0.33687999844551089,
+                            0.33687999844551089
+                        ],
+                        "w": [
+                            0.8538050055503845,
+                            0.8538050055503845
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftLowerArm",
+                    "human_body_bone": "LeftLowerArm",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "left.forearm.stretch",
+                        "left.forearm.twist.in_out",
+                        "left.elbow.flex",
+                        "left.lower_arm.rotation.x",
+                        "left.lower_arm.rotation.y",
+                        "left.lower_arm.rotation.z",
+                        "left.lower_arm.rotation.w"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.015768999233841897,
+                        "y": 0.7118059992790222,
+                        "z": 0.2802030146121979,
+                        "w": 0.6438720226287842
+                    },
+                    "final_local_rotation": {
+                        "x": 0.015768999233841897,
+                        "y": 0.7118059992790222,
+                        "z": 0.2802030146121979,
+                        "w": 0.6438720226287842
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.015768999233841897,
+                            0.015768999233841897
+                        ],
+                        "y": [
+                            0.7118059992790222,
+                            0.7118059992790222
+                        ],
+                        "z": [
+                            0.2802030146121979,
+                            0.2802030146121979
+                        ],
+                        "w": [
+                            0.6438720226287842,
+                            0.6438720226287842
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftHand",
+                    "human_body_bone": "LeftHand",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "left.hand.down_up",
+                        "left.hand.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": -0.2887110114097595,
+                        "y": 0.0068270000629127029,
+                        "z": 0.0112119996920228,
+                        "w": 0.9573259949684143
+                    },
+                    "final_local_rotation": {
+                        "x": -0.2887110114097595,
+                        "y": 0.0068270000629127029,
+                        "z": 0.0112119996920228,
+                        "w": 0.9573259949684143
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            -0.2887110114097595,
+                            -0.2887110114097595
+                        ],
+                        "y": [
+                            0.0068270000629127029,
+                            0.0068270000629127029
+                        ],
+                        "z": [
+                            0.0112119996920228,
+                            0.0112119996920228
+                        ],
+                        "w": [
+                            0.9573259949684143,
+                            0.9573259949684143
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightUpperArm",
+                    "human_body_bone": "RightUpperArm",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "right.arm.down_up",
+                        "right.arm.front_back",
+                        "right.arm.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.16824500262737275,
+                        "y": -0.212227001786232,
+                        "z": -0.547851026058197,
+                        "w": 0.7915260195732117
+                    },
+                    "final_local_rotation": {
+                        "x": 0.16824500262737275,
+                        "y": -0.212227001786232,
+                        "z": -0.547851026058197,
+                        "w": 0.7915260195732117
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.16824500262737275,
+                            0.16824500262737275
+                        ],
+                        "y": [
+                            -0.212227001786232,
+                            -0.212227001786232
+                        ],
+                        "z": [
+                            -0.547851026058197,
+                            -0.547851026058197
+                        ],
+                        "w": [
+                            0.7915260195732117,
+                            0.7915260195732117
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightLowerArm",
+                    "human_body_bone": "RightLowerArm",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "right.forearm.stretch",
+                        "right.forearm.twist.in_out",
+                        "right.elbow.flex",
+                        "right.lower_arm.rotation.x",
+                        "right.lower_arm.rotation.y",
+                        "right.lower_arm.rotation.z",
+                        "right.lower_arm.rotation.w"
+                    ],
+                    "first_local_rotation": {
+                        "x": -0.09005200117826462,
+                        "y": -0.11829199641942978,
+                        "z": 0.018171999603509904,
+                        "w": 0.9887199997901917
+                    },
+                    "final_local_rotation": {
+                        "x": -0.09005200117826462,
+                        "y": -0.11829199641942978,
+                        "z": 0.018171999603509904,
+                        "w": 0.9887199997901917
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            -0.09005200117826462,
+                            -0.09005200117826462
+                        ],
+                        "y": [
+                            -0.11829199641942978,
+                            -0.11829199641942978
+                        ],
+                        "z": [
+                            0.018171999603509904,
+                            0.018171999603509904
+                        ],
+                        "w": [
+                            0.9887199997901917,
+                            0.9887199997901917
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightHand",
+                    "human_body_bone": "RightHand",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "right.hand.down_up",
+                        "right.hand.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": -0.15437300503253938,
+                        "y": 0.00048600000445730984,
+                        "z": -0.0016090000281110407,
+                        "w": 0.9880110025405884
+                    },
+                    "final_local_rotation": {
+                        "x": -0.15437300503253938,
+                        "y": 0.00048600000445730984,
+                        "z": -0.0016090000281110407,
+                        "w": 0.9880110025405884
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            -0.15437300503253938,
+                            -0.15437300503253938
+                        ],
+                        "y": [
+                            0.00048600000445730984,
+                            0.00048600000445730984
+                        ],
+                        "z": [
+                            -0.0016090000281110407,
+                            -0.0016090000281110407
+                        ],
+                        "w": [
+                            0.9880110025405884,
+                            0.9880110025405884
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightShoulder",
+                    "human_body_bone": "RightShoulder",
+                    "group": "upper_body",
+                    "muscle_channels": [
+                        "right.shoulder.down_up",
+                        "right.shoulder.front_back"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": -0.026177000254392625,
+                        "w": 0.9996569752693176
+                    },
+                    "final_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": -0.026177000254392625,
+                        "w": 0.9996569752693176
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.0,
+                            0.0
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            -0.026177000254392625,
+                            -0.026177000254392625
+                        ],
+                        "w": [
+                            0.9996569752693176,
+                            0.9996569752693176
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftUpperLeg",
+                    "human_body_bone": "LeftUpperLeg",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "left.upper.leg.front_back",
+                        "left.upper.leg.in_out",
+                        "left.upper.leg.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.002945000072941184,
+                        "y": -0.0729919970035553,
+                        "z": 0.0362280011177063,
+                        "w": 0.9966700077056885
+                    },
+                    "final_local_rotation": {
+                        "x": 0.002945000072941184,
+                        "y": -0.0729919970035553,
+                        "z": 0.0362280011177063,
+                        "w": 0.9966700077056885
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.002945000072941184,
+                            0.002945000072941184
+                        ],
+                        "y": [
+                            -0.0729919970035553,
+                            -0.0729919970035553
+                        ],
+                        "z": [
+                            0.0362280011177063,
+                            0.0362280011177063
+                        ],
+                        "w": [
+                            0.9966700077056885,
+                            0.9966700077056885
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftLowerLeg",
+                    "human_body_bone": "LeftLowerLeg",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "left.lower.leg.stretch",
+                        "left.lower.leg.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": -0.0020759999752044679,
+                        "y": 0.018852999433875085,
+                        "z": -0.01907999999821186,
+                        "w": 0.999638020992279
+                    },
+                    "final_local_rotation": {
+                        "x": -0.0020759999752044679,
+                        "y": 0.018852999433875085,
+                        "z": -0.01907999999821186,
+                        "w": 0.999638020992279
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            -0.0020759999752044679,
+                            -0.0020759999752044679
+                        ],
+                        "y": [
+                            0.018852999433875085,
+                            0.018852999433875085
+                        ],
+                        "z": [
+                            -0.01907999999821186,
+                            -0.01907999999821186
+                        ],
+                        "w": [
+                            0.999638020992279,
+                            0.999638020992279
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftFoot",
+                    "human_body_bone": "LeftFoot",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "left.foot.up_down",
+                        "left.foot.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.0020089999306946995,
+                        "y": 0.09870699793100357,
+                        "z": -0.05752500146627426,
+                        "w": 0.9934509992599487
+                    },
+                    "final_local_rotation": {
+                        "x": 0.0020089999306946995,
+                        "y": 0.09870699793100357,
+                        "z": -0.05752500146627426,
+                        "w": 0.9934509992599487
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.0020089999306946995,
+                            0.0020089999306946995
+                        ],
+                        "y": [
+                            0.09870699793100357,
+                            0.09870699793100357
+                        ],
+                        "z": [
+                            -0.05752500146627426,
+                            -0.05752500146627426
+                        ],
+                        "w": [
+                            0.9934509992599487,
+                            0.9934509992599487
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "leftToes",
+                    "human_body_bone": "LeftToes",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "left.toes.up_down"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 1.0
+                    },
+                    "final_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 1.0
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.0,
+                            0.0
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            1.0,
+                            1.0
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightUpperLeg",
+                    "human_body_bone": "RightUpperLeg",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "right.upper.leg.front_back",
+                        "right.upper.leg.in_out",
+                        "right.upper.leg.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": -0.08242999762296677,
+                        "y": 0.07312300056219101,
+                        "z": -0.05613499879837036,
+                        "w": 0.9923239946365356
+                    },
+                    "final_local_rotation": {
+                        "x": -0.08242999762296677,
+                        "y": 0.07312300056219101,
+                        "z": -0.05613499879837036,
+                        "w": 0.9923239946365356
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            -0.08242999762296677,
+                            -0.08242999762296677
+                        ],
+                        "y": [
+                            0.07312300056219101,
+                            0.07312300056219101
+                        ],
+                        "z": [
+                            -0.05613499879837036,
+                            -0.05613499879837036
+                        ],
+                        "w": [
+                            0.9923239946365356,
+                            0.9923239946365356
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightLowerLeg",
+                    "human_body_bone": "RightLowerLeg",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "right.lower.leg.stretch",
+                        "right.lower.leg.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": -0.007683999836444855,
+                        "y": -0.19216300547122956,
+                        "z": 0.05480099841952324,
+                        "w": 0.9798020124435425
+                    },
+                    "final_local_rotation": {
+                        "x": -0.007683999836444855,
+                        "y": -0.19216300547122956,
+                        "z": 0.05480099841952324,
+                        "w": 0.9798020124435425
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            -0.007683999836444855,
+                            -0.007683999836444855
+                        ],
+                        "y": [
+                            -0.19216300547122956,
+                            -0.19216300547122956
+                        ],
+                        "z": [
+                            0.05480099841952324,
+                            0.05480099841952324
+                        ],
+                        "w": [
+                            0.9798020124435425,
+                            0.9798020124435425
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightFoot",
+                    "human_body_bone": "RightFoot",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "right.foot.up_down",
+                        "right.foot.twist.in_out"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.11524900048971176,
+                        "y": -0.25753501057624819,
+                        "z": 0.1924940049648285,
+                        "w": 0.9398620128631592
+                    },
+                    "final_local_rotation": {
+                        "x": 0.11524900048971176,
+                        "y": -0.25753501057624819,
+                        "z": 0.1924940049648285,
+                        "w": 0.9398620128631592
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.11524900048971176,
+                            0.11524900048971176
+                        ],
+                        "y": [
+                            -0.25753501057624819,
+                            -0.25753501057624819
+                        ],
+                        "z": [
+                            0.1924940049648285,
+                            0.1924940049648285
+                        ],
+                        "w": [
+                            0.9398620128631592,
+                            0.9398620128631592
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                },
+                {
+                    "name": "rightToes",
+                    "human_body_bone": "RightToes",
+                    "group": "locomotion",
+                    "muscle_channels": [
+                        "right.toes.up_down"
+                    ],
+                    "first_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 1.0
+                    },
+                    "final_local_rotation": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "w": 1.0
+                    },
+                    "max_angle_from_first_frame_deg": 0.0,
+                    "final_angle_from_first_frame_deg": 0.0,
+                    "local_rotation_samples": {
+                        "x": [
+                            0.0,
+                            0.0
+                        ],
+                        "y": [
+                            0.0,
+                            0.0
+                        ],
+                        "z": [
+                            0.0,
+                            0.0
+                        ],
+                        "w": [
+                            1.0,
+                            1.0
+                        ]
+                    },
+                    "local_position_samples": {
+                        "x": [],
+                        "y": [],
+                        "z": []
+                    }
+                }
+            ]
+        }
+    },
+    "motion_profile": {
+        "speed_multiplier": 0.0,
+        "bob_amplitude": 0.0,
+        "secondary_bob_amplitude": 0.0,
+        "lean_amplitude": 0.0,
+        "nod_amplitude": 0.0,
+        "yaw_amplitude": 0.0
+    },
+    "summary": {
+        "channel_count": 140,
+        "animated_groups": [
+            "torso",
+            "head",
+            "upper_body",
+            "locomotion",
+            "root"
+        ]
+    },
+    "channels": [
+        {
+            "name": "Chest Front-Back",
+            "normalized_name": "chest.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Chest Left-Right",
+            "normalized_name": "chest.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Chest Twist Left-Right",
+            "normalized_name": "chest.twist.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Head Nod Down-Up",
+            "normalized_name": "head.nod.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Head Tilt Left-Right",
+            "normalized_name": "head.tilt.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Head Turn Left-Right",
+            "normalized_name": "head.turn.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Jaw Close",
+            "normalized_name": "jaw.close",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Jaw Left-Right",
+            "normalized_name": "jaw.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Left Arm Down-Up",
+            "normalized_name": "left.arm.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.002812999999150634,
+            "max_value": 0.002812999999150634,
+            "samples": [
+                0.002812999999150634,
+                0.002812999999150634
+            ]
+        },
+        {
+            "name": "Left Arm Front-Back",
+            "normalized_name": "left.arm.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.5111989974975586,
+            "max_value": 0.5111989974975586,
+            "samples": [
+                0.5111989974975586,
+                0.5111989974975586
+            ]
+        },
+        {
+            "name": "Left Arm Twist In-Out",
+            "normalized_name": "left.arm.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.679597020149231,
+            "max_value": -0.679597020149231,
+            "samples": [
+                -0.679597020149231,
+                -0.679597020149231
+            ]
+        },
+        {
+            "name": "Left Eye Down-Up",
+            "normalized_name": "left.eye.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Left Eye In-Out",
+            "normalized_name": "left.eye.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Left Foot Twist In-Out",
+            "normalized_name": "left.foot.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.14808699488639832,
+            "max_value": 0.14808699488639832,
+            "samples": [
+                0.14808699488639832,
+                0.14808699488639832
+            ]
+        },
+        {
+            "name": "Left Foot Up-Down",
+            "normalized_name": "left.foot.up_down",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.013803999871015549,
+            "max_value": 0.013803999871015549,
+            "samples": [
+                0.013803999871015549,
+                0.013803999871015549
+            ]
+        },
+        {
+            "name": "Left Forearm Stretch",
+            "normalized_name": "left.forearm.stretch",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.24950699508190156,
+            "max_value": -0.24950699508190156,
+            "samples": [
+                -0.24950699508190156,
+                -0.24950699508190156
+            ]
+        },
+        {
+            "name": "Left Forearm Twist In-Out",
+            "normalized_name": "left.forearm.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7458789944648743,
+            "max_value": 0.7458789944648743,
+            "samples": [
+                0.7458789944648743,
+                0.7458789944648743
+            ]
+        },
+        {
+            "name": "Left Hand Down-Up",
+            "normalized_name": "left.hand.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.01876699924468994,
+            "max_value": -0.01876699924468994,
+            "samples": [
+                -0.01876699924468994,
+                -0.01876699924468994
+            ]
+        },
+        {
+            "name": "Left Hand In-Out",
+            "normalized_name": "left.hand.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.0023419999051839115,
+            "max_value": -0.0023419999051839115,
+            "samples": [
+                -0.0023419999051839115,
+                -0.0023419999051839115
+            ]
+        },
+        {
+            "name": "Left Lower Leg Stretch",
+            "normalized_name": "left.lower.leg.stretch",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 1.0051690340042115,
+            "max_value": 1.0051690340042115,
+            "samples": [
+                1.0051690340042115,
+                1.0051690340042115
+            ]
+        },
+        {
+            "name": "Left Lower Leg Twist In-Out",
+            "normalized_name": "left.lower.leg.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.2633950114250183,
+            "max_value": -0.2633950114250183,
+            "samples": [
+                -0.2633950114250183,
+                -0.2633950114250183
+            ]
+        },
+        {
+            "name": "Left Shoulder Down-Up",
+            "normalized_name": "left.shoulder.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Left Shoulder Front-Back",
+            "normalized_name": "left.shoulder.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 9.999999974752428e-7,
+            "max_value": 9.999999974752428e-7,
+            "samples": [
+                9.999999974752428e-7,
+                9.999999974752428e-7
+            ]
+        },
+        {
+            "name": "Left Toes Up-Down",
+            "normalized_name": "left.toes.up_down",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Left Upper Leg Front-Back",
+            "normalized_name": "left.upper.leg.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.5999640226364136,
+            "max_value": 0.5999640226364136,
+            "samples": [
+                0.5999640226364136,
+                0.5999640226364136
+            ]
+        },
+        {
+            "name": "Left Upper Leg In-Out",
+            "normalized_name": "left.upper.leg.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.07441800087690354,
+            "max_value": -0.07441800087690354,
+            "samples": [
+                -0.07441800087690354,
+                -0.07441800087690354
+            ]
+        },
+        {
+            "name": "Left Upper Leg Twist In-Out",
+            "normalized_name": "left.upper.leg.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.3164770007133484,
+            "max_value": 0.3164770007133484,
+            "samples": [
+                0.3164770007133484,
+                0.3164770007133484
+            ]
+        },
+        {
+            "name": "LeftFootQ.w",
+            "normalized_name": "leftfootq_w",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.4834659993648529,
+            "max_value": 0.4834659993648529,
+            "samples": [
+                0.4834659993648529,
+                0.4834659993648529
+            ]
+        },
+        {
+            "name": "LeftFootQ.x",
+            "normalized_name": "leftfootq_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.5137439966201782,
+            "max_value": -0.5137439966201782,
+            "samples": [
+                -0.5137439966201782,
+                -0.5137439966201782
+            ]
+        },
+        {
+            "name": "LeftFootQ.y",
+            "normalized_name": "leftfootq_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.5198779702186585,
+            "max_value": 0.5198779702186585,
+            "samples": [
+                0.5198779702186585,
+                0.5198779702186585
+            ]
+        },
+        {
+            "name": "LeftFootQ.z",
+            "normalized_name": "leftfootq_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.4817200005054474,
+            "max_value": -0.4817200005054474,
+            "samples": [
+                -0.4817200005054474,
+                -0.4817200005054474
+            ]
+        },
+        {
+            "name": "LeftFootT.x",
+            "normalized_name": "leftfoott_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.029836000874638559,
+            "max_value": 0.029836000874638559,
+            "samples": [
+                0.029836000874638559,
+                0.029836000874638559
+            ]
+        },
+        {
+            "name": "LeftFootT.y",
+            "normalized_name": "leftfoott_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.9795629978179932,
+            "max_value": -0.9795629978179932,
+            "samples": [
+                -0.9795629978179932,
+                -0.9795629978179932
+            ]
+        },
+        {
+            "name": "LeftFootT.z",
+            "normalized_name": "leftfoott_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.10130400210618973,
+            "max_value": -0.10130400210618973,
+            "samples": [
+                -0.10130400210618973,
+                -0.10130400210618973
+            ]
+        },
+        {
+            "name": "LeftHand.Index.1 Stretched",
+            "normalized_name": "lefthand_index_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.5868769884109497,
+            "max_value": 0.5868769884109497,
+            "samples": [
+                0.5868769884109497,
+                0.5868769884109497
+            ]
+        },
+        {
+            "name": "LeftHand.Index.2 Stretched",
+            "normalized_name": "lefthand_index_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7159680128097534,
+            "max_value": 0.7159680128097534,
+            "samples": [
+                0.7159680128097534,
+                0.7159680128097534
+            ]
+        },
+        {
+            "name": "LeftHand.Index.3 Stretched",
+            "normalized_name": "lefthand_index_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.711982011795044,
+            "max_value": 0.711982011795044,
+            "samples": [
+                0.711982011795044,
+                0.711982011795044
+            ]
+        },
+        {
+            "name": "LeftHand.Index.Spread",
+            "normalized_name": "lefthand_index_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.2229209989309311,
+            "max_value": -0.2229209989309311,
+            "samples": [
+                -0.2229209989309311,
+                -0.2229209989309311
+            ]
+        },
+        {
+            "name": "LeftHand.Little.1 Stretched",
+            "normalized_name": "lefthand_little_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7633960247039795,
+            "max_value": 0.7633960247039795,
+            "samples": [
+                0.7633960247039795,
+                0.7633960247039795
+            ]
+        },
+        {
+            "name": "LeftHand.Little.2 Stretched",
+            "normalized_name": "lefthand_little_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7942280173301697,
+            "max_value": 0.7942280173301697,
+            "samples": [
+                0.7942280173301697,
+                0.7942280173301697
+            ]
+        },
+        {
+            "name": "LeftHand.Little.3 Stretched",
+            "normalized_name": "lefthand_little_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.8685290217399597,
+            "max_value": 0.8685290217399597,
+            "samples": [
+                0.8685290217399597,
+                0.8685290217399597
+            ]
+        },
+        {
+            "name": "LeftHand.Little.Spread",
+            "normalized_name": "lefthand_little_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.25317099690437319,
+            "max_value": -0.25317099690437319,
+            "samples": [
+                -0.25317099690437319,
+                -0.25317099690437319
+            ]
+        },
+        {
+            "name": "LeftHand.Middle.1 Stretched",
+            "normalized_name": "lefthand_middle_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.6062939763069153,
+            "max_value": 0.6062939763069153,
+            "samples": [
+                0.6062939763069153,
+                0.6062939763069153
+            ]
+        },
+        {
+            "name": "LeftHand.Middle.2 Stretched",
+            "normalized_name": "lefthand_middle_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.8463749885559082,
+            "max_value": 0.8463749885559082,
+            "samples": [
+                0.8463749885559082,
+                0.8463749885559082
+            ]
+        },
+        {
+            "name": "LeftHand.Middle.3 Stretched",
+            "normalized_name": "lefthand_middle_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7237139940261841,
+            "max_value": 0.7237139940261841,
+            "samples": [
+                0.7237139940261841,
+                0.7237139940261841
+            ]
+        },
+        {
+            "name": "LeftHand.Middle.Spread",
+            "normalized_name": "lefthand_middle_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.07100799679756165,
+            "max_value": -0.07100799679756165,
+            "samples": [
+                -0.07100799679756165,
+                -0.07100799679756165
+            ]
+        },
+        {
+            "name": "LeftHand.Ring.1 Stretched",
+            "normalized_name": "lefthand_ring_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.6511120200157166,
+            "max_value": 0.6511120200157166,
+            "samples": [
+                0.6511120200157166,
+                0.6511120200157166
+            ]
+        },
+        {
+            "name": "LeftHand.Ring.2 Stretched",
+            "normalized_name": "lefthand_ring_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.8028370141983032,
+            "max_value": 0.8028370141983032,
+            "samples": [
+                0.8028370141983032,
+                0.8028370141983032
+            ]
+        },
+        {
+            "name": "LeftHand.Ring.3 Stretched",
+            "normalized_name": "lefthand_ring_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.807703971862793,
+            "max_value": 0.807703971862793,
+            "samples": [
+                0.807703971862793,
+                0.807703971862793
+            ]
+        },
+        {
+            "name": "LeftHand.Ring.Spread",
+            "normalized_name": "lefthand_ring_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.965408980846405,
+            "max_value": -0.965408980846405,
+            "samples": [
+                -0.965408980846405,
+                -0.965408980846405
+            ]
+        },
+        {
+            "name": "LeftHand.Thumb.1 Stretched",
+            "normalized_name": "lefthand_thumb_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -2.880831003189087,
+            "max_value": -2.880831003189087,
+            "samples": [
+                -2.880831003189087,
+                -2.880831003189087
+            ]
+        },
+        {
+            "name": "LeftHand.Thumb.2 Stretched",
+            "normalized_name": "lefthand_thumb_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.3785710036754608,
+            "max_value": 0.3785710036754608,
+            "samples": [
+                0.3785710036754608,
+                0.3785710036754608
+            ]
+        },
+        {
+            "name": "LeftHand.Thumb.3 Stretched",
+            "normalized_name": "lefthand_thumb_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7747669816017151,
+            "max_value": 0.7747669816017151,
+            "samples": [
+                0.7747669816017151,
+                0.7747669816017151
+            ]
+        },
+        {
+            "name": "LeftHand.Thumb.Spread",
+            "normalized_name": "lefthand_thumb_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -3.286284923553467,
+            "max_value": -3.286284923553467,
+            "samples": [
+                -3.286284923553467,
+                -3.286284923553467
+            ]
+        },
+        {
+            "name": "LeftHandQ.w",
+            "normalized_name": "lefthandq_w",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.8385990262031555,
+            "max_value": -0.8385990262031555,
+            "samples": [
+                -0.8385990262031555,
+                -0.8385990262031555
+            ]
+        },
+        {
+            "name": "LeftHandQ.x",
+            "normalized_name": "lefthandq_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.07874300330877304,
+            "max_value": 0.07874300330877304,
+            "samples": [
+                0.07874300330877304,
+                0.07874300330877304
+            ]
+        },
+        {
+            "name": "LeftHandQ.y",
+            "normalized_name": "lefthandq_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.24550600349903108,
+            "max_value": 0.24550600349903108,
+            "samples": [
+                0.24550600349903108,
+                0.24550600349903108
+            ]
+        },
+        {
+            "name": "LeftHandQ.z",
+            "normalized_name": "lefthandq_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.47987300157546999,
+            "max_value": 0.47987300157546999,
+            "samples": [
+                0.47987300157546999,
+                0.47987300157546999
+            ]
+        },
+        {
+            "name": "LeftHandT.x",
+            "normalized_name": "lefthandt_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.19125500321388246,
+            "max_value": -0.19125500321388246,
+            "samples": [
+                -0.19125500321388246,
+                -0.19125500321388246
+            ]
+        },
+        {
+            "name": "LeftHandT.y",
+            "normalized_name": "lefthandt_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.06801600009202957,
+            "max_value": 0.06801600009202957,
+            "samples": [
+                0.06801600009202957,
+                0.06801600009202957
+            ]
+        },
+        {
+            "name": "LeftHandT.z",
+            "normalized_name": "lefthandt_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.06254900246858597,
+            "max_value": -0.06254900246858597,
+            "samples": [
+                -0.06254900246858597,
+                -0.06254900246858597
+            ]
+        },
+        {
+            "name": "Neck Nod Down-Up",
+            "normalized_name": "neck.nod.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Neck Tilt Left-Right",
+            "normalized_name": "neck.tilt.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Neck Turn Left-Right",
+            "normalized_name": "neck.turn.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Right Arm Down-Up",
+            "normalized_name": "right.arm.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.5861449837684631,
+            "max_value": -0.5861449837684631,
+            "samples": [
+                -0.5861449837684631,
+                -0.5861449837684631
+            ]
+        },
+        {
+            "name": "Right Arm Front-Back",
+            "normalized_name": "right.arm.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.18799200654029847,
+            "max_value": 0.18799200654029847,
+            "samples": [
+                0.18799200654029847,
+                0.18799200654029847
+            ]
+        },
+        {
+            "name": "Right Arm Twist In-Out",
+            "normalized_name": "right.arm.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.0924839973449707,
+            "max_value": -0.0924839973449707,
+            "samples": [
+                -0.0924839973449707,
+                -0.0924839973449707
+            ]
+        },
+        {
+            "name": "Right Eye Down-Up",
+            "normalized_name": "right.eye.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Right Eye In-Out",
+            "normalized_name": "right.eye.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "head",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Right Foot Twist In-Out",
+            "normalized_name": "right.foot.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.4092920124530792,
+            "max_value": 0.4092920124530792,
+            "samples": [
+                0.4092920124530792,
+                0.4092920124530792
+            ]
+        },
+        {
+            "name": "Right Foot Up-Down",
+            "normalized_name": "right.foot.up_down",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.3492099940776825,
+            "max_value": 0.3492099940776825,
+            "samples": [
+                0.3492099940776825,
+                0.3492099940776825
+            ]
+        },
+        {
+            "name": "Right Forearm Stretch",
+            "normalized_name": "right.forearm.stretch",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.8290280103683472,
+            "max_value": 0.8290280103683472,
+            "samples": [
+                0.8290280103683472,
+                0.8290280103683472
+            ]
+        },
+        {
+            "name": "Right Forearm Twist In-Out",
+            "normalized_name": "right.forearm.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.3946869969367981,
+            "max_value": 0.3946869969367981,
+            "samples": [
+                0.3946869969367981,
+                0.3946869969367981
+            ]
+        },
+        {
+            "name": "Right Hand Down-Up",
+            "normalized_name": "right.hand.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.0019310000352561474,
+            "max_value": -0.0019310000352561474,
+            "samples": [
+                -0.0019310000352561474,
+                -0.0019310000352561474
+            ]
+        },
+        {
+            "name": "Right Hand In-Out",
+            "normalized_name": "right.hand.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.0028750000055879356,
+            "max_value": 0.0028750000055879356,
+            "samples": [
+                0.0028750000055879356,
+                0.0028750000055879356
+            ]
+        },
+        {
+            "name": "Right Lower Leg Stretch",
+            "normalized_name": "right.lower.leg.stretch",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 1.0184270143508912,
+            "max_value": 1.0184270143508912,
+            "samples": [
+                1.0184270143508912,
+                1.0184270143508912
+            ]
+        },
+        {
+            "name": "Right Lower Leg Twist In-Out",
+            "normalized_name": "right.lower.leg.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.7266420125961304,
+            "max_value": -0.7266420125961304,
+            "samples": [
+                -0.7266420125961304,
+                -0.7266420125961304
+            ]
+        },
+        {
+            "name": "Right Shoulder Down-Up",
+            "normalized_name": "right.shoulder.down_up",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Right Shoulder Front-Back",
+            "normalized_name": "right.shoulder.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Right Toes Up-Down",
+            "normalized_name": "right.toes.up_down",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Right Upper Leg Front-Back",
+            "normalized_name": "right.upper.leg.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.4002560079097748,
+            "max_value": 0.4002560079097748,
+            "samples": [
+                0.4002560079097748,
+                0.4002560079097748
+            ]
+        },
+        {
+            "name": "Right Upper Leg In-Out",
+            "normalized_name": "right.upper.leg.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.09799399971961975,
+            "max_value": -0.09799399971961975,
+            "samples": [
+                -0.09799399971961975,
+                -0.09799399971961975
+            ]
+        },
+        {
+            "name": "Right Upper Leg Twist In-Out",
+            "normalized_name": "right.upper.leg.twist.in_out",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.3311559855937958,
+            "max_value": 0.3311559855937958,
+            "samples": [
+                0.3311559855937958,
+                0.3311559855937958
+            ]
+        },
+        {
+            "name": "RightFootQ.w",
+            "normalized_name": "rightfootq_w",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.6413710117340088,
+            "max_value": 0.6413710117340088,
+            "samples": [
+                0.6413710117340088,
+                0.6413710117340088
+            ]
+        },
+        {
+            "name": "RightFootQ.x",
+            "normalized_name": "rightfootq_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.30762800574302676,
+            "max_value": -0.30762800574302676,
+            "samples": [
+                -0.30762800574302676,
+                -0.30762800574302676
+            ]
+        },
+        {
+            "name": "RightFootQ.y",
+            "normalized_name": "rightfootq_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.24000999331474305,
+            "max_value": 0.24000999331474305,
+            "samples": [
+                0.24000999331474305,
+                0.24000999331474305
+            ]
+        },
+        {
+            "name": "RightFootQ.z",
+            "normalized_name": "rightfootq_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.6606079936027527,
+            "max_value": -0.6606079936027527,
+            "samples": [
+                -0.6606079936027527,
+                -0.6606079936027527
+            ]
+        },
+        {
+            "name": "RightFootT.x",
+            "normalized_name": "rightfoott_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.14151300489902497,
+            "max_value": -0.14151300489902497,
+            "samples": [
+                -0.14151300489902497,
+                -0.14151300489902497
+            ]
+        },
+        {
+            "name": "RightFootT.y",
+            "normalized_name": "rightfoott_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": -0.9616150259971619,
+            "max_value": -0.9616150259971619,
+            "samples": [
+                -0.9616150259971619,
+                -0.9616150259971619
+            ]
+        },
+        {
+            "name": "RightFootT.z",
+            "normalized_name": "rightfoott_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "locomotion",
+            "value_kind": "float",
+            "min_value": 0.09953200072050095,
+            "max_value": 0.09953200072050095,
+            "samples": [
+                0.09953200072050095,
+                0.09953200072050095
+            ]
+        },
+        {
+            "name": "RightHand.Index.1 Stretched",
+            "normalized_name": "righthand_index_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.6170870065689087,
+            "max_value": 0.6170870065689087,
+            "samples": [
+                0.6170870065689087,
+                0.6170870065689087
+            ]
+        },
+        {
+            "name": "RightHand.Index.2 Stretched",
+            "normalized_name": "righthand_index_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7819039821624756,
+            "max_value": 0.7819039821624756,
+            "samples": [
+                0.7819039821624756,
+                0.7819039821624756
+            ]
+        },
+        {
+            "name": "RightHand.Index.3 Stretched",
+            "normalized_name": "righthand_index_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7822089791297913,
+            "max_value": 0.7822089791297913,
+            "samples": [
+                0.7822089791297913,
+                0.7822089791297913
+            ]
+        },
+        {
+            "name": "RightHand.Index.Spread",
+            "normalized_name": "righthand_index_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.6099200248718262,
+            "max_value": -0.6099200248718262,
+            "samples": [
+                -0.6099200248718262,
+                -0.6099200248718262
+            ]
+        },
+        {
+            "name": "RightHand.Little.1 Stretched",
+            "normalized_name": "righthand_little_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.34192898869514468,
+            "max_value": 0.34192898869514468,
+            "samples": [
+                0.34192898869514468,
+                0.34192898869514468
+            ]
+        },
+        {
+            "name": "RightHand.Little.2 Stretched",
+            "normalized_name": "righthand_little_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.5465829968452454,
+            "max_value": 0.5465829968452454,
+            "samples": [
+                0.5465829968452454,
+                0.5465829968452454
+            ]
+        },
+        {
+            "name": "RightHand.Little.3 Stretched",
+            "normalized_name": "righthand_little_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.5503950119018555,
+            "max_value": 0.5503950119018555,
+            "samples": [
+                0.5503950119018555,
+                0.5503950119018555
+            ]
+        },
+        {
+            "name": "RightHand.Little.Spread",
+            "normalized_name": "righthand_little_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.07655700296163559,
+            "max_value": -0.07655700296163559,
+            "samples": [
+                -0.07655700296163559,
+                -0.07655700296163559
+            ]
+        },
+        {
+            "name": "RightHand.Middle.1 Stretched",
+            "normalized_name": "righthand_middle_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.5863739848136902,
+            "max_value": 0.5863739848136902,
+            "samples": [
+                0.5863739848136902,
+                0.5863739848136902
+            ]
+        },
+        {
+            "name": "RightHand.Middle.2 Stretched",
+            "normalized_name": "righthand_middle_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.742218017578125,
+            "max_value": 0.742218017578125,
+            "samples": [
+                0.742218017578125,
+                0.742218017578125
+            ]
+        },
+        {
+            "name": "RightHand.Middle.3 Stretched",
+            "normalized_name": "righthand_middle_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7432399988174439,
+            "max_value": 0.7432399988174439,
+            "samples": [
+                0.7432399988174439,
+                0.7432399988174439
+            ]
+        },
+        {
+            "name": "RightHand.Middle.Spread",
+            "normalized_name": "righthand_middle_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -1.1005779504776,
+            "max_value": -1.1005779504776,
+            "samples": [
+                -1.1005779504776,
+                -1.1005779504776
+            ]
+        },
+        {
+            "name": "RightHand.Ring.1 Stretched",
+            "normalized_name": "righthand_ring_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.4951060116291046,
+            "max_value": 0.4951060116291046,
+            "samples": [
+                0.4951060116291046,
+                0.4951060116291046
+            ]
+        },
+        {
+            "name": "RightHand.Ring.2 Stretched",
+            "normalized_name": "righthand_ring_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.662447988986969,
+            "max_value": 0.662447988986969,
+            "samples": [
+                0.662447988986969,
+                0.662447988986969
+            ]
+        },
+        {
+            "name": "RightHand.Ring.3 Stretched",
+            "normalized_name": "righthand_ring_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.6643149852752686,
+            "max_value": 0.6643149852752686,
+            "samples": [
+                0.6643149852752686,
+                0.6643149852752686
+            ]
+        },
+        {
+            "name": "RightHand.Ring.Spread",
+            "normalized_name": "righthand_ring_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.11155399680137634,
+            "max_value": 0.11155399680137634,
+            "samples": [
+                0.11155399680137634,
+                0.11155399680137634
+            ]
+        },
+        {
+            "name": "RightHand.Thumb.1 Stretched",
+            "normalized_name": "righthand_thumb_1.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -1.751168966293335,
+            "max_value": -1.751168966293335,
+            "samples": [
+                -1.751168966293335,
+                -1.751168966293335
+            ]
+        },
+        {
+            "name": "RightHand.Thumb.2 Stretched",
+            "normalized_name": "righthand_thumb_2.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.0500820018351078,
+            "max_value": 0.0500820018351078,
+            "samples": [
+                0.0500820018351078,
+                0.0500820018351078
+            ]
+        },
+        {
+            "name": "RightHand.Thumb.3 Stretched",
+            "normalized_name": "righthand_thumb_3.stretched",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.6451740264892578,
+            "max_value": 0.6451740264892578,
+            "samples": [
+                0.6451740264892578,
+                0.6451740264892578
+            ]
+        },
+        {
+            "name": "RightHand.Thumb.Spread",
+            "normalized_name": "righthand_thumb_spread",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.16898700594902039,
+            "max_value": -0.16898700594902039,
+            "samples": [
+                -0.16898700594902039,
+                -0.16898700594902039
+            ]
+        },
+        {
+            "name": "RightHandQ.w",
+            "normalized_name": "righthandq_w",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.7309079766273499,
+            "max_value": 0.7309079766273499,
+            "samples": [
+                0.7309079766273499,
+                0.7309079766273499
+            ]
+        },
+        {
+            "name": "RightHandQ.x",
+            "normalized_name": "righthandq_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.07694900035858154,
+            "max_value": -0.07694900035858154,
+            "samples": [
+                -0.07694900035858154,
+                -0.07694900035858154
+            ]
+        },
+        {
+            "name": "RightHandQ.y",
+            "normalized_name": "righthandq_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.12486500293016434,
+            "max_value": -0.12486500293016434,
+            "samples": [
+                -0.12486500293016434,
+                -0.12486500293016434
+            ]
+        },
+        {
+            "name": "RightHandQ.z",
+            "normalized_name": "righthandq_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.6665289998054504,
+            "max_value": -0.6665289998054504,
+            "samples": [
+                -0.6665289998054504,
+                -0.6665289998054504
+            ]
+        },
+        {
+            "name": "RightHandT.x",
+            "normalized_name": "righthandt_x",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.23972900211811067,
+            "max_value": 0.23972900211811067,
+            "samples": [
+                0.23972900211811067,
+                0.23972900211811067
+            ]
+        },
+        {
+            "name": "RightHandT.y",
+            "normalized_name": "righthandt_y",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": -0.15107400715351106,
+            "max_value": -0.15107400715351106,
+            "samples": [
+                -0.15107400715351106,
+                -0.15107400715351106
+            ]
+        },
+        {
+            "name": "RightHandT.z",
+            "normalized_name": "righthandt_z",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.04349999874830246,
+            "max_value": 0.04349999874830246,
+            "samples": [
+                0.04349999874830246,
+                0.04349999874830246
+            ]
+        },
+        {
+            "name": "RootQ.w",
+            "normalized_name": "rootq_w",
+            "binding_path": "",
+            "channel_space": "root_transform",
+            "group": "root",
+            "value_kind": "float",
+            "min_value": 1.0,
+            "max_value": 1.0,
+            "samples": [
+                1.0,
+                1.0
+            ]
+        },
+        {
+            "name": "RootQ.x",
+            "normalized_name": "rootq_x",
+            "binding_path": "",
+            "channel_space": "root_transform",
+            "group": "root",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "RootQ.y",
+            "normalized_name": "rootq_y",
+            "binding_path": "",
+            "channel_space": "root_transform",
+            "group": "root",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "RootQ.z",
+            "normalized_name": "rootq_z",
+            "binding_path": "",
+            "channel_space": "root_transform",
+            "group": "root",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "RootT.x",
+            "normalized_name": "roott_x",
+            "binding_path": "",
+            "channel_space": "root_transform",
+            "group": "root",
+            "value_kind": "float",
+            "min_value": 0.0025400000158697368,
+            "max_value": 0.0025400000158697368,
+            "samples": [
+                0.0025400000158697368,
+                0.0025400000158697368
+            ]
+        },
+        {
+            "name": "RootT.y",
+            "normalized_name": "roott_y",
+            "binding_path": "",
+            "channel_space": "root_transform",
+            "group": "root",
+            "value_kind": "float",
+            "min_value": 0.950918972492218,
+            "max_value": 0.950918972492218,
+            "samples": [
+                0.950918972492218,
+                0.950918972492218
+            ]
+        },
+        {
+            "name": "RootT.z",
+            "normalized_name": "roott_z",
+            "binding_path": "",
+            "channel_space": "root_transform",
+            "group": "root",
+            "value_kind": "float",
+            "min_value": -0.00009899999713525176,
+            "max_value": -0.00009899999713525176,
+            "samples": [
+                -0.00009899999713525176,
+                -0.00009899999713525176
+            ]
+        },
+        {
+            "name": "Spine Front-Back",
+            "normalized_name": "spine.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Spine Left-Right",
+            "normalized_name": "spine.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "Spine Twist Left-Right",
+            "normalized_name": "spine.twist.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "UpperChest Front-Back",
+            "normalized_name": "upperchest.front_back",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "UpperChest Left-Right",
+            "normalized_name": "upperchest.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 0.0,
+            "max_value": 0.0,
+            "samples": [
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "name": "UpperChest Twist Left-Right",
+            "normalized_name": "upperchest.twist.left_right",
+            "binding_path": "",
+            "channel_space": "humanoid_muscle",
+            "group": "torso",
+            "value_kind": "float",
+            "min_value": 9.999999974752428e-7,
+            "max_value": 9.999999974752428e-7,
+            "samples": [
+                9.999999974752428e-7,
+                9.999999974752428e-7
+            ]
+        },
+        {
+            "name": "Left Elbow Flex",
+            "normalized_name": "left.elbow.flex",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 1.249506950378418,
+            "max_value": 1.249506950378418,
+            "samples": [
+                1.249506950378418,
+                1.249506950378418
+            ]
+        },
+        {
+            "name": "Right Elbow Flex",
+            "normalized_name": "right.elbow.flex",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "float",
+            "min_value": 0.17097200453281403,
+            "max_value": 0.17097200453281403,
+            "samples": [
+                0.17097200453281403,
+                0.17097200453281403
+            ]
+        },
+        {
+            "name": "Left LowerArm Rotation X",
+            "normalized_name": "left.lower_arm.rotation.x",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": 0.5316330194473267,
+            "max_value": 0.5316330194473267,
+            "samples": [
+                0.5316330194473267,
+                0.5316330194473267
+            ]
+        },
+        {
+            "name": "Left LowerArm Rotation Y",
+            "normalized_name": "left.lower_arm.rotation.y",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": 0.06304600089788437,
+            "max_value": 0.06304600089788437,
+            "samples": [
+                0.06304600089788437,
+                0.06304600089788437
+            ]
+        },
+        {
+            "name": "Left LowerArm Rotation Z",
+            "normalized_name": "left.lower_arm.rotation.z",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": -0.039726998656988147,
+            "max_value": -0.039726998656988147,
+            "samples": [
+                -0.039726998656988147,
+                -0.039726998656988147
+            ]
+        },
+        {
+            "name": "Left LowerArm Rotation W",
+            "normalized_name": "left.lower_arm.rotation.w",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": 0.8436909914016724,
+            "max_value": 0.8436909914016724,
+            "samples": [
+                0.8436909914016724,
+                0.8436909914016724
+            ]
+        },
+        {
+            "name": "Right LowerArm Rotation X",
+            "normalized_name": "right.lower_arm.rotation.x",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": 0.07680200040340424,
+            "max_value": 0.07680200040340424,
+            "samples": [
+                0.07680200040340424,
+                0.07680200040340424
+            ]
+        },
+        {
+            "name": "Right LowerArm Rotation Y",
+            "normalized_name": "right.lower_arm.rotation.y",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": -0.039342001080513,
+            "max_value": -0.039342001080513,
+            "samples": [
+                -0.039342001080513,
+                -0.039342001080513
+            ]
+        },
+        {
+            "name": "Right LowerArm Rotation Z",
+            "normalized_name": "right.lower_arm.rotation.z",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": 0.0030330000445246698,
+            "max_value": 0.0030330000445246698,
+            "samples": [
+                0.0030330000445246698,
+                0.0030330000445246698
+            ]
+        },
+        {
+            "name": "Right LowerArm Rotation W",
+            "normalized_name": "right.lower_arm.rotation.w",
+            "binding_path": "",
+            "channel_space": "derived_humanoid_hint",
+            "group": "upper_body",
+            "value_kind": "quaternion_component",
+            "min_value": 0.9962649941444397,
+            "max_value": 0.9962649941444397,
+            "samples": [
+                0.9962649941444397,
+                0.9962649941444397
+            ]
+        }
+    ]
+}

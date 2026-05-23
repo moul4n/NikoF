@@ -34,6 +34,28 @@ interface AppProps {
   surfaceMode: SurfaceMode;
 }
 
+function resolveMoodDrivenIdleCommand(feelingName: string | null | undefined) {
+  const normalizedFeelingName = feelingName?.trim().toLowerCase();
+
+  if (normalizedFeelingName === "happy") {
+    return {
+      id: "idle.happy",
+      source: "shared",
+      playback: "loop"
+    } as const;
+  }
+
+  if (normalizedFeelingName === "sad") {
+    return {
+      id: "idle.sad",
+      source: "shared",
+      playback: "loop"
+    } as const;
+  }
+
+  return cloneDefaultBaseAnimationCommand();
+}
+
 export function App({ surfaceMode }: AppProps): JSX.Element {
   const [runtime] = useState<AvatarRuntimeBridge>(() => createAvatarRuntime());
   const [latestPublishedCommand, setLatestPublishedCommand] = useState<BackendOperatorCommandResponseDocument | null>(null);
@@ -130,6 +152,11 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     devDisplayAnimationOverride,
     sessionAnimationState
   });
+  const currentAssistantFeelingName = speechLifecycleState.snapshot?.canonicalAssistantMessageEvent?.assistant?.feeling?.name;
+
+  useEffect(() => {
+    runtime.setIdleAnimation(resolveMoodDrivenIdleCommand(currentAssistantFeelingName), { source: "system" });
+  }, [currentAssistantFeelingName, runtime]);
 
   useEffect(() => {
     if (shouldWaitForDisplayRuntimeReady || !shouldUseDevDisplayAnimationOverride) {

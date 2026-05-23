@@ -19,7 +19,9 @@ import {
   resolveSpeechLifecycleDeliveryLabel,
   type SpeechLifecycleLoadState
 } from "./useSpeechLifecycleState.js";
+import { describeAttentionStateLine, useAttentionState } from "./useAttentionState.js";
 import { describeSttStateLine, useSttState } from "./useSttState.js";
+import { useAttentionCapture } from "../features/vision/useAttentionCapture.js";
 
 type OperatorCommandSubmissionState = {
   status: "idle" | "submitting" | "ready" | "error";
@@ -428,6 +430,13 @@ export function ControlSurfaceOperatorCommandPanel({
   speechPlaybackStatus,
   onCommandPublished
 }: ControlSurfaceOperatorCommandPanelProps): JSX.Element {
+  const {
+    state: attentionState,
+    setSelectedDevice: setSelectedAttentionDevice,
+    setEnabled: setAttentionEnabled,
+    setTracking: setAttentionTracking,
+    setShowTrackingDebugMarker,
+  } = useAttentionState();
   const { state: sttState, setSelectedDevice, setListening } = useSttState();
   const [operatorCommandLocale, setOperatorCommandLocale] = useState("en-US");
   const [textQuestionDraft, setTextQuestionDraft] = useState("");
@@ -548,19 +557,65 @@ export function ControlSurfaceOperatorCommandPanel({
       (typeof speechPlaybackStatus.lastBundle.utteranceDurationMs === "number" &&
         speechPlaybackStatus.lastBundle.utteranceDurationMs > 0));
   const sttSnapshot = sttState.snapshot;
+  const attentionSnapshot = attentionState.snapshot;
+  const attentionStatusLine = describeAttentionStateLine(attentionState);
   const sttStatusLine = describeSttStateLine(sttState);
   const sttTranscriptChunks = sttSnapshot?.transcript_chunks ?? [];
   const sttLatestTranscript = sttTranscriptChunks[0]?.transcript ?? sttSnapshot?.latest_confirmed_text ?? "Awaiting a queued transcript from the STT sidecar.";
   const sttListeningButtonLabel = sttSnapshot?.listening ? "Stop listening" : "Start listening";
   const sttControlsDisabled = sttState.action !== "idle" || sttState.status === "loading";
+  const attentionEnabledButtonLabel = attentionSnapshot?.enabled ? "Disable attention" : "Enable attention";
+  const attentionTrackingButtonLabel = attentionSnapshot?.tracking ? "Stop tracking" : "Start tracking";
+  const attentionControlsDisabled = attentionState.action !== "idle" || attentionState.status === "loading";
+  const attentionSubject = attentionSnapshot?.subject ?? null;
+  const attentionCaptureState = useAttentionCapture({
+    enabled: attentionSnapshot?.enabled ?? false,
+    tracking: attentionSnapshot?.tracking ?? false,
+    selectedDeviceId: attentionSnapshot?.selected_device_id ?? null,
+    selectedDeviceLabel: attentionSnapshot?.selected_device_label ?? null,
+  });
+  const attentionDevices = attentionCaptureState.devices.length > 0 ? attentionCaptureState.devices : attentionState.devices;
+
+  function formatAttentionCoordinate(value: number | null | undefined): string {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return "n/a";
+    }
+
+    return value.toFixed(2);
+  }
 
   function handleSelectedDeviceChange(event: { target: { value: string } }): void {
     const nextDeviceId = event.target.value.trim() || null;
     void setSelectedDevice(nextDeviceId);
   }
 
+  function handleSelectedAttentionDeviceChange(event: { target: { value: string } }): void {
+    const nextDeviceId = event.target.value.trim() || null;
+    const nextDevice = attentionDevices.find((device) => {
+      if ("device_id" in device) {
+        return device.device_id === nextDeviceId;
+      }
+
+      return device.deviceId === nextDeviceId;
+    });
+    const nextDeviceLabel = nextDevice ? ("label" in nextDevice ? nextDevice.label : null) : null;
+    void setSelectedAttentionDevice({ deviceId: nextDeviceId, deviceLabel: nextDeviceLabel });
+  }
+
   function handleListeningToggle(): void {
     void setListening(!(sttSnapshot?.listening ?? false));
+  }
+
+  function handleAttentionEnabledToggle(): void {
+    void setAttentionEnabled(!(attentionSnapshot?.enabled ?? false));
+  }
+
+  function handleAttentionTrackingToggle(): void {
+    void setAttentionTracking(!(attentionSnapshot?.tracking ?? false));
+  }
+
+  function handleAttentionDebugMarkerToggle(event: { target: { checked: boolean } }): void {
+    setShowTrackingDebugMarker(event.target.checked);
   }
 
   return (
@@ -643,7 +698,107 @@ export function ControlSurfaceOperatorCommandPanel({
           <dt>STT device</dt>
           <dd>{sttSnapshot?.selected_device_label ?? "Awaiting backend device list"}</dd>
         </div>
+        <div>
+          <dt>Attention state</dt>
+          <dd>{attentionSnapshot?.state ?? attentionState.status}</dd>
+        </div>
+        <div>
+          <dt>Camera source</dt>
+          <dd>{attentionSnapshot?.selected_device_label ?? "Awaiting backend camera list"}</dd>
+        </div>
       </dl>
+
+      <section className="operator-panel__stt" aria-labelledby="operator-attention-title">
+        <div className="operator-panel__stt-header">
+          <div>
+            <p className="eyebrow">Camera attention</p>
+            <h3 id="operator-attention-title">Attention tracking scaffold</h3>
+          </div>
+          <p className="operator-panel__stt-status">{attentionStatusLine}</p>
+        </div>
+
+        <label className="operator-panel__field" htmlFor="operator-attention-device">
+          <span className="operator-panel__field-label">Camera source</span>
+          <select
+            id="operator-attention-device"
+            className="operator-panel__input"
+            value={attentionSnapshot?.selected_device_id ?? ""}
+            onChange={handleSelectedAttentionDeviceChange}
+            disabled={attentionControlsDisabled}
+          >
+            {attentionDevices.length === 0 ? <option value="">No browser camera sources detected</option> : null}
+            {attentionDevices.map((device) => (
+              <option key={("device_id" in device ? device.device_id : device.deviceId)} value={"device_id" in device ? device.device_id : device.deviceId}>
+                {device.label}
+                {device.default ? " (default)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="operator-panel__actions">
+          <button
+            className="operator-panel__button"
+            type="button"
+            onClick={handleAttentionEnabledToggle}
+            disabled={attentionControlsDisabled || !attentionSnapshot?.available}
+          >
+            {attentionState.action === "enabled" ? "Updating attention state..." : attentionEnabledButtonLabel}
+          </button>
+          <button
+            className="operator-panel__button"
+            type="button"
+            onClick={handleAttentionTrackingToggle}
+            disabled={attentionControlsDisabled || !attentionSnapshot?.enabled}
+          >
+            {attentionState.action === "tracking" ? "Updating tracking state..." : attentionTrackingButtonLabel}
+          </button>
+        </div>
+
+        <label className="operator-panel__checkbox" htmlFor="operator-attention-debug-marker">
+          <input
+            id="operator-attention-debug-marker"
+            type="checkbox"
+            checked={attentionState.showTrackingDebugMarker}
+            onChange={handleAttentionDebugMarkerToggle}
+          />
+          <span>Show display tracking dot</span>
+        </label>
+
+        <div className="operator-panel__stt-transcript" aria-live="polite">
+          <div className="operator-panel__stt-transcript-header">
+            <p className="operator-panel__stt-transcript-label">Attention snapshot</p>
+            <p className="operator-panel__stt-transcript-meta">
+              {attentionSubject ? `${((attentionSnapshot?.confidence ?? 0) * 100).toFixed(0)}% confidence` : "No tracked subject"}
+            </p>
+          </div>
+          <p className="operator-panel__stt-transcript-text">
+            {attentionSubject
+              ? `x ${formatAttentionCoordinate(attentionSubject.normalized_x)} · y ${formatAttentionCoordinate(attentionSubject.normalized_y)}`
+              : "Waiting for normalized attention observations from the live browser camera capture path."}
+          </p>
+          <div className="operator-panel__stt-log" role="list" aria-label="Current attention metrics">
+            <article className="operator-panel__stt-log-entry" role="listitem">
+              <div className="operator-panel__stt-log-entry-header">
+                <p className="operator-panel__stt-log-entry-title">Backend attention state</p>
+                <p className="operator-panel__stt-log-entry-meta">{attentionSnapshot?.fps_target ?? 8} fps target</p>
+              </div>
+              <p className="operator-panel__stt-log-entry-text">
+                Enabled: {attentionSnapshot?.enabled ? "yes" : "no"} · Tracking: {attentionSnapshot?.tracking ? "yes" : "no"}
+              </p>
+              <p className="operator-panel__stt-log-entry-detail">
+                Frame: {attentionSnapshot?.frame_width ?? 320} x {attentionSnapshot?.frame_height ?? 240}
+              </p>
+            </article>
+          </div>
+        </div>
+
+        <p className="operator-panel__hint">
+          Browser camera capture now runs in this operator surface, while device selection, enabled state, tracking state, and the canonical attention snapshot stay backend-owned.
+        </p>
+        {attentionCaptureState.message ? <p className="surface-panel__summary">{attentionCaptureState.message}</p> : null}
+        {attentionState.message ? <p className="surface-panel__summary">{attentionState.message}</p> : null}
+      </section>
 
       <section className="operator-panel__stt" aria-labelledby="operator-stt-title">
         <div className="operator-panel__stt-header">

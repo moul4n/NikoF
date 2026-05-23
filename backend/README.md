@@ -30,6 +30,8 @@ implemented.
 
 - `app/services/llm.py` resolves the Ollama-backed LLaMA lane only from `NIKOF_LLM_MODELS_ROOT` and `NIKOF_PROVIDERS_ROOT`. The default binding expects `NIKOF_PROVIDERS_ROOT/llm/ollama/` plus `NIKOF_LLM_MODELS_ROOT/ollama-llama3.1-8b/` to exist.
 - The Ollama adapter uses `http://127.0.0.1:11434/api/generate` by default and `llama3.1:8b` as the default model tag. If a local machine needs a different tag or endpoint, place a machine-local `runtime.json` under the model root or provider root instead of adding new repo-tracked settings.
+- The LLM sidecar manager can now backend-own the Ollama server lifecycle when the local `runtime.json` opts in with `manage_process: true`. The current machine-local fields are `endpoint`, optional `health_url`, optional `serve_command`, plus optional startup and health timeout overrides.
+- When `manage_process: true` is enabled, the backend starts the sidecar lazily on the first LLM request, attempts an eager start during app lifespan startup, stops any owned child process during backend shutdown, and reports process health and owned-log paths through `/system/resources`.
 - When the local Ollama roots are present but the runtime is unreachable, the adapter returns the existing normalized `unavailable` or `error` assistant contract instead of leaking the raw Ollama payload or transport failure.
 
 - `app/services/speech.py` resolves speech runtimes only from the bootstrap-managed local roots in `NIKOF_STT_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, and `NIKOF_PROVIDERS_ROOT`.

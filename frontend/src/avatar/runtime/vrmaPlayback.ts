@@ -43,7 +43,7 @@ export interface VrmaPlaybackDebugSnapshot {
 
 export interface VrmaPlaybackBridge {
   loadVrma(url: string, clipId: string): Promise<VrmaClipHandle>;
-  play(clipId: string, options?: { loop?: boolean; transitionMs?: number }): void;
+  play(clipId: string, options?: { loop?: boolean; transitionMs?: number; restart?: boolean }): void;
   stop(clipId: string, options?: { fadeOutMs?: number }): void;
   crossfade(fromClipId: string, toClipId: string, durationMs: number): void;
   stopAll(fadeOutMs?: number): void;
@@ -88,16 +88,28 @@ export function createVrmaPlayback(vrm: VRM, root: THREE.Object3D): VrmaPlayback
     return handle;
   }
 
-  function play(clipId: string, options?: { loop?: boolean; transitionMs?: number }): void {
+  function play(clipId: string, options?: { loop?: boolean; transitionMs?: number; restart?: boolean }): void {
     const handle = activeClips.get(clipId);
     if (!handle) return;
 
     const loop = options?.loop ?? true;
+    const transitionMs = options?.transitionMs ?? 0;
+    const restart = options?.restart ?? true;
 
     handle.action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     handle.action.clampWhenFinished = !loop;
-    handle.action.reset();
-    handle.action.setEffectiveWeight(1);
+    handle.action.stopFading();
+    if (restart) {
+      handle.action.reset();
+    }
+    handle.action.enabled = true;
+
+    if (transitionMs > 0) {
+      handle.action.fadeIn(transitionMs / 1000);
+    } else {
+      handle.action.setEffectiveWeight(1);
+    }
+
     handle.action.play();
   }
 
