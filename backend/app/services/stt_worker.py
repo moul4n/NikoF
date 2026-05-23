@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
 import threading
@@ -84,8 +85,7 @@ def _should_submit_transcript(transcript: str) -> bool:
         return False
     if normalized in {"um", "uh", "hmm", "mm", "okay"}:
         return False
-    tokens = re.findall(r"[a-z0-9']+", normalized)
-    return len(tokens) >= 2 or len(normalized) >= 8
+    return True
 
 
 class STTWorker:
@@ -110,6 +110,7 @@ class STTWorker:
         self._transcript_chunks: deque[STTTranscriptChunk] = deque(maxlen=24)
         self._poll_task: asyncio.Task[None] | None = None
         self._turn_services: UserTurnServices | None = None
+        self._dispatch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
         self._lock = threading.Lock()
 
     def configure_turn_services(self, services: UserTurnServices) -> None:
@@ -162,6 +163,7 @@ class STTWorker:
                 pass
             self._poll_task = None
         self._manager.stop()
+        self._dispatch_executor.shutdown(wait=False, cancel_futures=False)
         self._tracker.mark_unloaded()
 
     async def list_devices(self) -> tuple[STTInputDevice, ...]:
@@ -325,14 +327,21 @@ class STTWorker:
             ),
         )
         try:
+            self._update_transcript_chunk(
+                chunk_id,
+                dispatch_state="dispatching",
+                dispatch_target="llm",
+                dispatch_detail="Transcript dispatch is running in the dedicated STT turn executor.",
+            )
             await asyncio.get_running_loop().run_in_executor(
-                None,
+                self._dispatch_executor,
                 lambda: run_user_text_turn(
                     UserTurnRequest(
                         text=transcript,
                         locale=locale,
                         session_event_type="session.stt.accepted",
                         transcription=transcription,
+                        defer_synthesis=True,
                     ),
                     services=self._turn_services,
                 ),

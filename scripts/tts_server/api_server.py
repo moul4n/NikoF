@@ -327,7 +327,7 @@ def _synthesize(request: dict[str, Any]) -> dict[str, Any]:
                         top_k=_coerce_int(settings.get("top_k"), 20),
                         top_p=_coerce_float(settings.get("top_p"), 0.6),
                         temperature=_coerce_float(settings.get("temperature"), 0.6),
-                        ref_free=_coerce_bool(settings.get("ref_free"), True),
+                        ref_free=_coerce_bool(settings.get("ref_free"), not bool(prompt_text)),
                     )
                 )
 

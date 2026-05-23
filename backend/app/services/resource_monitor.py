@@ -287,6 +287,8 @@ def _label_owned_process(command: str | None, process_name: str, *, current_pid:
         return "tts-sidecar"
     if "synthesize.py" in normalized_command:
         return "tts-entrypoint"
+    if normalized_name in {"ollama.exe", "ollama"} and " runner " in f" {normalized_command} ":
+        return "llm-runner"
     if normalized_name in {"ollama.exe", "ollama"} or "ollama" in normalized_command:
         return "llm-sidecar"
     if "llama.cpp" in normalized_command or "llama-server" in normalized_command:
@@ -357,17 +359,41 @@ def _apply_owned_process_gpu_fallbacks(
     owned_processes: tuple[OwnedProcessSnapshot, ...],
     subsystems: tuple[SubsystemStatus, ...],
 ) -> tuple[OwnedProcessSnapshot, ...]:
+    subsystem_candidates: dict[ModelSubsystem, tuple[str, ...]] = {
+        "tts": ("tts-sidecar", "tts-entrypoint"),
+        "llm": ("llm-runner", "llm-sidecar"),
+        "stt": ("stt-sidecar",),
+        "embeddings": tuple(),
+    }
     subsystem_by_label: dict[str, SubsystemStatus] = {}
     for subsystem in subsystems:
         if not subsystem.loaded or subsystem.vram_allocated_mb is None:
             continue
-        if subsystem.subsystem == "tts":
-            subsystem_by_label["tts-sidecar"] = subsystem
-            subsystem_by_label["tts-entrypoint"] = subsystem
-        elif subsystem.subsystem == "llm":
-            subsystem_by_label["llm-sidecar"] = subsystem
-        elif subsystem.subsystem == "stt":
-            subsystem_by_label["stt-sidecar"] = subsystem
+        for label in subsystem_candidates.get(subsystem.subsystem, tuple()):
+            subsystem_by_label[label] = subsystem
+
+    explicit_gpu_subsystems = {
+        subsystem_by_label[process.label].subsystem
+        for process in owned_processes
+        if process.gpu_memory_mb is not None and process.label in subsystem_by_label
+    }
+
+    fallback_target_pid_by_subsystem: dict[ModelSubsystem, int] = {}
+    for subsystem_name, labels in subsystem_candidates.items():
+        if subsystem_name in explicit_gpu_subsystems:
+            continue
+        for label in labels:
+            target = next(
+                (
+                    process
+                    for process in owned_processes
+                    if process.label == label and process.gpu_memory_mb is None
+                ),
+                None,
+            )
+            if target is not None:
+                fallback_target_pid_by_subsystem[subsystem_name] = target.pid
+                break
 
     adjusted: list[OwnedProcessSnapshot] = []
     for process in owned_processes:
@@ -377,6 +403,10 @@ def _apply_owned_process_gpu_fallbacks(
 
         subsystem = subsystem_by_label.get(process.label)
         if subsystem is None:
+            adjusted.append(process)
+            continue
+
+        if fallback_target_pid_by_subsystem.get(subsystem.subsystem) != process.pid:
             adjusted.append(process)
             continue
 

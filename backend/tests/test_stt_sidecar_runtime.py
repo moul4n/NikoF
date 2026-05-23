@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections import deque
+import queue
 import sys
+import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -12,6 +15,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.core.settings import AppPaths
+from app.providers import faster_whisper_runtime
+from app.providers.faster_whisper_runtime import HotMicRuntime, SERVER_SAMPLE_RATE_HZ
 from app.services.stt_server import load_server_config, FasterWhisperServerManager
 
 
@@ -104,6 +109,96 @@ class FasterWhisperServerRuntimeTests(unittest.TestCase):
 
         terminate_mock.assert_called_once_with(process)
         self.assertIsNone(manager._process)
+
+
+@unittest.skipIf(faster_whisper_runtime.np is None, "numpy is required for STT runtime buffer tests")
+class HotMicRuntimeTests(unittest.TestCase):
+    def test_stop_listening_flushes_active_segment_for_processing(self) -> None:
+        runtime = HotMicRuntime.__new__(HotMicRuntime)
+        runtime._model_root = Path("faster-whisper-medium")
+        runtime._locale = "en-US"
+        runtime._owner_pid = None
+        runtime._model = object()
+        runtime._compute_device = "cpu"
+        runtime._compute_type = "int8"
+        runtime._stream_lock = threading.Lock()
+        runtime._audio_lock = threading.Lock()
+        runtime._stream = None
+        runtime._listening = True
+        runtime._state = "listening"
+        runtime._last_error = None
+        runtime._selected_device_id = None
+        runtime._selected_device_label = None
+        runtime._latest_confirmed_text = None
+        runtime._latest_confirmed_at = None
+        runtime._total_confirmed = 0
+        runtime._total_submitted = 0
+        runtime._event_sequence = 0
+        runtime._events = deque(maxlen=256)
+        runtime._segment_queue = queue.Queue(maxsize=8)
+        runtime._current_chunks = [
+            faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ // 4, dtype=faster_whisper_runtime.np.float32),
+            faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ // 4, dtype=faster_whisper_runtime.np.float32),
+        ]
+        runtime._pre_roll = deque(maxlen=3)
+        runtime._speech_blocks = 0
+        runtime._silence_blocks = 0
+        runtime._speaking = True
+
+        response = runtime.stop_listening()
+
+        segment, duration_ms = runtime._segment_queue.get_nowait()
+        self.assertEqual(500, duration_ms)
+        self.assertEqual(SERVER_SAMPLE_RATE_HZ // 2, int(segment.shape[0]))
+        self.assertEqual("processing", response["state"])
+        self.assertFalse(response["listening"])
+
+    def test_intermittent_push_to_talk_speech_starts_segment_before_release(self) -> None:
+        runtime = HotMicRuntime.__new__(HotMicRuntime)
+        runtime._model_root = Path("faster-whisper-medium")
+        runtime._locale = "en-US"
+        runtime._owner_pid = None
+        runtime._model = object()
+        runtime._compute_device = "cpu"
+        runtime._compute_type = "int8"
+        runtime._stream_lock = threading.Lock()
+        runtime._audio_lock = threading.Lock()
+        runtime._stream = None
+        runtime._listening = True
+        runtime._state = "listening"
+        runtime._last_error = None
+        runtime._selected_device_id = None
+        runtime._selected_device_label = None
+        runtime._latest_confirmed_text = None
+        runtime._latest_confirmed_at = None
+        runtime._total_confirmed = 0
+        runtime._total_submitted = 0
+        runtime._event_sequence = 0
+        runtime._events = deque(maxlen=256)
+        runtime._segment_queue = queue.Queue(maxsize=8)
+        runtime._current_chunks = []
+        runtime._pre_roll = deque(maxlen=3)
+        runtime._speech_blocks = 0
+        runtime._silence_blocks = 0
+        runtime._speaking = False
+        runtime._noise_floor = faster_whisper_runtime.MIN_RMS_THRESHOLD / 2
+
+        loud = faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ // 10, dtype=faster_whisper_runtime.np.float32)
+        quiet = faster_whisper_runtime.np.zeros(SERVER_SAMPLE_RATE_HZ // 10, dtype=faster_whisper_runtime.np.float32)
+
+        runtime._consume_chunk(loud)
+        runtime._consume_chunk(quiet)
+        runtime._consume_chunk(loud)
+        runtime._consume_chunk(quiet)
+        runtime._consume_chunk(loud)
+
+        response = runtime.stop_listening()
+
+        segment, duration_ms = runtime._segment_queue.get_nowait()
+        self.assertGreaterEqual(duration_ms, 500)
+        self.assertGreaterEqual(int(segment.shape[0]), SERVER_SAMPLE_RATE_HZ // 2)
+        self.assertEqual("processing", response["state"])
+        self.assertFalse(response["listening"])
 
 
 if __name__ == "__main__":

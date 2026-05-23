@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import threading
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import time
 import unittest
 
 
@@ -15,6 +17,7 @@ from app.schemas.session import (
     AssistantFeelingContract,
     AssistantMemoryWriteContract,
     AssistantMessageContract,
+    SpeechTranscriptionContract,
     AssistantVoiceToneContract,
     SpeechSynthesisContract,
 )
@@ -89,6 +92,15 @@ class IdlePriorityStructuredTextGenerationService:
         )
 
 
+class CapturingStructuredTextGenerationService(StaticStructuredTextGenerationService):
+    def __init__(self) -> None:
+        self.requests = []
+
+    def generate(self, request):
+        self.requests.append(request)
+        return super().generate(request)
+
+
 class CapturingSynthesisService:
     def __init__(self) -> None:
         self.requests: list[SpeechSynthesisRequest] = []
@@ -101,6 +113,29 @@ class CapturingSynthesisService:
             text=request.text,
             locale=request.locale,
             audio_reference="session://speech/test.wav",
+        )
+
+
+class RaisingSynthesisService:
+    def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
+        del request
+        raise RuntimeError("synthetic synthesis failure")
+
+
+class DelayedSynthesisService:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
+        self.started.set()
+        self.release.wait(timeout=5)
+        return SpeechSynthesisContract(
+            profile_id=request.profile_id,
+            status="ready",
+            text=request.text,
+            locale=request.locale,
+            audio_reference="session://speech/deferred.wav",
         )
 
 
@@ -133,6 +168,12 @@ class CapturingAnimationLiveDelivery:
 
     def publish_snapshot(self, snapshot: SessionAnimationSnapshot) -> None:
         self.snapshots.append(snapshot)
+
+
+class RaisingMemoryService(SqliteCompanionMemoryService):
+    def store_turn(self, *args, **kwargs) -> None:
+        del args, kwargs
+        raise RuntimeError("synthetic memory persistence failure")
 
 
 class StructuredTurnFlowTests(unittest.TestCase):
@@ -174,6 +215,103 @@ class StructuredTurnFlowTests(unittest.TestCase):
         summaries = " ".join(entry.summary.lower() for entry in context.retrieved_memories)
         self.assertIn("short", summaries)
         self.assertEqual("warm", context.demeanor.mood)
+
+    def test_turn_flow_degrades_when_synthesis_service_raises(self) -> None:
+        session_service = InMemorySessionService(default_character_id="test-vrm-01")
+        character_service = CharacterService(FileSystemCharacterManifestSource())
+
+        result = run_user_text_turn(
+            UserTurnRequest(
+                text="Please answer even if TTS has a cold-start problem.",
+                locale="en-US",
+            ),
+            services=UserTurnServices(
+                session_service=session_service,
+                character_service=character_service,
+                text_generation_service=StaticStructuredTextGenerationService(),
+                synthesis_service=RaisingSynthesisService(),
+                session_event_factory=DefaultSessionEventFactory(),
+            ),
+        )
+
+        self.assertEqual("error", result.status)
+        self.assertEqual("ready", result.speech_lifecycle_events[0].event.assistant.status)
+        self.assertEqual("error", result.speech_lifecycle_events[1].event.synthesis.status)
+        self.assertEqual("I can keep this reply short and warm.", result.speech_lifecycle_events[1].event.synthesis.text)
+
+    def test_turn_flow_keeps_success_response_when_memory_store_fails(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            memory_service = RaisingMemoryService(Path(temp_dir) / "companion-memory.sqlite3")
+            session_service = InMemorySessionService(default_character_id="test-vrm-01")
+            character_service = CharacterService(FileSystemCharacterManifestSource())
+            synthesis_service = CapturingSynthesisService()
+
+            result = run_user_text_turn(
+                UserTurnRequest(
+                    text="Remember this preference if you can.",
+                    locale="en-US",
+                ),
+                services=UserTurnServices(
+                    session_service=session_service,
+                    character_service=character_service,
+                    text_generation_service=StaticStructuredTextGenerationService(),
+                    synthesis_service=synthesis_service,
+                    session_event_factory=DefaultSessionEventFactory(),
+                    memory_service=memory_service,
+                ),
+            )
+
+        self.assertEqual("ready", result.status)
+        self.assertEqual("ready", result.speech_lifecycle_events[0].event.assistant.status)
+        self.assertEqual("ready", result.speech_lifecycle_events[1].event.synthesis.status)
+
+    def test_turn_flow_can_return_before_deferred_synthesis_completes(self) -> None:
+        session_service = InMemorySessionService(default_character_id="test-vrm-01")
+        character_service = CharacterService(FileSystemCharacterManifestSource())
+        synthesis_service = DelayedSynthesisService()
+
+        result = run_user_text_turn(
+            UserTurnRequest(
+                text="Reply now and let TTS catch up in the background.",
+                locale="en-US",
+                defer_synthesis=True,
+            ),
+            services=UserTurnServices(
+                session_service=session_service,
+                character_service=character_service,
+                text_generation_service=StaticStructuredTextGenerationService(),
+                synthesis_service=synthesis_service,
+                session_event_factory=DefaultSessionEventFactory(),
+            ),
+        )
+
+        self.assertEqual("ready", result.status)
+        self.assertEqual(1, len(result.speech_lifecycle_events))
+        self.assertEqual("assistant.message", result.speech_lifecycle_events[0].event.event_type)
+        self.assertEqual("queued", result.session_event.synthesis.status)
+        self.assertTrue(synthesis_service.started.wait(timeout=1))
+
+        synthesis_service.release.set()
+
+        def synthesis_has_landed() -> bool:
+            events = session_service.event_store.read(
+                "speech.lifecycle",
+                session_id=result.session_id,
+            )
+            return len(events) >= 2 and events[-1].event.event_type == "speech.synthesis"
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if synthesis_has_landed():
+                break
+            time.sleep(0.01)
+
+        events = session_service.event_store.read(
+            "speech.lifecycle",
+            session_id=result.session_id,
+        )
+        self.assertEqual("speech.synthesis", events[-1].event.event_type)
+        self.assertEqual("ready", events[-1].event.synthesis.status)
 
     def test_turn_flow_infers_prioritized_animation_from_assistant_text(self) -> None:
         session_service = InMemorySessionService(default_character_id="test-vrm-01")
@@ -230,6 +368,42 @@ class StructuredTurnFlowTests(unittest.TestCase):
         self.assertEqual("idle.happy", animation_live_delivery.snapshots[0].command.semantic_id)
         self.assertEqual("base", animation_live_delivery.snapshots[0].command.parameters["assistant_layer"])
         self.assertEqual("keyword_priority", animation_live_delivery.snapshots[0].command.parameters["assistant_cue_source"])
+
+    def test_turn_flow_uses_only_canonical_transcript_text_for_llm_prompt(self) -> None:
+        session_service = InMemorySessionService(default_character_id="test-vrm-01")
+        character_service = CharacterService(FileSystemCharacterManifestSource())
+        synthesis_service = CapturingSynthesisService()
+        text_generation_service = CapturingStructuredTextGenerationService()
+
+        result = run_user_text_turn(
+            UserTurnRequest(
+                text='hello {"phoneme_slots":[{"token":"HH"}],"viseme_slots":[{"viseme":"smile"}],"lip_sync":{"mouth_cue_tracks":[]}}',
+                locale="en-US",
+                transcription=SpeechTranscriptionContract(
+                    profile_id="stt.faster-whisper.medium-2026",
+                    status="ready",
+                    locale="en-US",
+                    transcript="hello there",
+                    confidence=0.93,
+                ),
+                defer_synthesis=True,
+            ),
+            services=UserTurnServices(
+                session_service=session_service,
+                character_service=character_service,
+                text_generation_service=text_generation_service,
+                synthesis_service=synthesis_service,
+                session_event_factory=DefaultSessionEventFactory(),
+            ),
+        )
+
+        prompt = text_generation_service.requests[0].prompt
+
+        self.assertEqual("ready", result.status)
+        self.assertIn("User message:\nhello there", prompt)
+        self.assertNotIn("phoneme_slots", prompt)
+        self.assertNotIn("viseme_slots", prompt)
+        self.assertNotIn("lip_sync", prompt)
 
 
 if __name__ == "__main__":

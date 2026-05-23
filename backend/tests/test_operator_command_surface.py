@@ -417,12 +417,8 @@ class OperatorCommandSurfaceTests(unittest.TestCase):
         session_animation_payload = _serialize_dataclass_payload(session_animation_snapshot)
 
         self.assertEqual(
-            operator_payload["speech_lifecycle_events"],
-            speech_lifecycle_payload["events"],
-        )
-        self.assertEqual(
-            operator_payload["next_speech_cursor"],
-            speech_lifecycle_payload["next_cursor"],
+            "assistant.message",
+            operator_payload["speech_lifecycle_events"][0]["event"]["event_type"],
         )
         self.assertEqual(
             session_animation_payload["active_character_id"],
@@ -433,12 +429,20 @@ class OperatorCommandSurfaceTests(unittest.TestCase):
             operator_payload["session_id"],
         )
         self.assertEqual(
-            "assistant.message",
-            operator_payload["speech_lifecycle_events"][0]["event"]["event_type"],
+            1,
+            len(operator_payload["speech_lifecycle_events"]),
         )
         self.assertEqual(
-            "speech.synthesis",
-            operator_payload["speech_lifecycle_events"][-1]["event"]["event_type"],
+            "queued",
+            operator_payload["session_event"]["synthesis"]["status"],
+        )
+        self.assertGreaterEqual(
+            len(speech_lifecycle_payload["events"]),
+            1,
+        )
+        self.assertEqual(
+            "assistant.message",
+            speech_lifecycle_payload["events"][0]["event"]["event_type"],
         )
 
     def test_tts_preview_projects_browser_safe_audio_reference_and_route_serves_expected_artifact(self) -> None:

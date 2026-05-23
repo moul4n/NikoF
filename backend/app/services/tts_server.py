@@ -156,9 +156,7 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
     _sync_repo_server_script(provider_root, server_script)
 
     startup_timeout_seconds = SERVER_STARTUP_TIMEOUT_SECONDS
-    raw_startup_timeout = config_data.get("timeout_seconds")
-    if raw_startup_timeout is None:
-        raw_startup_timeout = config_data.get("startup_timeout_seconds")
+    raw_startup_timeout = config_data.get("startup_timeout_seconds")
     if raw_startup_timeout is not None:
         try:
             parsed_startup_timeout = float(raw_startup_timeout)
@@ -166,6 +164,18 @@ def load_server_config(app_paths: AppPaths | None = None) -> GPTSoVITSServerConf
                 startup_timeout_seconds = parsed_startup_timeout
         except (TypeError, ValueError):
             pass
+    else:
+        # Older local manifests only exposed timeout_seconds. Treat that as a
+        # backward-compatible way to extend startup, but keep the built-in boot
+        # floor so slow model loads do not get killed prematurely.
+        raw_generic_timeout = config_data.get("timeout_seconds")
+        if raw_generic_timeout is not None:
+            try:
+                parsed_generic_timeout = float(raw_generic_timeout)
+                if parsed_generic_timeout > startup_timeout_seconds:
+                    startup_timeout_seconds = parsed_generic_timeout
+            except (TypeError, ValueError):
+                pass
 
     return GPTSoVITSServerConfig(
         host=str(config_data.get("server_host", DEFAULT_SERVER_HOST)).strip() or DEFAULT_SERVER_HOST,

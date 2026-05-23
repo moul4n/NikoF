@@ -46,6 +46,7 @@ def _build_text_question_response(
             text=normalized_text,
             locale=command.locale,
             session_event_type="session.operator.text-question",
+            defer_synthesis=True,
         ),
         services=UserTurnServices(
             session_service=services.session_service,

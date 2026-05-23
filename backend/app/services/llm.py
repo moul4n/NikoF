@@ -14,6 +14,7 @@ import threading
 from typing import Any, Protocol
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from urllib.parse import urlparse
 
 from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import (
@@ -25,7 +26,7 @@ from app.schemas.session import (
     LLM_BASELINE_PROFILE_IDS,
 )
 from app.services.resource_monitor import get_resource_monitor
-from app.services.process_supervision import terminate_process_tree
+from app.services.process_supervision import find_listening_pid, terminate_process_tree, terminate_process_tree_by_pid
 
 
 OLLAMA_GENERATE_PATH = "/api/generate"
@@ -116,20 +117,21 @@ class TextGenerationSidecarStatus:
 
 
 def _read_runtime_config(*roots: Path) -> dict[str, Any]:
+    merged_config: dict[str, Any] = {}
     for root in roots:
         config_path = root / RUNTIME_CONFIG_FILE_NAME
         if not config_path.is_file():
             continue
 
         try:
-            decoded = json.loads(config_path.read_text(encoding="utf-8"))
+            decoded = json.loads(config_path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
             continue
 
         if isinstance(decoded, dict):
-            return decoded
+            merged_config.update(decoded)
 
-    return {}
+    return merged_config
 
 
 def _normalize_model_name(raw_value: Any) -> str:
@@ -684,6 +686,41 @@ class TextGenerationSidecarManager:
         self._process = None
         self._started_by_backend = False
 
+    def _resolve_listener_host_port(self, binding: TextGenerationRuntimeBinding) -> tuple[str, int] | None:
+        candidate_url = binding.health_url or binding.endpoint
+        if not candidate_url:
+            return None
+
+        parsed = urlparse(candidate_url)
+        if parsed.hostname is None or parsed.port is None:
+            return None
+
+        return parsed.hostname, parsed.port
+
+    def _reclaim_external_listener(self, binding: TextGenerationRuntimeBinding) -> bool:
+        listener = self._resolve_listener_host_port(binding)
+        if listener is None:
+            return False
+
+        host, port = listener
+        external_pid = find_listening_pid(host, port)
+        if external_pid is None:
+            return not self._healthcheck(binding)
+
+        logger.warning(
+            "Reclaiming external LLM listener pid=%s on %s before backend-owned startup",
+            external_pid,
+            binding.health_url or binding.endpoint,
+        )
+        terminate_process_tree_by_pid(external_pid)
+
+        deadline = time.monotonic() + max(0.5, binding.health_timeout_seconds + 2.0)
+        while time.monotonic() < deadline:
+            if not self._healthcheck(binding):
+                return True
+            time.sleep(OLLAMA_STARTUP_POLL_INTERVAL_SECONDS)
+        return False
+
     def _start_process_unlocked(self, binding: TextGenerationRuntimeBinding) -> bool:
         command = tuple(binding.serve_command)
         if not command:
@@ -730,8 +767,14 @@ class TextGenerationSidecarManager:
 
         if self._healthcheck(binding):
             with self._lock:
-                self._started_by_backend = self._is_process_running_unlocked()
-            return True
+                owns_running_process = self._is_process_running_unlocked()
+                self._started_by_backend = owns_running_process
+            if owns_running_process:
+                return True
+            if not self._reclaim_external_listener(binding):
+                with self._lock:
+                    self._last_error = "Existing external LLM listener could not be reclaimed for backend ownership."
+                return False
 
         with self._lock:
             if self._is_process_running_unlocked():

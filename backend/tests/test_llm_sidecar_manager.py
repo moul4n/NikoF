@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 from pathlib import Path
+import subprocess
 from tempfile import TemporaryDirectory
 import sys
 import time
@@ -126,6 +127,55 @@ class TextGenerationSidecarManagerTests(unittest.TestCase):
         self.assertFalse(stopped_status.started_by_backend)
         self.assertFalse(process_exists(owner_pid))
 
+    def test_managed_start_reclaims_external_listener_and_takes_ownership(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            app_paths = build_app_paths(root)
+            provider_root = app_paths.providers_root / "llm" / "ollama"
+            model_root = app_paths.llm_models_root / "ollama-llama3.1-8b"
+            provider_root.mkdir(parents=True)
+            model_root.mkdir(parents=True)
+            port = _reserve_local_port()
+            server_script = root / "fake_ollama_sidecar.py"
+            server_script.write_text(_FAKE_OLLAMA_SERVER_SCRIPT, encoding="utf-8")
+            (provider_root / "runtime.json").write_text(
+                json.dumps(
+                    {
+                        "endpoint": f"http://127.0.0.1:{port}",
+                        "health_url": f"http://127.0.0.1:{port}/api/tags",
+                        "model": "llama3.1:8b",
+                        "manage_process": True,
+                        "startup_timeout_seconds": 10,
+                        "health_timeout_seconds": 1,
+                        "serve_command": [sys.executable, str(server_script), str(port)],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            external_process = subprocess.Popen([sys.executable, str(server_script), str(port)])
+            self.addCleanup(lambda: process_exists(external_process.pid) and external_process.kill())
+            _wait_for_port_health(port)
+
+            manager = build_text_generation_sidecar_manager(app_paths)
+            started = manager.start(TextGenerationRequest(prompt="", locale="en-US"))
+            status = manager.status(TextGenerationRequest(prompt="", locale="en-US"))
+            owner_pid = status.owner_pid
+
+            manager.stop()
+            try:
+                external_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                external_process.kill()
+                external_process.wait(timeout=5)
+
+        self.assertTrue(started)
+        self.assertTrue(status.process_running)
+        self.assertTrue(status.process_healthy)
+        self.assertTrue(status.started_by_backend)
+        self.assertIsNotNone(owner_pid)
+        self.assertNotEqual(owner_pid, external_process.pid)
+        self.assertFalse(process_exists(external_process.pid))
+
     def test_resource_status_response_includes_llm_sidecar_payload(self) -> None:
         with TemporaryDirectory() as temp_dir:
             app_paths = build_app_paths(Path(temp_dir))
@@ -173,6 +223,22 @@ def _reserve_local_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
         candidate.bind(("127.0.0.1", 0))
         return int(candidate.getsockname()[1])
+
+
+def _wait_for_port_health(port: int, timeout_seconds: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        candidate = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            candidate.settimeout(0.25)
+            candidate.connect(("127.0.0.1", port))
+            return
+        except OSError:
+            time.sleep(0.05)
+        finally:
+            candidate.close()
+
+    raise AssertionError(f"Timed out waiting for test server on port {port}")
 
 
 _FAKE_OLLAMA_SERVER_SCRIPT = """

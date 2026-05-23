@@ -1,5 +1,6 @@
 declare module "react" {
   export function useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void;
+  export function useRef<T>(initialValue: T): { current: T };
   export function useState<S>(initialState: S | (() => S)): [S, (value: S | ((previousState: S) => S)) => void];
   const React: {
     createElement: (...args: unknown[]) => unknown;

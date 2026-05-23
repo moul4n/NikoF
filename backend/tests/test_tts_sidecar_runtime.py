@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import importlib.util
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -131,6 +132,52 @@ class TTSWorkerSidecarRuntimeTests(unittest.TestCase):
         self.assertEqual("Sidecar failed to start.", contract.text)
 
 
+class GPTSoVITSSidecarRequestShapeTests(unittest.TestCase):
+    def test_synthesize_defaults_ref_free_to_false_when_prompt_text_is_present(self) -> None:
+        module_path = BACKEND_ROOT.parent / "scripts" / "tts_server" / "api_server.py"
+        spec = importlib.util.spec_from_file_location("test_api_server_module", module_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        api_server = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(api_server)
+
+        with TemporaryDirectory() as temp_dir:
+            model_root = Path(temp_dir)
+            reference_audio = model_root / "reference.wav"
+            reference_audio.write_bytes(b"RIFF")
+
+            captured_kwargs: dict[str, object] = {}
+
+            def fake_get_tts_wav(**kwargs):
+                captured_kwargs.update(kwargs)
+                return [(24000, [0.0] * 2400)]
+
+            def fake_write(path: str, audio_data, sample_rate: int) -> None:
+                Path(path).write_bytes(b"RIFF")
+                self.assertEqual(24000, sample_rate)
+                self.assertEqual(2400, len(audio_data))
+
+            api_server._model_root = model_root
+            api_server._speaker_manifest = {
+                "reference_audio": reference_audio.name,
+                "prompt_text": "Reference prompt text",
+            }
+            api_server._get_tts_wav = fake_get_tts_wav
+            api_server._i18n = lambda value: value
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "soundfile": type("_FakeSoundFile", (), {"write": staticmethod(fake_write)})(),
+                    "numpy": type("_FakeNumpy", (), {"linspace": staticmethod(lambda start, stop, num, dtype=None: [])})(),
+                },
+            ):
+                response = api_server._synthesize({"text": "Hello there", "locale": "en-US"})
+
+        self.assertEqual("ready", response["status"])
+        self.assertFalse(captured_kwargs["ref_free"])
+
+
 class GPTSoVITSServerOwnershipTests(unittest.TestCase):
     def test_load_server_config_prefers_headless_api_entrypoints_when_present(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -161,6 +208,28 @@ class GPTSoVITSServerOwnershipTests(unittest.TestCase):
             provider_root = app_paths.providers_root / "tts" / "gpt-sovits"
             provider_root.mkdir(parents=True)
             (provider_root / "runtime.json").write_text('{"timeout_seconds": 90}', encoding="utf-8")
+
+            config = load_server_config(app_paths)
+
+        self.assertEqual(90, config.startup_timeout_seconds)
+
+    def test_load_server_config_does_not_shrink_startup_timeout_from_generic_timeout(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            app_paths = build_app_paths(Path(temp_dir))
+            provider_root = app_paths.providers_root / "tts" / "gpt-sovits"
+            provider_root.mkdir(parents=True)
+            (provider_root / "runtime.json").write_text('{"timeout_seconds": 20}', encoding="utf-8")
+
+            config = load_server_config(app_paths)
+
+        self.assertEqual(60, config.startup_timeout_seconds)
+
+    def test_load_server_config_uses_explicit_startup_timeout_override(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            app_paths = build_app_paths(Path(temp_dir))
+            provider_root = app_paths.providers_root / "tts" / "gpt-sovits"
+            provider_root.mkdir(parents=True)
+            (provider_root / "runtime.json").write_text('{"startup_timeout_seconds": 90}', encoding="utf-8")
 
             config = load_server_config(app_paths)
 
@@ -291,6 +360,17 @@ class ResourceMonitorFallbackTests(unittest.TestCase):
             _label_owned_process("python api.py", "python.exe", current_pid=100, pid=101),
         )
 
+    def test_label_owned_process_treats_ollama_runner_as_distinct_process(self) -> None:
+        self.assertEqual(
+            "llm-runner",
+            _label_owned_process(
+                "C:/Users/fletc/AppData/Local/Programs/Ollama/ollama.exe runner --model blob --port 11435",
+                "ollama.exe",
+                current_pid=100,
+                pid=101,
+            ),
+        )
+
     def test_owned_processes_use_subsystem_vram_when_gpu_process_memory_is_hidden(self) -> None:
         owned = (
             OwnedProcessSnapshot(
@@ -343,6 +423,49 @@ class ResourceMonitorFallbackTests(unittest.TestCase):
 
         self.assertEqual(3500.0, adjusted[0].gpu_memory_mb)
         self.assertIsNone(adjusted[1].gpu_memory_mb)
+
+    def test_llm_vram_fallback_prefers_runner_and_does_not_duplicate_parent(self) -> None:
+        owned = (
+            OwnedProcessSnapshot(
+                pid=6180,
+                parent_pid=28436,
+                label="llm-sidecar",
+                process_name="ollama.exe",
+                executable="C:/Users/fletc/AppData/Local/Programs/Ollama/ollama.exe",
+                command="ollama.exe serve",
+                status="running",
+                rss_mb=226.9,
+                gpu_memory_mb=None,
+            ),
+            OwnedProcessSnapshot(
+                pid=46740,
+                parent_pid=6180,
+                label="llm-runner",
+                process_name="ollama.exe",
+                executable="C:/Users/fletc/AppData/Local/Programs/Ollama/ollama.exe",
+                command="ollama.exe runner --model blob --port 14927",
+                status="running",
+                rss_mb=862.2,
+                gpu_memory_mb=None,
+            ),
+        )
+        subsystems = (
+            SubsystemStatus(
+                subsystem="llm",
+                loaded=True,
+                model_name="ollama/llama3.1:8b",
+                vram_allocated_mb=5500.0,
+                ram_allocated_mb=1024.0,
+                last_request_epoch=None,
+                requests_processed=1,
+                average_latency_ms=2419.7,
+            ),
+        )
+
+        adjusted = _apply_owned_process_gpu_fallbacks(owned, subsystems)
+
+        self.assertIsNone(adjusted[0].gpu_memory_mb)
+        self.assertEqual(5500.0, adjusted[1].gpu_memory_mb)
 
 
 if __name__ == "__main__":

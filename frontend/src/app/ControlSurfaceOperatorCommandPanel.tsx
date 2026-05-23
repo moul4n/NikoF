@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   OPERATOR_COMMAND_ROUTE_PATH,
   OperatorCommandSubmitError,
@@ -36,6 +36,123 @@ interface ControlSurfaceOperatorCommandPanelProps {
   speechLifecycleState: SpeechLifecycleLoadState;
   speechPlaybackStatus: SpeechPlaybackState;
   onCommandPublished: (response: BackendOperatorCommandResponseDocument | null) => void;
+}
+
+type PushToTalkBinding = {
+  code: string | null;
+  key: string | null;
+};
+
+const PUSH_TO_TALK_STORAGE_KEY = "nikof.stt.pushToTalkKey";
+const DEFAULT_PUSH_TO_TALK_BINDING: PushToTalkBinding = {
+  code: "KeyQ",
+  key: "q"
+};
+
+function normalizePushToTalkBinding(value: unknown): PushToTalkBinding {
+  if (!value || typeof value !== "object") {
+    return DEFAULT_PUSH_TO_TALK_BINDING;
+  }
+
+  const candidate = value as { code?: unknown; key?: unknown };
+  const code = typeof candidate.code === "string" && candidate.code.trim().length > 0 ? candidate.code.trim() : null;
+  const key = typeof candidate.key === "string" && candidate.key.length > 0 ? candidate.key : null;
+  if (!code && !key) {
+    return DEFAULT_PUSH_TO_TALK_BINDING;
+  }
+
+  return { code, key };
+}
+
+function readPersistedPushToTalkBinding(): PushToTalkBinding {
+  if (typeof window === "undefined") {
+    return DEFAULT_PUSH_TO_TALK_BINDING;
+  }
+
+  const persistedValue = window.localStorage.getItem(PUSH_TO_TALK_STORAGE_KEY);
+  if (!persistedValue) {
+    return DEFAULT_PUSH_TO_TALK_BINDING;
+  }
+
+  try {
+    return normalizePushToTalkBinding(JSON.parse(persistedValue));
+  } catch {
+    return DEFAULT_PUSH_TO_TALK_BINDING;
+  }
+}
+
+function writePersistedPushToTalkBinding(binding: PushToTalkBinding): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(PUSH_TO_TALK_STORAGE_KEY, JSON.stringify(binding));
+}
+
+function isModifierOnlyKey(key: string): boolean {
+  return key === "Shift" || key === "Control" || key === "Alt" || key === "Meta";
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName;
+  return target.isContentEditable || tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
+}
+
+function matchesPushToTalkBinding(event: KeyboardEvent, binding: PushToTalkBinding): boolean {
+  if (binding.code && event.code === binding.code) {
+    return true;
+  }
+
+  if (!binding.key) {
+    return false;
+  }
+
+  return event.key.toLowerCase() === binding.key.toLowerCase();
+}
+
+function formatPushToTalkBindingLabel(binding: PushToTalkBinding): string {
+  if (binding.code?.startsWith("Key") && binding.code.length === 4) {
+    return binding.code.slice(3);
+  }
+
+  if (binding.code?.startsWith("Digit") && binding.code.length === 6) {
+    return binding.code.slice(5);
+  }
+
+  switch (binding.code) {
+    case "Space":
+      return "Space";
+    case "Escape":
+      return "Esc";
+    case "ArrowUp":
+      return "Up";
+    case "ArrowDown":
+      return "Down";
+    case "ArrowLeft":
+      return "Left";
+    case "ArrowRight":
+      return "Right";
+    default:
+      break;
+  }
+
+  if (binding.key === " ") {
+    return "Space";
+  }
+
+  if (binding.key && binding.key.length === 1) {
+    return binding.key.toUpperCase();
+  }
+
+  if (binding.key) {
+    return `${binding.key.charAt(0).toUpperCase()}${binding.key.slice(1)}`;
+  }
+
+  return "Unassigned";
 }
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
@@ -99,6 +216,16 @@ function getSynthesisPreview(
     response.speech_lifecycle_events.find((envelope) => envelope.event.event_type === "speech.synthesis")?.event.synthesis ??
     null
   );
+}
+
+function getTextQuestionVoiceDispatch(
+  response: BackendOperatorCommandResponseDocument | null
+): BackendSpeechSynthesisDocument | null {
+  if (!response || response.command_type !== "text_question") {
+    return null;
+  }
+
+  return response.session_event.synthesis ?? null;
 }
 
 function parseSpeechLifecycleCursor(cursor: string | null | undefined): {
@@ -441,6 +568,9 @@ export function ControlSurfaceOperatorCommandPanel({
   const [operatorCommandLocale, setOperatorCommandLocale] = useState("en-US");
   const [textQuestionDraft, setTextQuestionDraft] = useState("");
   const [ttsPreviewDraft, setTtsPreviewDraft] = useState("");
+  const [pushToTalkBinding, setPushToTalkBinding] = useState<PushToTalkBinding>(() => readPersistedPushToTalkBinding());
+  const [isCapturingPushToTalkKey, setIsCapturingPushToTalkKey] = useState(false);
+  const [isPushToTalkActive, setIsPushToTalkActive] = useState(false);
   const [operatorCommandState, setOperatorCommandState] = useState<OperatorCommandSubmissionState>({
     status: "idle",
     activeCommandType: null,
@@ -448,6 +578,8 @@ export function ControlSurfaceOperatorCommandPanel({
     response: null,
     error: null
   });
+  const pushToTalkHeldRef = useRef(false);
+  const pushToTalkStartedListeningRef = useRef(false);
 
   function handleOperatorCommandSubmit(commandType: BackendOperatorCommandType, text: string): void {
     const locale = operatorCommandLocale.trim() || "en-US";
@@ -479,7 +611,7 @@ export function ControlSurfaceOperatorCommandPanel({
         setOperatorCommandState({
           status: "ready",
           activeCommandType: commandType,
-          submittedText: null,
+          submittedText: text,
           response,
           error: null
         });
@@ -531,6 +663,7 @@ export function ControlSurfaceOperatorCommandPanel({
   const assistantReply = isBlockingTextQuestionResult
     ? null
     : resolvePreferredAssistantReply(operatorCommandState.response, speechLifecycleSnapshot);
+  const textQuestionVoiceDispatch = isBlockingTextQuestionResult ? null : getTextQuestionVoiceDispatch(operatorCommandState.response);
   const synthesisPreview = isBlockingTtsPreviewResult
     ? null
     : resolvePreferredSynthesisPreview(operatorCommandState.response, speechLifecycleSnapshot);
@@ -556,6 +689,19 @@ export function ControlSurfaceOperatorCommandPanel({
     (speechPlaybackStatus.lastBundle.audioSource !== null ||
       (typeof speechPlaybackStatus.lastBundle.utteranceDurationMs === "number" &&
         speechPlaybackStatus.lastBundle.utteranceDurationMs > 0));
+  const latestTextQuestion = operatorCommandState.submittedText?.trim() ?? "";
+  const textQuestionRelaySourceLabel = isBlockingTextQuestionResult
+    ? isSubmitting
+      ? "pending operator request"
+      : "request failed"
+    : assistantReply
+      ? resultSourceLabel
+      : "Awaiting backend result";
+  const textQuestionRelayStatusLabel = isBlockingTextQuestionResult
+    ? isSubmitting
+      ? "Submitting"
+      : "Error"
+    : assistantReply?.status ?? "Idle";
   const sttSnapshot = sttState.snapshot;
   const attentionSnapshot = attentionState.snapshot;
   const attentionStatusLine = describeAttentionStateLine(attentionState);
@@ -564,6 +710,14 @@ export function ControlSurfaceOperatorCommandPanel({
   const sttLatestTranscript = sttTranscriptChunks[0]?.transcript ?? sttSnapshot?.latest_confirmed_text ?? "Awaiting a queued transcript from the STT sidecar.";
   const sttListeningButtonLabel = sttSnapshot?.listening ? "Stop listening" : "Start listening";
   const sttControlsDisabled = sttState.action !== "idle" || sttState.status === "loading";
+  const sttPushToTalkDisabled = sttState.action === "device" || sttState.status === "loading" || !sttSnapshot?.available;
+  const pushToTalkKeyLabel = formatPushToTalkBindingLabel(pushToTalkBinding);
+  const pushToTalkButtonLabel = isCapturingPushToTalkKey ? "Press a key..." : `Push-to-talk key: ${pushToTalkKeyLabel}`;
+  const pushToTalkStatusLine = isCapturingPushToTalkKey
+    ? "Press any non-modifier key to bind push-to-talk. Press Escape to cancel."
+    : isPushToTalkActive
+      ? `Holding ${pushToTalkKeyLabel} keeps STT capture open until release.`
+      : `Hold ${pushToTalkKeyLabel} anywhere on the control surface to talk. Focused text fields are ignored.`;
   const attentionEnabledButtonLabel = attentionSnapshot?.enabled ? "Disable attention" : "Enable attention";
   const attentionTrackingButtonLabel = attentionSnapshot?.tracking ? "Stop tracking" : "Start tracking";
   const attentionControlsDisabled = attentionState.action !== "idle" || attentionState.status === "loading";
@@ -575,6 +729,105 @@ export function ControlSurfaceOperatorCommandPanel({
     selectedDeviceLabel: attentionSnapshot?.selected_device_label ?? null,
   });
   const attentionDevices = attentionCaptureState.devices.length > 0 ? attentionCaptureState.devices : attentionState.devices;
+
+  useEffect(() => {
+    writePersistedPushToTalkBinding(pushToTalkBinding);
+  }, [pushToTalkBinding]);
+
+  useEffect(() => {
+    function releasePushToTalk(): void {
+      if (!pushToTalkHeldRef.current) {
+        return;
+      }
+
+      pushToTalkHeldRef.current = false;
+      setIsPushToTalkActive(false);
+
+      const shouldStopListening = pushToTalkStartedListeningRef.current;
+      pushToTalkStartedListeningRef.current = false;
+      if (shouldStopListening) {
+        void setListening(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (isCapturingPushToTalkKey) {
+        if (event.repeat) {
+          return;
+        }
+
+        event.preventDefault();
+        if (event.key === "Escape") {
+          setIsCapturingPushToTalkKey(false);
+          return;
+        }
+
+        if (isModifierOnlyKey(event.key)) {
+          return;
+        }
+
+        setPushToTalkBinding(
+          normalizePushToTalkBinding({
+            code: event.code || null,
+            key: event.key || null
+          })
+        );
+        setIsCapturingPushToTalkKey(false);
+        return;
+      }
+
+      if (!matchesPushToTalkBinding(event, pushToTalkBinding) || isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+      if (event.repeat || pushToTalkHeldRef.current || sttPushToTalkDisabled) {
+        return;
+      }
+
+      pushToTalkHeldRef.current = true;
+      setIsPushToTalkActive(true);
+      pushToTalkStartedListeningRef.current = !(sttSnapshot?.listening ?? false);
+      if (pushToTalkStartedListeningRef.current) {
+        void setListening(true);
+      }
+    }
+
+    function handleKeyUp(event: KeyboardEvent): void {
+      if (isCapturingPushToTalkKey || !matchesPushToTalkBinding(event, pushToTalkBinding)) {
+        return;
+      }
+
+      event.preventDefault();
+      releasePushToTalk();
+    }
+
+    function handleWindowBlur(): void {
+      setIsCapturingPushToTalkKey(false);
+      releasePushToTalk();
+    }
+
+    function handleVisibilityChange(): void {
+      if (!document.hidden) {
+        return;
+      }
+
+      setIsCapturingPushToTalkKey(false);
+      releasePushToTalk();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleWindowBlur);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleWindowBlur);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isCapturingPushToTalkKey, pushToTalkBinding, setListening, sttPushToTalkDisabled, sttSnapshot?.listening]);
 
   function formatAttentionCoordinate(value: number | null | undefined): string {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -837,7 +1090,19 @@ export function ControlSurfaceOperatorCommandPanel({
           >
             {sttState.action === "listening" ? "Updating microphone state..." : sttListeningButtonLabel}
           </button>
+          <button
+            className={isCapturingPushToTalkKey || isPushToTalkActive ? "operator-panel__button operator-panel__button--active" : "operator-panel__button"}
+            type="button"
+            onClick={() => {
+              setIsCapturingPushToTalkKey((currentValue) => !currentValue);
+            }}
+            aria-pressed={isCapturingPushToTalkKey}
+          >
+            {pushToTalkButtonLabel}
+          </button>
         </div>
+
+        <p className="operator-panel__hint">{pushToTalkStatusLine}</p>
 
         <div className="operator-panel__stt-transcript" aria-live="polite">
           <div className="operator-panel__stt-transcript-header">
@@ -873,27 +1138,6 @@ export function ControlSurfaceOperatorCommandPanel({
         </p>
         {sttState.message ? <p className="surface-panel__summary">{sttState.message}</p> : null}
       </section>
-
-      {assistantReply ? <p className="surface-panel__message">{assistantReply.text}</p> : null}
-      {assistantReply ? (
-        <p className="surface-panel__summary">
-          Assistant reply from {assistantReply.profile_id} in {assistantReply.locale}.
-        </p>
-      ) : null}
-
-      {isBlockingTextQuestionResult && operatorCommandState.submittedText ? (
-        <p className="surface-panel__message">{operatorCommandState.submittedText}</p>
-      ) : null}
-      {isBlockingTextQuestionResult ? (
-        <p
-          className={buildFeedbackClassName(
-            "surface-panel__summary",
-            isSubmitting ? "pending" : "error"
-          )}
-        >
-          {isSubmitting ? "Waiting for the backend text-question response." : "The backend text-question request failed before a new reply was published."}
-        </p>
-      ) : null}
 
       {synthesisPreview ? <p className="surface-panel__message">{synthesisPreview.text}</p> : null}
       {synthesisPreview ? (
@@ -980,6 +1224,43 @@ export function ControlSurfaceOperatorCommandPanel({
             <button className="operator-panel__button" type="submit" disabled={submitTextQuestionDisabled}>
               Send text question
             </button>
+          </div>
+
+          <div className="operator-panel__result" aria-live="polite">
+            <div className="operator-panel__result-header">
+              <p className="operator-panel__result-label">Backend text relay</p>
+              <p className="operator-panel__result-meta">{textQuestionRelaySourceLabel}</p>
+            </div>
+
+            <div className="operator-panel__result-row">
+              <p className="operator-panel__result-role">Question</p>
+              <p className="operator-panel__result-text">
+                {latestTextQuestion || "Send a text question to record the relayed prompt here."}
+              </p>
+            </div>
+
+            <div className="operator-panel__result-row">
+              <p className="operator-panel__result-role">Reply</p>
+              <p className="operator-panel__result-text">
+                {assistantReply?.text ??
+                  (isSubmitting
+                    ? "Waiting for the backend text-question response."
+                    : operatorCommandState.status === "error"
+                      ? operatorCommandState.error ?? "The backend text-question request failed before a new reply was published."
+                      : "Awaiting backend assistant output.")}
+              </p>
+            </div>
+
+            <p className="operator-panel__result-detail">
+              Status: {textQuestionRelayStatusLabel}
+              {assistantReply ? ` · ${assistantReply.profile_id} · ${assistantReply.locale}` : ""}
+              {assistantReply?.feeling?.name ? ` · feeling ${assistantReply.feeling.name}` : ""}
+            </p>
+            <p className="operator-panel__result-detail">
+              Voice dispatch: {textQuestionVoiceDispatch?.status ?? (assistantReply ? "awaiting handoff" : "idle")}
+              {textQuestionVoiceDispatch?.profile_id ? ` · ${textQuestionVoiceDispatch.profile_id}` : ""}
+            </p>
+            <p className="operator-panel__result-detail">Lifecycle: {canonicalCatchUpLabel}</p>
           </div>
         </form>
 

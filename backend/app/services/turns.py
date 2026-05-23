@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+import threading
 import time
 from typing import Any
 
@@ -28,6 +30,9 @@ from app.services.speech import (
     project_public_session_event,
     project_public_speech_lifecycle_envelope,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 _ANIMATION_CUE_ALIAS_TO_SEMANTIC_ID = {
@@ -375,6 +380,110 @@ def _build_degraded_synthesis_contract(
     )
 
 
+def _build_queued_synthesis_contract(
+    assistant: AssistantMessageContract,
+    *,
+    locale: str,
+    voice_profile_id: str | None,
+) -> SpeechSynthesisContract:
+    return SpeechSynthesisContract(
+        profile_id=voice_profile_id or TTS_BASELINE_PROFILE_IDS[0],
+        status="queued",
+        text=assistant.text,
+        locale=locale,
+    )
+
+
+def _build_turn_synthesis_request(
+    assistant: AssistantMessageContract,
+    *,
+    locale: str,
+    voice_profile: Any,
+    lip_sync_preferences: Any,
+) -> SpeechSynthesisRequest:
+    voice_profile_payload = {
+        "profile_id": voice_profile.profile_id,
+        "provider": voice_profile.provider,
+        "style": assistant.voice_tone.style if assistant.voice_tone is not None and assistant.voice_tone.style else voice_profile.style,
+        "notes": voice_profile.notes,
+        **voice_profile.settings,
+    }
+    if assistant.voice_tone is not None:
+        voice_profile_payload["llm_voice_tone"] = {
+            "style": assistant.voice_tone.style,
+            "pace": assistant.voice_tone.pace,
+            "energy": assistant.voice_tone.energy,
+        }
+
+    return SpeechSynthesisRequest(
+        text=assistant.text,
+        locale=locale,
+        profile_id=TTS_BASELINE_PROFILE_IDS[0],
+        voice_profile_id=voice_profile.profile_id or TTS_BASELINE_PROFILE_IDS[0],
+        voice_profile=voice_profile_payload,
+        preferred_lip_sync_track_id=lip_sync_preferences.preferred_track_id,
+    )
+
+
+def _run_synthesis_request(
+    synthesis_request: SpeechSynthesisRequest,
+    *,
+    services: UserTurnServices,
+) -> SpeechSynthesisContract:
+    try:
+        return services.synthesis_service.synthesize(synthesis_request)
+    except Exception:
+        logger.exception("User turn synthesis failed")
+        return SpeechSynthesisContract(
+            profile_id=synthesis_request.voice_profile_id or synthesis_request.profile_id,
+            status="error",
+            text=synthesis_request.text,
+            locale=synthesis_request.locale,
+        )
+
+
+def _append_synthesis_event(
+    synthesis: SpeechSynthesisContract,
+    *,
+    services: UserTurnServices,
+    snapshot: Any,
+    character_id: str,
+) -> SpeechLifecycleEventEnvelope:
+    return services.session_service.event_store.append(
+        SPEECH_LIFECYCLE_STREAM,
+        services.session_event_factory.build_event(
+            snapshot,
+            character_id=character_id,
+            event_type="speech.synthesis",
+            status=synthesis.status,
+            synthesis=synthesis,
+        ),
+    )
+
+
+def _dispatch_deferred_synthesis(
+    synthesis_request: SpeechSynthesisRequest,
+    *,
+    services: UserTurnServices,
+    snapshot: Any,
+    character_id: str,
+) -> None:
+    def _worker() -> None:
+        synthesis = _run_synthesis_request(synthesis_request, services=services)
+        _append_synthesis_event(
+            synthesis,
+            services=services,
+            snapshot=snapshot,
+            character_id=character_id,
+        )
+
+    threading.Thread(
+        target=_worker,
+        name=f"user-turn-synthesis:{snapshot.session_id}:{character_id}",
+        daemon=True,
+    ).start()
+
+
 @dataclass(slots=True)
 class UserTurnServices:
     session_service: SessionService
@@ -393,6 +502,7 @@ class UserTurnRequest:
     locale: str = "en-US"
     session_event_type: str = "session.operator.text-question"
     transcription: SpeechTranscriptionContract | None = None
+    defer_synthesis: bool = False
 
 
 @dataclass(slots=True, frozen=True)
@@ -405,6 +515,14 @@ class UserTurnResult:
     speech_lifecycle_events: tuple[SpeechLifecycleEventEnvelope, ...]
 
 
+def _resolve_turn_input_text(request: UserTurnRequest) -> str:
+    if request.transcription is not None:
+        transcript = str(request.transcription.transcript or "").strip()
+        if transcript:
+            return transcript
+    return request.text.strip()
+
+
 def run_user_text_turn(
     request: UserTurnRequest,
     *,
@@ -414,18 +532,23 @@ def run_user_text_turn(
     active_character = services.character_service.get_character_summary(snapshot.active_character_id)
     voice_profile = services.character_service.get_character_voice_profile(active_character.character_id)
     lip_sync_preferences = services.character_service.get_character_lip_sync_preferences(active_character.character_id)
+    turn_input_text = _resolve_turn_input_text(request)
     memory_context = None
     if services.memory_service is not None:
-        services.memory_service.ensure_persona_core(
-            persona_id=active_character.character_id,
-            display_name=active_character.display_name,
-            speech_style=voice_profile.style,
-        )
-        memory_context = services.memory_service.get_prompt_context(
-            persona_id=active_character.character_id,
-            query_text=request.text,
-            include_appearance_context=_should_include_appearance_context(request.text),
-        )
+        try:
+            services.memory_service.ensure_persona_core(
+                persona_id=active_character.character_id,
+                display_name=active_character.display_name,
+                speech_style=voice_profile.style,
+            )
+            memory_context = services.memory_service.get_prompt_context(
+                persona_id=active_character.character_id,
+                query_text=turn_input_text,
+                include_appearance_context=_should_include_appearance_context(turn_input_text),
+            )
+        except Exception as exc:
+            logger.exception("User turn memory context preparation failed")
+            memory_context = None
 
     speech_lifecycle_events: list[SpeechLifecycleEventEnvelope] = []
     if request.transcription is not None:
@@ -441,20 +564,29 @@ def run_user_text_turn(
         )
         speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(transcription_envelope))
 
-    assistant = services.text_generation_service.generate(
-        TextGenerationRequest(
-            prompt=_build_spoken_reply_prompt(
-                request.text,
-                character_id=active_character.character_id,
-                voice_profile=voice_profile,
-                memory_context=memory_context,
-                input_source="stt" if request.transcription is not None else "manual_text",
-            ),
-            locale=request.locale,
-            profile_id=LLM_BASELINE_PROFILE_IDS[0],
-            expect_structured_output=True,
+    try:
+        assistant = services.text_generation_service.generate(
+            TextGenerationRequest(
+                prompt=_build_spoken_reply_prompt(
+                    turn_input_text,
+                    character_id=active_character.character_id,
+                    voice_profile=voice_profile,
+                    memory_context=memory_context,
+                    input_source="stt" if request.transcription is not None else "manual_text",
+                ),
+                locale=request.locale,
+                profile_id=LLM_BASELINE_PROFILE_IDS[0],
+                expect_structured_output=True,
+            )
         )
-    )
+    except Exception:
+        logger.exception("User turn text generation failed")
+        assistant = AssistantMessageContract(
+            profile_id=LLM_BASELINE_PROFILE_IDS[0],
+            status="error",
+            text="Local text generation failed.",
+            locale=request.locale,
+        )
     assistant_envelope = services.session_service.event_store.append(
         SPEECH_LIFECYCLE_STREAM,
         services.session_event_factory.build_event(
@@ -467,49 +599,46 @@ def run_user_text_turn(
     )
     speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(assistant_envelope))
 
+    synthesis_envelope: SpeechLifecycleEventEnvelope | None = None
     if assistant.status == "ready":
-        voice_profile_payload = {
-            "profile_id": voice_profile.profile_id,
-            "provider": voice_profile.provider,
-            "style": assistant.voice_tone.style if assistant.voice_tone is not None and assistant.voice_tone.style else voice_profile.style,
-            "notes": voice_profile.notes,
-            **voice_profile.settings,
-        }
-        if assistant.voice_tone is not None:
-            voice_profile_payload["llm_voice_tone"] = {
-                "style": assistant.voice_tone.style,
-                "pace": assistant.voice_tone.pace,
-                "energy": assistant.voice_tone.energy,
-            }
-        synthesis = services.synthesis_service.synthesize(
-            SpeechSynthesisRequest(
-                text=assistant.text,
-                locale=request.locale,
-                profile_id=TTS_BASELINE_PROFILE_IDS[0],
-                voice_profile_id=voice_profile.profile_id or TTS_BASELINE_PROFILE_IDS[0],
-                voice_profile=voice_profile_payload,
-                preferred_lip_sync_track_id=lip_sync_preferences.preferred_track_id,
-            )
+        synthesis_request = _build_turn_synthesis_request(
+            assistant,
+            locale=request.locale,
+            voice_profile=voice_profile,
+            lip_sync_preferences=lip_sync_preferences,
         )
+        if request.defer_synthesis:
+            synthesis = _build_queued_synthesis_contract(
+                assistant,
+                locale=request.locale,
+                voice_profile_id=voice_profile.profile_id,
+            )
+        else:
+            synthesis = _run_synthesis_request(synthesis_request, services=services)
+            synthesis_envelope = _append_synthesis_event(
+                synthesis,
+                services=services,
+                snapshot=snapshot,
+                character_id=active_character.character_id,
+            )
+            speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(synthesis_envelope))
     else:
         synthesis = _build_degraded_synthesis_contract(
             assistant,
             locale=request.locale,
             voice_profile_id=voice_profile.profile_id,
         )
-    synthesis_envelope = services.session_service.event_store.append(
-        SPEECH_LIFECYCLE_STREAM,
-        services.session_event_factory.build_event(
-            snapshot,
+        synthesis_envelope = _append_synthesis_event(
+            synthesis,
+            services=services,
+            snapshot=snapshot,
             character_id=active_character.character_id,
-            event_type="speech.synthesis",
-            status=synthesis.status,
-            synthesis=synthesis,
-        ),
-    )
-    speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(synthesis_envelope))
+        )
+        speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(synthesis_envelope))
 
     statuses = [assistant.status, synthesis.status]
+    if request.defer_synthesis and assistant.status == "ready":
+        statuses = [assistant.status]
     if request.transcription is not None:
         statuses.insert(0, request.transcription.status)
     turn_status = derive_operator_command_status(*statuses)
@@ -523,38 +652,56 @@ def run_user_text_turn(
         synthesis=synthesis,
     )
     services.session_service.event_store.append("session", session_event)
+    next_speech_cursor = services.session_service.event_store.next_cursor(
+        SPEECH_LIFECYCLE_STREAM,
+        session_id=snapshot.session_id,
+    )
 
-    if services.animation_service is not None and services.session_animation_live_delivery is not None:
-        animation_snapshot = _build_assistant_animation_snapshot(
-            assistant,
+    if assistant.status == "ready" and request.defer_synthesis:
+        _dispatch_deferred_synthesis(
+            synthesis_request,
+            services=services,
             snapshot=snapshot,
             character_id=active_character.character_id,
-            animation_service=services.animation_service,
         )
-        if animation_snapshot is not None:
-            services.session_animation_live_delivery.publish_snapshot(animation_snapshot)
+
+    if services.animation_service is not None and services.session_animation_live_delivery is not None:
+        try:
+            animation_snapshot = _build_assistant_animation_snapshot(
+                assistant,
+                snapshot=snapshot,
+                character_id=active_character.character_id,
+                animation_service=services.animation_service,
+            )
+            if animation_snapshot is not None:
+                services.session_animation_live_delivery.publish_snapshot(animation_snapshot)
+        except Exception:
+            logger.exception("User turn animation publication failed")
 
     if services.memory_service is not None:
-        services.memory_service.store_turn(
-            persona_id=active_character.character_id,
-            session_id=snapshot.session_id,
-            locale=request.locale,
-            user_text=request.text,
-            assistant_text=assistant.text,
-            assistant_status=assistant.status,
-            memory_writebacks=tuple(
-                {
-                    "namespace": writeback.namespace,
-                    "summary": writeback.summary,
-                    "salience": writeback.salience,
-                    "source": writeback.source,
-                    "tags": list(writeback.tags),
-                }
-                for writeback in assistant.memory_writebacks
-            ),
-            feeling_name=assistant.feeling.name if assistant.feeling is not None else None,
-            voice_energy=assistant.voice_tone.energy if assistant.voice_tone is not None else None,
-        )
+        try:
+            services.memory_service.store_turn(
+                persona_id=active_character.character_id,
+                session_id=snapshot.session_id,
+                locale=request.locale,
+                user_text=turn_input_text,
+                assistant_text=assistant.text,
+                assistant_status=assistant.status,
+                memory_writebacks=tuple(
+                    {
+                        "namespace": writeback.namespace,
+                        "summary": writeback.summary,
+                        "salience": writeback.salience,
+                        "source": writeback.source,
+                        "tags": list(writeback.tags),
+                    }
+                    for writeback in assistant.memory_writebacks
+                ),
+                feeling_name=assistant.feeling.name if assistant.feeling is not None else None,
+                voice_energy=assistant.voice_tone.energy if assistant.voice_tone is not None else None,
+            )
+        except Exception:
+            logger.exception("User turn memory persistence failed")
 
     return UserTurnResult(
         session_id=snapshot.session_id,
@@ -562,11 +709,8 @@ def run_user_text_turn(
         status=turn_status,
         session_event=project_public_session_event(
             session_event,
-            audio_event_id=synthesis_envelope.event_id,
+            audio_event_id=synthesis_envelope.event_id if synthesis_envelope is not None else None,
         ),
-        next_speech_cursor=services.session_service.event_store.next_cursor(
-            SPEECH_LIFECYCLE_STREAM,
-            session_id=snapshot.session_id,
-        ),
+        next_speech_cursor=next_speech_cursor,
         speech_lifecycle_events=tuple(speech_lifecycle_events),
     )

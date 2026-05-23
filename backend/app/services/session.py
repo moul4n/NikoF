@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import threading
 from typing import Protocol
 
 from app.schemas.character import ActiveCharacterSelection
@@ -39,19 +40,21 @@ class InMemorySessionEventStore:
         init=False,
         repr=False,
     )
+    _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
 
     def append(self, stream: str, event: SessionEvent) -> SpeechLifecycleEventEnvelope:
-        key = (stream, event.session_id)
-        events = self._events_by_stream.setdefault(key, [])
-        sequence = len(events) + 1
-        envelope = SpeechLifecycleEventEnvelope(
-            event_id=f"{stream.replace('.', '-')}-{sequence:04d}",
-            sequence=sequence,
-            cursor=f"{stream}:{event.session_id}:{sequence}",
-            event=event,
-        )
-        events.append(envelope)
-        return envelope
+        with self._lock:
+            key = (stream, event.session_id)
+            events = self._events_by_stream.setdefault(key, [])
+            sequence = len(events) + 1
+            envelope = SpeechLifecycleEventEnvelope(
+                event_id=f"{stream.replace('.', '-')}-{sequence:04d}",
+                sequence=sequence,
+                cursor=f"{stream}:{event.session_id}:{sequence}",
+                event=event,
+            )
+            events.append(envelope)
+            return envelope
 
     def read(
         self,
@@ -60,17 +63,19 @@ class InMemorySessionEventStore:
         session_id: str,
         after_cursor: str | None = None,
     ) -> tuple[SpeechLifecycleEventEnvelope, ...]:
-        after_sequence = self._parse_after_sequence(
-            stream,
-            session_id=session_id,
-            after_cursor=after_cursor,
-        )
-        events = self._events_by_stream.get((stream, session_id), [])
-        return tuple(event for event in events if event.sequence > after_sequence)
+        with self._lock:
+            after_sequence = self._parse_after_sequence(
+                stream,
+                session_id=session_id,
+                after_cursor=after_cursor,
+            )
+            events = self._events_by_stream.get((stream, session_id), [])
+            return tuple(event for event in events if event.sequence > after_sequence)
 
     def next_cursor(self, stream: str, *, session_id: str) -> str:
-        next_sequence = len(self._events_by_stream.get((stream, session_id), [])) + 1
-        return f"{stream}:{session_id}:{next_sequence}"
+        with self._lock:
+            next_sequence = len(self._events_by_stream.get((stream, session_id), [])) + 1
+            return f"{stream}:{session_id}:{next_sequence}"
 
     def _parse_after_sequence(
         self,

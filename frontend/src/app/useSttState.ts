@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BackendSttInputDeviceDocument, BackendSttStateDocument } from "../shared/types/character";
 
 export const STT_STATE_ROUTE_PATH = "/session/stt";
@@ -102,6 +102,13 @@ export function useSttState(): {
     action: "idle",
     message: null
   });
+  const latestSnapshotRef = useRef<BackendSttStateDocument | null>(null);
+  const listeningRequestRef = useRef<Promise<void> | null>(null);
+  const desiredListeningStateRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    latestSnapshotRef.current = state.snapshot;
+  }, [state.snapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +123,8 @@ export function useSttState(): {
         if (cancelled) {
           return;
         }
+
+        latestSnapshotRef.current = snapshot;
 
         setState((currentState) => ({
           status: "ready",
@@ -157,6 +166,7 @@ export function useSttState(): {
         method: "PUT",
         body: JSON.stringify({ device_id: deviceId })
       });
+      latestSnapshotRef.current = snapshot;
       const devicesPayload = await fetchJson<{ devices: BackendSttInputDeviceDocument[] }>(STT_DEVICES_ROUTE_PATH);
       setState({
         status: "ready",
@@ -175,27 +185,58 @@ export function useSttState(): {
     }
   }
 
+  async function flushListeningState(): Promise<void> {
+    while (typeof desiredListeningStateRef.current === "boolean") {
+      const nextEnabled = desiredListeningStateRef.current;
+      desiredListeningStateRef.current = null;
+
+      if ((latestSnapshotRef.current?.listening ?? false) === nextEnabled) {
+        continue;
+      }
+
+      setState((currentState) => ({ ...currentState, action: "listening", message: null }));
+      try {
+        const snapshot = await fetchJson<BackendSttStateDocument>(STT_LISTENING_ROUTE_PATH, {
+          method: "PUT",
+          body: JSON.stringify({ enabled: nextEnabled })
+        });
+        latestSnapshotRef.current = snapshot;
+        setState((currentState) => ({
+          status: "ready",
+          snapshot,
+          devices: currentState.devices,
+          action: "idle",
+          message: null
+        }));
+      } catch (error: unknown) {
+        setState((currentState) => ({
+          ...currentState,
+          status: currentState.snapshot ? "ready" : "offline",
+          action: "idle",
+          message: error instanceof Error ? error.message : "Backend STT listening update failed."
+        }));
+        break;
+      }
+    }
+  }
+
   async function setListening(enabled: boolean): Promise<void> {
-    setState((currentState) => ({ ...currentState, action: "listening", message: null }));
-    try {
-      const snapshot = await fetchJson<BackendSttStateDocument>(STT_LISTENING_ROUTE_PATH, {
-        method: "PUT",
-        body: JSON.stringify({ enabled })
-      });
-      setState((currentState) => ({
-        status: "ready",
-        snapshot,
-        devices: currentState.devices,
-        action: "idle",
-        message: null
-      }));
-    } catch (error: unknown) {
-      setState((currentState) => ({
-        ...currentState,
-        status: currentState.snapshot ? "ready" : "offline",
-        action: "idle",
-        message: error instanceof Error ? error.message : "Backend STT listening update failed."
-      }));
+    desiredListeningStateRef.current = enabled;
+
+    while (true) {
+      if (!listeningRequestRef.current) {
+        listeningRequestRef.current = flushListeningState().finally(() => {
+          listeningRequestRef.current = null;
+        });
+      }
+
+      await listeningRequestRef.current;
+
+      const desiredListeningState = desiredListeningStateRef.current;
+      const currentListeningState = latestSnapshotRef.current?.listening ?? false;
+      if (typeof desiredListeningState !== "boolean" || desiredListeningState === currentListeningState) {
+        return;
+      }
     }
   }
 

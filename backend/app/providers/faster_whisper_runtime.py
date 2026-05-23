@@ -42,7 +42,7 @@ SERVER_BLOCK_SIZE = 1600
 MIN_UTTERANCE_SECONDS = 0.45
 MAX_UTTERANCE_SECONDS = 15.0
 MIN_RMS_THRESHOLD = 0.012
-SPEECH_START_BLOCKS = 3
+SPEECH_START_BLOCKS = 1
 SPEECH_END_BLOCKS = 8
 OWNER_POLL_INTERVAL_SECONDS = 2.0
 
@@ -452,10 +452,47 @@ class HotMicRuntime:
                     self._stream = None
 
         self._listening = False
-        if self._state != "error":
+        self._flush_active_segment_on_stop()
+        if self._state not in {"error", "processing"}:
             self._set_state("ready")
         self._append_event("listening.stopped", {"state": self._state})
         return self.snapshot()
+
+    def _flush_active_segment_on_stop(self) -> None:
+        if np is None:
+            with self._audio_lock:
+                self._current_chunks = []
+                self._pre_roll.clear()
+                self._speech_blocks = 0
+                self._silence_blocks = 0
+                self._speaking = False
+            return
+
+        segment = None
+        duration_ms = 0
+        with self._audio_lock:
+            if self._speaking and self._current_chunks:
+                segment = np.concatenate(self._current_chunks).astype(np.float32)
+                duration_ms = int(round(segment.shape[0] * 1000 / SERVER_SAMPLE_RATE_HZ))
+
+            self._current_chunks = []
+            self._pre_roll.clear()
+            self._speech_blocks = 0
+            self._silence_blocks = 0
+            self._speaking = False
+
+        if segment is None:
+            return
+
+        if duration_ms < int(MIN_UTTERANCE_SECONDS * 1000):
+            return
+
+        try:
+            self._segment_queue.put_nowait((segment, duration_ms))
+            self._set_state("processing")
+        except queue.Full:
+            self._last_error = "STT processing queue is full"
+            self._append_event("segment.dropped", {"reason": self._last_error})
 
     def events_after(self, after_sequence: int) -> dict[str, Any]:
         return {
@@ -621,8 +658,11 @@ class HotMicRuntime:
                 )
                 self._set_state("error")
             finally:
-                if self._listening and self._state != "error":
-                    self._set_state("listening")
+                if self._state != "error":
+                    if self._listening:
+                        self._set_state("listening")
+                    else:
+                        self._set_state("ready")
 
 
 def _build_handler(runtime: HotMicRuntime) -> type[BaseHTTPRequestHandler]:

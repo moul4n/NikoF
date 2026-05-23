@@ -1,6 +1,9 @@
 import React from "react";
 import type {
   GpuProcessStatus,
+  LlmControlAction,
+  LlmControlResult,
+  LLMSidecarStatus,
   OwnedProcessStatus,
   ResourceMonitorState,
   ResourceStatusSnapshot,
@@ -82,6 +85,113 @@ function TTSWorkerSection({ snapshot }: { snapshot: ResourceStatusSnapshot }): J
           </>
         ) : null}
       </dl>
+    </div>
+  );
+}
+
+function formatTimestamp(epoch: number | null | undefined): string {
+  if (epoch == null) return "—";
+  try {
+    return new Date(epoch * 1000).toLocaleTimeString();
+  } catch {
+    return "—";
+  }
+}
+
+function resolveLlmStateClass(status: LLMSidecarStatus): string {
+  if (status.last_error) {
+    return "resource-status--error";
+  }
+  if (status.process_running || status.loaded || status.state === "ready") {
+    return "resource-status--ok";
+  }
+  return "resource-status--idle";
+}
+
+function formatLlmActionLabel(action: LlmControlAction | null): string | null {
+  if (action == null) {
+    return null;
+  }
+  switch (action) {
+    case "start":
+      return "Starting LLM sidecar...";
+    case "restart":
+      return "Restarting LLM sidecar...";
+    case "warmup":
+      return "Warming up LLM sidecar...";
+    case "stop":
+      return "Stopping LLM sidecar...";
+    default:
+      return null;
+  }
+}
+
+function LlmSidecarSection({ resourceState }: { resourceState: ResourceMonitorState }): JSX.Element | null {
+  const snapshot = resourceState.snapshot;
+  if (!snapshot) {
+    return null;
+  }
+
+  const llm = snapshot.llm_sidecar;
+  const actionLabel = formatLlmActionLabel(resourceState.llmAction);
+  const controlsDisabled = resourceState.llmAction !== null || resourceState.status === "loading";
+  const warmupResult = resourceState.llmLastResult?.action === "warmup" ? resourceState.llmLastResult : null;
+
+  return (
+    <div className="resource-panel__section">
+      <div className="resource-panel__section-header">
+        <h4>LLM sidecar</h4>
+        <span className={resolveLlmStateClass(llm)}>{llm.state}</span>
+      </div>
+      <dl className="resource-panel__grid">
+        <dt>Mode</dt>
+        <dd>{llm.process_managed ? "Backend-owned" : "External/runtime-attached"}</dd>
+        <dt>Model</dt>
+        <dd>{llm.model_name ?? "not configured"}</dd>
+        <dt>Endpoint</dt>
+        <dd className="resource-panel__command">{llm.endpoint ?? "—"}</dd>
+        <dt>Health</dt>
+        <dd>{llm.process_healthy ? "healthy" : llm.process_running ? "starting" : "idle"}</dd>
+        <dt>Owner PID</dt>
+        <dd>{llm.owner_pid ?? "—"}</dd>
+        <dt>Requests</dt>
+        <dd>{llm.requests_processed}</dd>
+        <dt>Avg latency</dt>
+        <dd>{formatLatency(llm.average_latency_ms)}</dd>
+        <dt>Last request</dt>
+        <dd>{formatTimestamp(llm.last_request_epoch)}</dd>
+        <dt>VRAM</dt>
+        <dd>{formatMb(llm.vram_allocated_mb)}</dd>
+      </dl>
+
+      <div className="resource-panel__actions">
+        <button type="button" className="resource-panel__button" disabled={controlsDisabled} onClick={() => void resourceState.sendLlmControl("start")}>
+          Start
+        </button>
+        <button type="button" className="resource-panel__button" disabled={controlsDisabled} onClick={() => void resourceState.sendLlmControl("restart")}>
+          Restart
+        </button>
+        <button type="button" className="resource-panel__button" disabled={controlsDisabled} onClick={() => void resourceState.sendLlmControl("warmup")}>
+          Warmup
+        </button>
+        <button type="button" className="resource-panel__button resource-panel__button--subtle" disabled={controlsDisabled} onClick={() => void resourceState.sendLlmControl("stop")}>
+          Stop
+        </button>
+      </div>
+
+      {actionLabel ? <p className="resource-panel__hint">{actionLabel}</p> : null}
+      {resourceState.llmActionError ? <p className="resource-panel__message resource-panel__message--error">LLM control failed: {resourceState.llmActionError}</p> : null}
+      {llm.last_error ? <p className="resource-panel__message resource-panel__message--error">Last backend error: {llm.last_error}</p> : null}
+      {warmupResult?.warmup ? (
+        <p className="resource-panel__hint">
+          Warmup result: {warmupResult.warmup.status} ({warmupResult.warmup.text})
+        </p>
+      ) : null}
+      {llm.stdout_log_path || llm.stderr_log_path ? (
+        <p className="resource-panel__hint">
+          Logs: {llm.stdout_log_path ?? "—"} | {llm.stderr_log_path ?? "—"}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -277,6 +387,7 @@ export function ResourceMonitorPanel({ resourceState }: ResourceMonitorPanelProp
           )}
 
           <div className="resource-panel__section">
+          <LlmSidecarSection resourceState={resourceState} />
             <h4>System RAM</h4>
             <div className="resource-panel__bar-row">
               <span>RAM</span>

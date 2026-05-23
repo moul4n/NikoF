@@ -24,6 +24,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
 
 That supervisor starts frontend plus backend together, keeps STT and TTS ownership with the backend, and is the startup path users, developers, and AI agents should prefer. For automation that should prove startup and still leave the machine clean, add `-StopAfterSeconds 15` or a similar bounded value.
 
+For a clean stop from one place, especially after detached backend debugging or a stale frontend dev server, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\stop-dev-stack.ps1
+```
+
+That script stops the backend process tree on port `8000`, the frontend dev server on port `5173`, and any leftover Ollama listener on port `11434`. Use `-BackendOnly` or `-FrontendOnly` when you only want one side shut down.
+
 Optional override for the local storage root:
 
 ```powershell

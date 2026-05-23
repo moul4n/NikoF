@@ -449,6 +449,64 @@ select {
   font-size: 0.92rem;
 }
 
+.operator-panel__result {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  background: rgba(10, 16, 27, 0.9);
+  border: 1px solid rgba(123, 211, 193, 0.18);
+}
+
+.operator-panel__result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.operator-panel__result-label,
+.operator-panel__result-meta,
+.operator-panel__result-role,
+.operator-panel__result-text,
+.operator-panel__result-detail {
+  margin: 0;
+}
+
+.operator-panel__result-label {
+  color: #8ca0bf;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.operator-panel__result-meta,
+.operator-panel__result-detail {
+  color: #a9b6ca;
+  font-size: 0.82rem;
+}
+
+.operator-panel__result-row {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(18, 29, 46, 0.92);
+  border: 1px solid rgba(140, 160, 191, 0.14);
+}
+
+.operator-panel__result-role {
+  color: #8ca0bf;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.operator-panel__result-text {
+  color: #eef4ff;
+  white-space: pre-wrap;
+}
+
 .tts-settings-panel__form {
   display: grid;
   gap: 1rem;
@@ -515,6 +573,8 @@ select {
 .operator-panel__actions {
   display: flex;
   justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .operator-panel__checkbox {
@@ -548,6 +608,11 @@ select {
   border-color: rgba(123, 211, 193, 0.8);
   background: rgba(38, 77, 86, 0.92);
   transform: translateY(-1px);
+}
+
+.operator-panel__button--active {
+  border-color: rgba(123, 211, 193, 0.96);
+  background: rgba(48, 95, 92, 0.98);
 }
 
 .operator-panel__button:disabled {
@@ -1411,6 +1476,13 @@ select {
   border-top: 1px solid rgba(100, 116, 139, 0.15);
 }
 
+.resource-panel__section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .resource-panel__section h4 {
   font-size: 0.8rem;
   font-weight: 600;
@@ -1472,6 +1544,13 @@ select {
   margin: 0.25rem 0;
 }
 
+.resource-panel__hint {
+  margin: 0.45rem 0 0;
+  color: #94a3b8;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
 .resource-panel__grid {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1516,6 +1595,37 @@ select {
 .resource-panel__command {
   max-width: 24rem;
   overflow-wrap: anywhere;
+}
+
+.resource-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.resource-panel__button {
+  border: 1px solid rgba(123, 211, 193, 0.28);
+  border-radius: 999px;
+  background: rgba(22, 33, 53, 0.72);
+  color: #eef4ff;
+  padding: 0.38rem 0.8rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.resource-panel__button:hover:not(:disabled) {
+  background: rgba(30, 63, 71, 0.7);
+  border-color: rgba(123, 211, 193, 0.5);
+}
+
+.resource-panel__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.resource-panel__button--subtle {
+  border-color: rgba(148, 163, 184, 0.22);
 }
 
 .resource-status--ok {
