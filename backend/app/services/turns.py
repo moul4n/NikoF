@@ -272,6 +272,35 @@ def _build_assistant_animation_snapshot(
     )
 
 
+def _build_llm_thinking_animation_snapshot(
+    *,
+    snapshot: Any,
+    character_id: str,
+    animation_service: AnimationService,
+) -> SessionAnimationSnapshot:
+    command = animation_service.resolve_intent(
+        AnimationIntent(
+            intent_id=f"assistant-thinking:{snapshot.session_id}:{character_id}:{time.time_ns()}",
+            session_id=snapshot.session_id,
+            character_id=character_id,
+            intent_type="gesture",
+            semantic_id="think.considering.once",
+            source="assistant_turn",
+            requested_state="enqueue",
+            parameters={
+                "assistant_phase": "llm_wait",
+            },
+            reason="Backend triggered the shared thinking animation while waiting for the LLM response.",
+        )
+    )
+    return SessionAnimationSnapshot(
+        session_id=snapshot.session_id,
+        lifecycle_state=snapshot.lifecycle_state,
+        active_character_id=character_id,
+        command=command,
+    )
+
+
 def _build_spoken_reply_prompt(
     text: str,
     *,
@@ -563,6 +592,18 @@ def run_user_text_turn(
             ),
         )
         speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(transcription_envelope))
+
+    if services.animation_service is not None and services.session_animation_live_delivery is not None:
+        try:
+            services.session_animation_live_delivery.publish_snapshot(
+                _build_llm_thinking_animation_snapshot(
+                    snapshot=snapshot,
+                    character_id=active_character.character_id,
+                    animation_service=services.animation_service,
+                )
+            )
+        except Exception:
+            logger.exception("User turn thinking animation publication failed")
 
     try:
         assistant = services.text_generation_service.generate(

@@ -97,6 +97,14 @@ The artifact reports both the raw TTS request counter from `GET /system/resource
 
 ## Preferred Local Startup
 
+For a simple local operations dashboard with traffic-light status and Start/Stop/Restart controls for Frontend, Backend, LLM, STT, and TTS, run:
+
+```bat
+startup.bat
+```
+
+The manager UI runs at `http://127.0.0.1:8765/`.
+
 For normal local use, developer work, and AI-agent repro runs, prefer the managed stack launcher from the repo root:
 
 ```powershell

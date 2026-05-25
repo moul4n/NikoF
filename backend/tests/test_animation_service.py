@@ -97,6 +97,7 @@ class DefaultAnimationServiceTests(unittest.TestCase):
         cases = (
             ("idle.happy", "loop"),
             ("gesture.clap.once", "oneshot"),
+            ("think.considering.once", "oneshot"),
         )
 
         for semantic_id, playback_mode in cases:
@@ -199,12 +200,12 @@ class DefaultAnimationServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(command.semantic_id, "speak.loop")
+        self.assertEqual(command.semantic_id, "idle.neutral")
         self.assertEqual(command.resolution.selected_source, "shared_library")
-        self.assertEqual(command.resolution.selected_asset_id, "speak.loop")
+        self.assertEqual(command.resolution.selected_asset_id, "idle.neutral")
         self.assertEqual(command.resolved_state, "selected")
         self.assertEqual(command.playback.mode, "loop")
-        self.assertEqual(command.playback.expected_duration_ms, 8333)
+        self.assertEqual(command.playback.expected_duration_ms, 16633)
         self.assertEqual(command.parameters["session_state"], "speak")
 
 class SessionAnimationContractSnapshotTests(unittest.TestCase):
@@ -243,7 +244,7 @@ class SessionAnimationContractSnapshotTests(unittest.TestCase):
         response = snapshot["responses"]["put_session_lifecycle_state"]["response"]
 
         self.assertEqual("speak", response["lifecycle_state"])
-        self.assertEqual("speak.loop", response["command"]["semantic_id"])
+        self.assertEqual("idle.neutral", response["command"]["semantic_id"])
         self.assertEqual("shared_library", response["command"]["resolution"]["selected_source"])
 
     def test_contract_snapshot_projects_speech_examples_to_unavailable_turn_pipeline_contract(self) -> None:
@@ -304,7 +305,7 @@ class SessionAnimationLiveDeliveryServiceTests(unittest.TestCase):
         )
         self.assertEqual(["idle", "speak"], [update.snapshot.lifecycle_state for update in all_updates])
         self.assertEqual([speak_update.cursor], [update.cursor for update in resumed_updates])
-        self.assertEqual("speak.loop", resumed_updates[0].snapshot.command.semantic_id)
+        self.assertEqual("idle.neutral", resumed_updates[0].snapshot.command.semantic_id)
         self.assertEqual(speak_update.cursor, duplicate_speak.cursor)
 
     def test_rejects_cursor_from_a_different_session(self) -> None:

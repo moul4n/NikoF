@@ -9,6 +9,7 @@ from app.services.tts_reference_settings import (
     get_tts_reference_settings,
     save_tts_reference_settings,
 )
+from app.services.tts_worker import TTSWorkerStatus, get_tts_worker
 
 
 @dataclass(slots=True, frozen=True)
@@ -18,6 +19,11 @@ class TTSReferenceSettingsRequest:
     file_base64: str | None = None
     prompt_language: str | None = None
     text_language: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class TTSControlRequest:
+    action: str
 
 
 def _serialize_snapshot(snapshot: TTSReferenceSettingsSnapshot) -> dict[str, Any]:
@@ -34,6 +40,19 @@ def _serialize_snapshot(snapshot: TTSReferenceSettingsSnapshot) -> dict[str, Any
         "reference_audio_root": snapshot.reference_audio_root,
         "max_reference_audio_bytes": snapshot.max_reference_audio_bytes,
         "allowed_extensions": list(snapshot.allowed_extensions),
+    }
+
+
+def _serialize_tts_worker_status(status: TTSWorkerStatus) -> dict[str, Any]:
+    return {
+        "state": status.state.value if hasattr(status.state, "value") else str(status.state),
+        "model_name": status.model_name,
+        "queue_depth": status.queue_depth,
+        "max_queue_depth": status.max_queue_depth,
+        "total_processed": status.total_processed,
+        "average_latency_ms": status.average_latency_ms,
+        "last_error": status.last_error,
+        "vram_allocated_mb": status.vram_allocated_mb,
     }
 
 
@@ -61,3 +80,27 @@ def register_tts_settings_routes(router: Any) -> None:
             ) from exc
 
         return _serialize_snapshot(snapshot)
+
+    @router.post("/session/tts/control")
+    async def post_session_tts_control(payload: TTSControlRequest) -> dict[str, Any]:
+        worker = get_tts_worker()
+        action = payload.action.strip().lower()
+
+        if action == "start":
+            await worker.start()
+        elif action == "stop":
+            await worker.stop()
+        elif action == "restart":
+            await worker.stop()
+            await worker.start()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported TTS control action: {payload.action}",
+            )
+
+        return {
+            "schema_version": 1,
+            "action": action,
+            "tts": _serialize_tts_worker_status(worker.status()),
+        }

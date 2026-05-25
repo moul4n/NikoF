@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { resolveSelectedCharacterId } from "../avatar/loaders/backendCharacterFlow";
-import { DEFAULT_BASE_ANIMATION_COMMAND } from "../avatar/runtime/defaultBaseAnimation";
 import type {
   AvatarAnimationPlaybackPath,
   AvatarDebugProfileView,
@@ -215,7 +214,7 @@ export function useSurfaceShellOrchestration({
   const [devDisplayRigOverlayEnabled, setDevDisplayRigOverlayEnabled] = useState(false);
   const [devDisplayPlaybackPath, setDevDisplayPlaybackPath] = useState<AvatarAnimationPlaybackPath>("official");
   const [devDisplayAnimationOverride, setDevDisplayAnimationOverride] = useState<DevDisplayAnimationOverrideState>({
-    optionId: DEFAULT_BASE_ANIMATION_COMMAND.id,
+    optionId: "backend",
     activationKey: 0
   });
 

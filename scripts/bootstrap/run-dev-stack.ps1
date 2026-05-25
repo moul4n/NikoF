@@ -50,6 +50,7 @@ if ($ValidateOnly) {
 }
 
 $managedProcesses = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+$cleanupManagedProcesses = $false
 
 function Start-NikoFManagedProcess {
     param(
@@ -69,28 +70,7 @@ function Start-NikoFManagedProcess {
     return $process
 }
 
-try {
-    foreach ($target in $targets) {
-        $process = Start-NikoFManagedProcess -Target $target
-        Write-Host ("{0} started with pid {1} -> {2}" -f $target.Name, $process.Id, $target.Url)
-    }
-
-    if ($managedProcesses.Count -eq 0) {
-        throw 'No processes were selected to start.'
-    }
-
-    $managedProcessIds = @($managedProcesses | ForEach-Object { $_.Id })
-    if ($StopAfterSeconds -gt 0) {
-        Write-Host ("Managed dev stack will auto-stop after {0} seconds." -f $StopAfterSeconds)
-        Wait-Process -Id $managedProcessIds -Timeout $StopAfterSeconds -ErrorAction SilentlyContinue
-        Write-Host 'Managed dev stack stop window reached; shutting down child process trees.'
-    }
-    else {
-        Write-Host 'Press Ctrl+C in this supervisor window to stop the managed dev stack.'
-        Wait-Process -Id $managedProcessIds
-    }
-}
-finally {
+function Stop-NikoFManagedProcesses {
     foreach ($process in $managedProcesses) {
         try {
             if (-not $process.HasExited) {
@@ -99,5 +79,66 @@ finally {
         }
         catch {
         }
+    }
+}
+
+foreach ($target in $targets) {
+    $process = Start-NikoFManagedProcess -Target $target
+    Write-Host ("{0} started with pid {1} -> {2}" -f $target.Name, $process.Id, $target.Url)
+}
+
+if ($managedProcesses.Count -eq 0) {
+    throw 'No processes were selected to start.'
+}
+
+$managedProcessIds = @($managedProcesses | ForEach-Object { $_.Id })
+
+try {
+    if ($StopAfterSeconds -gt 0) {
+        Write-Host ("Managed dev stack will auto-stop after {0} seconds." -f $StopAfterSeconds)
+        Wait-Process -Id $managedProcessIds -Timeout $StopAfterSeconds -ErrorAction SilentlyContinue
+        $cleanupManagedProcesses = $true
+        Write-Host 'Managed dev stack stop window reached; shutting down child process trees.'
+        return
+    }
+
+    Write-Host 'Press Ctrl+C in this supervisor window to stop the managed dev stack. If this supervisor window closes unexpectedly, use stop-dev-stack.ps1 to stop the child services later.'
+
+    $controlCHandled = $false
+    try {
+        $originalTreatControlCAsInput = [Console]::TreatControlCAsInput
+        [Console]::TreatControlCAsInput = $true
+        $controlCHandled = $true
+
+        while ($true) {
+            $runningProcesses = @($managedProcesses | Where-Object { -not $_.HasExited })
+            if ($runningProcesses.Count -eq 0) {
+                break
+            }
+
+            if ([Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq [ConsoleKey]::C -and ($key.Modifiers -band [ConsoleModifiers]::Control)) {
+                    $cleanupManagedProcesses = $true
+                    Write-Host 'Ctrl+C received; shutting down child process trees.'
+                    break
+                }
+            }
+
+            Start-Sleep -Milliseconds 250
+        }
+    }
+    catch {
+        Wait-Process -Id $managedProcessIds -ErrorAction SilentlyContinue
+    }
+    finally {
+        if ($controlCHandled) {
+            [Console]::TreatControlCAsInput = $originalTreatControlCAsInput
+        }
+    }
+}
+finally {
+    if ($cleanupManagedProcesses) {
+        Stop-NikoFManagedProcesses
     }
 }

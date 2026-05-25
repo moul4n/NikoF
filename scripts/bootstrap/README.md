@@ -22,7 +22,17 @@ For normal day-to-day local use after bootstrap, the preferred full-stack startu
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
 ```
 
-That supervisor starts frontend plus backend together, keeps STT and TTS ownership with the backend, and is the startup path users, developers, and AI agents should prefer. For automation that should prove startup and still leave the machine clean, add `-StopAfterSeconds 15` or a similar bounded value.
+For an operator-style local app manager UI with Start/Stop/Restart controls and live process status,
+launch the root entrypoint:
+
+```bat
+startup.bat
+```
+
+That starts `scripts/bootstrap/app-manager.ps1`, opens `http://127.0.0.1:8765/`, and lets you control
+Frontend, Backend, LLM, STT, and TTS from one page.
+
+That supervisor starts frontend plus backend together, keeps STT and TTS ownership with the backend, and is the startup path users, developers, and AI agents should prefer. In an interactive PowerShell window, `Ctrl+C` still stops the managed child process trees. If the supervisor window closes unexpectedly, the child services stay up so you can inspect them and then stop them explicitly with `stop-dev-stack.ps1`. For automation that should prove startup and still leave the machine clean, add `-StopAfterSeconds 15` or a similar bounded value.
 
 For a clean stop from one place, especially after detached backend debugging or a stale frontend dev server, use:
 

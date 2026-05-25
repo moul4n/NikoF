@@ -105,6 +105,7 @@ export function useSttState(): {
   const latestSnapshotRef = useRef<BackendSttStateDocument | null>(null);
   const listeningRequestRef = useRef<Promise<void> | null>(null);
   const desiredListeningStateRef = useRef<boolean | null>(null);
+  const refreshInFlightRef = useRef(false);
 
   useEffect(() => {
     latestSnapshotRef.current = state.snapshot;
@@ -114,6 +115,12 @@ export function useSttState(): {
     let cancelled = false;
 
     async function refreshState(): Promise<void> {
+      if (refreshInFlightRef.current) {
+        return;
+      }
+
+      refreshInFlightRef.current = true;
+
       try {
         const [snapshot, devicesPayload] = await Promise.all([
           fetchJson<BackendSttStateDocument>(STT_STATE_ROUTE_PATH),
@@ -145,6 +152,8 @@ export function useSttState(): {
           action: "idle",
           message: error instanceof Error ? error.message : "Backend STT route unavailable."
         }));
+      } finally {
+        refreshInFlightRef.current = false;
       }
     }
 
@@ -167,14 +176,13 @@ export function useSttState(): {
         body: JSON.stringify({ device_id: deviceId })
       });
       latestSnapshotRef.current = snapshot;
-      const devicesPayload = await fetchJson<{ devices: BackendSttInputDeviceDocument[] }>(STT_DEVICES_ROUTE_PATH);
-      setState({
+      setState((currentState) => ({
         status: "ready",
         snapshot,
-        devices: Array.isArray(devicesPayload.devices) ? devicesPayload.devices : [],
+        devices: currentState.devices,
         action: "idle",
         message: null
-      });
+      }));
     } catch (error: unknown) {
       setState((currentState) => ({
         ...currentState,

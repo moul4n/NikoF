@@ -110,8 +110,13 @@ class STTWorker:
         self._transcript_chunks: deque[STTTranscriptChunk] = deque(maxlen=24)
         self._poll_task: asyncio.Task[None] | None = None
         self._turn_services: UserTurnServices | None = None
-        self._dispatch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
+        self._dispatch_executor: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
         self._lock = threading.Lock()
+
+    def _ensure_dispatch_executor(self) -> None:
+        if self._dispatch_executor is not None:
+            return
+        self._dispatch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
 
     def configure_turn_services(self, services: UserTurnServices) -> None:
         self._turn_services = services
@@ -141,6 +146,8 @@ class STTWorker:
         if self._poll_task is not None:
             return
 
+        self._ensure_dispatch_executor()
+
         self._state = STTWorkerState.STARTING
         allow_gpu = get_resource_monitor().can_load_subsystem("stt", MODEL_ESTIMATED_VRAM_MB)
         if not self._manager.start(allow_gpu=allow_gpu):
@@ -163,7 +170,9 @@ class STTWorker:
                 pass
             self._poll_task = None
         self._manager.stop()
-        self._dispatch_executor.shutdown(wait=False, cancel_futures=False)
+        if self._dispatch_executor is not None:
+            self._dispatch_executor.shutdown(wait=False, cancel_futures=False)
+            self._dispatch_executor = None
         self._tracker.mark_unloaded()
 
     async def list_devices(self) -> tuple[STTInputDevice, ...]:
@@ -301,6 +310,15 @@ class STTWorker:
         confidence: float | None,
         duration_ms: int,
     ) -> None:
+        if self._dispatch_executor is None:
+            self._update_transcript_chunk(
+                chunk_id,
+                dispatch_state="error",
+                dispatch_target="llm",
+                dispatch_detail="STT dispatch executor is unavailable. Restart the STT worker.",
+            )
+            return
+
         if self._turn_services is None:
             self._update_transcript_chunk(
                 chunk_id,

@@ -136,7 +136,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     externalRefreshKey: sessionAnimationRefreshKey,
     desiredLifecycleState: desiredConversationAnimationLifecycleState,
     desiredLifecycleReason: desiredConversationAnimationLifecycleReason,
-    shouldReconcileLifecycle: surfaceMode === "control"
+    shouldReconcileLifecycle: false
   });
   const {
     devDisplayAnimationActivationKey,

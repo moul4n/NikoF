@@ -167,6 +167,7 @@ def build_api_route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="GET", path="/session/stt/devices", name="get_session_stt_devices"),
         RouteDefinition(method="PUT", path="/session/stt/device", name="put_session_stt_device"),
         RouteDefinition(method="PUT", path="/session/stt/listening", name="put_session_stt_listening"),
+        RouteDefinition(method="POST", path="/session/stt/control", name="post_session_stt_control"),
         RouteDefinition(method="GET", path="/session/llm", name="get_session_llm_state"),
         RouteDefinition(method="POST", path="/session/llm/control", name="post_session_llm_control"),
         RouteDefinition(method="GET", path="/session/attention", name="get_session_attention_state"),
@@ -178,6 +179,7 @@ def build_api_route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="POST", path="/session/attention/observations", name="post_session_attention_observations"),
         RouteDefinition(method="GET", path="/session/tts/settings", name="get_session_tts_settings"),
         RouteDefinition(method="PUT", path="/session/tts/settings", name="put_session_tts_settings"),
+        RouteDefinition(method="POST", path="/session/tts/control", name="post_session_tts_control"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
         RouteDefinition(method="GET", path="/system/resources", name="get_system_resources"),
     ]

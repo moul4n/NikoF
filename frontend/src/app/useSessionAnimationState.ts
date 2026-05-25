@@ -17,6 +17,12 @@ type StateSetter<TValue> = (value: TValue | ((currentValue: TValue) => TValue)) 
 
 type AnimationLifecycleState = "idle" | "listen" | "speak";
 
+const lifecycleSemanticByState: Record<AnimationLifecycleState, string> = {
+  idle: "idle.neutral",
+  listen: "listen.loop",
+  speak: "speak.loop"
+};
+
 export type SessionAnimationLoadState = {
   status: "loading" | "ready" | "offline";
   snapshot: ConsumedSessionAnimationSnapshot | null;
@@ -70,17 +76,19 @@ export function useSessionAnimationState({
     }
 
     const currentAnimationSnapshot = sessionAnimationState.snapshot;
-    const requestKey = `${selectedCharacterId}:${desiredLifecycleState}`;
-
-    if (animationLifecycleBridge.requestedStateKey === requestKey) {
-      return;
-    }
+    const expectedSemanticId = lifecycleSemanticByState[desiredLifecycleState];
+    const requestKey = `${selectedCharacterId}:${desiredLifecycleState}:${expectedSemanticId}`;
 
     if (
       currentAnimationSnapshot?.characterId === selectedCharacterId &&
-      currentAnimationSnapshot.lifecycleState === desiredLifecycleState
+      currentAnimationSnapshot.lifecycleState === desiredLifecycleState &&
+      currentAnimationSnapshot.semanticCommand.id === expectedSemanticId
     ) {
       animationLifecycleBridge.requestedStateKey = requestKey;
+      return;
+    }
+
+    if (animationLifecycleBridge.requestedStateKey === requestKey) {
       return;
     }
 

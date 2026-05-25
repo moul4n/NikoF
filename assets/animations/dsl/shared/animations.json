@@ -91,6 +91,11 @@
       "path": "assets/animations/dsl/shared/gesture.crazy.once.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
+    },
+    "think.considering.once": {
+      "path": "assets/animations/dsl/shared/think.considering.once.json",
+      "stage": "staged_raw_unity_source",
+      "approved_for_shared_library": false
     }
   }
 }

@@ -17,7 +17,7 @@ export interface SpeechLifecycleLiveConsumptionSubscription {
 }
 
 const backendApiBaseUrl = resolveBackendApiBaseUrl();
-const snapshotFallbackPollIntervalMs = 1250;
+const snapshotFallbackPollIntervalMs = 500;
 
 export interface ConsumedSpeechLifecycleSnapshot {
   stream: string;

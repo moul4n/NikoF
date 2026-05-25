@@ -7,7 +7,7 @@ import type {
 } from "../../shared/types/animation";
 
 const backendApiBaseUrl = resolveBackendApiBaseUrl();
-const defaultSnapshotRefreshIntervalMs = 1000;
+const defaultSnapshotRefreshIntervalMs = 300;
 
 export type SessionAnimationDeliveryMode = "live" | "snapshot";
 
@@ -95,10 +95,6 @@ export async function startSessionAnimationLiveConsumption(
       deliveryMode = "live";
       clearSnapshotRefresh();
       options.onDeliveryModeChange("live");
-    });
-
-    eventSource.addEventListener("animation.command", (event) => {
-      consumeLiveSnapshotFromEvent(event);
     });
 
     eventSource.addEventListener("session.animation", (event) => {

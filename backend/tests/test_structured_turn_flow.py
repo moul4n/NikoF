@@ -209,9 +209,11 @@ class StructuredTurnFlowTests(unittest.TestCase):
 
         self.assertEqual("ready", result.status)
         self.assertEqual("steady", synthesis_service.requests[0].voice_profile["llm_voice_tone"]["pace"])
-        self.assertEqual(1, len(animation_live_delivery.snapshots))
-        self.assertEqual("greet.wave.once", animation_live_delivery.snapshots[0].command.semantic_id)
-        self.assertEqual("upper", animation_live_delivery.snapshots[0].command.parameters["assistant_layer"])
+        self.assertEqual(2, len(animation_live_delivery.snapshots))
+        self.assertEqual("think.considering.once", animation_live_delivery.snapshots[0].command.semantic_id)
+        self.assertEqual("llm_wait", animation_live_delivery.snapshots[0].command.parameters["assistant_phase"])
+        self.assertEqual("greet.wave.once", animation_live_delivery.snapshots[1].command.semantic_id)
+        self.assertEqual("upper", animation_live_delivery.snapshots[1].command.parameters["assistant_layer"])
         summaries = " ".join(entry.summary.lower() for entry in context.retrieved_memories)
         self.assertIn("short", summaries)
         self.assertEqual("warm", context.demeanor.mood)
@@ -336,10 +338,11 @@ class StructuredTurnFlowTests(unittest.TestCase):
         )
 
         self.assertEqual("ready", result.status)
-        self.assertEqual(1, len(animation_live_delivery.snapshots))
-        self.assertEqual("greet.wave.small.once", animation_live_delivery.snapshots[0].command.semantic_id)
-        self.assertEqual("upper", animation_live_delivery.snapshots[0].command.parameters["assistant_layer"])
-        self.assertEqual("keyword_priority", animation_live_delivery.snapshots[0].command.parameters["assistant_cue_source"])
+        self.assertEqual(2, len(animation_live_delivery.snapshots))
+        self.assertEqual("think.considering.once", animation_live_delivery.snapshots[0].command.semantic_id)
+        self.assertEqual("greet.wave.small.once", animation_live_delivery.snapshots[1].command.semantic_id)
+        self.assertEqual("upper", animation_live_delivery.snapshots[1].command.parameters["assistant_layer"])
+        self.assertEqual("keyword_priority", animation_live_delivery.snapshots[1].command.parameters["assistant_cue_source"])
 
     def test_turn_flow_prefers_idle_animation_over_stronger_positive_emote(self) -> None:
         session_service = InMemorySessionService(default_character_id="test-vrm-01")
@@ -364,10 +367,11 @@ class StructuredTurnFlowTests(unittest.TestCase):
         )
 
         self.assertEqual("ready", result.status)
-        self.assertEqual(1, len(animation_live_delivery.snapshots))
-        self.assertEqual("idle.happy", animation_live_delivery.snapshots[0].command.semantic_id)
-        self.assertEqual("base", animation_live_delivery.snapshots[0].command.parameters["assistant_layer"])
-        self.assertEqual("keyword_priority", animation_live_delivery.snapshots[0].command.parameters["assistant_cue_source"])
+        self.assertEqual(2, len(animation_live_delivery.snapshots))
+        self.assertEqual("think.considering.once", animation_live_delivery.snapshots[0].command.semantic_id)
+        self.assertEqual("idle.happy", animation_live_delivery.snapshots[1].command.semantic_id)
+        self.assertEqual("base", animation_live_delivery.snapshots[1].command.parameters["assistant_layer"])
+        self.assertEqual("keyword_priority", animation_live_delivery.snapshots[1].command.parameters["assistant_cue_source"])
 
     def test_turn_flow_uses_only_canonical_transcript_text_for_llm_prompt(self) -> None:
         session_service = InMemorySessionService(default_character_id="test-vrm-01")

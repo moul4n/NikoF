@@ -74,8 +74,6 @@ const MAX_BASE_ANIMATION_TRANSITION_MS = 520;
 const LOOP_BASE_ANIMATION_TRANSITION_MS = 320;
 const MIN_RETURN_TO_IDLE_TRANSITION_MS = 500;
 const MAX_RETURN_TO_IDLE_TRANSITION_MS = 760;
-const MIN_RETURN_TO_IDLE_LEAD_MS = 580;
-const MAX_RETURN_TO_IDLE_LEAD_MS = 920;
 const LOWER_BODY_ROTATION_BONES: Array<{
   debugName: AvatarLowerBodyRotationBoneName;
   vrmBoneName: VRMHumanBoneNameValue;
@@ -217,6 +215,25 @@ interface ActiveBaseAnimationState {
   humanoidPlayback: HumanoidChannelPlayback | null;
   asyncBridgeReady: boolean;
   elapsedSeconds: number;
+  transitionState: ActiveBaseAnimationTransitionState | null;
+}
+
+interface ActiveBaseAnimationTransitionBoneState {
+  node: THREE.Object3D;
+  sourcePosition: THREE.Vector3;
+  sourceQuaternion: THREE.Quaternion;
+  targetPosition: THREE.Vector3;
+  targetQuaternion: THREE.Quaternion;
+}
+
+interface ActiveBaseAnimationTransitionState {
+  durationSeconds: number;
+  elapsedSeconds: number;
+  sourceRootPosition: THREE.Vector3;
+  sourceRootQuaternion: THREE.Quaternion;
+  targetRootPosition: THREE.Vector3;
+  targetRootQuaternion: THREE.Quaternion;
+  bones: ActiveBaseAnimationTransitionBoneState[];
 }
 
 interface AvatarHumanoidPlaybackDebugSnapshot {
@@ -1354,6 +1371,97 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return vrm.humanoid.getRawBoneNode(boneName) ?? vrm.humanoid.getNormalizedBoneNode(boneName);
   }
 
+  function captureBaseAnimationTransitionState(
+    vrm: VRM,
+    root: THREE.Object3D,
+    targetedBones: readonly VRMHumanBoneNameValue[],
+    transitionMs: number
+  ): ActiveBaseAnimationTransitionState | null {
+    if (transitionMs <= 0) {
+      return null;
+    }
+
+    const uniqueBoneNames = [...new Set(targetedBones)];
+    const bones = uniqueBoneNames
+      .map((boneName): ActiveBaseAnimationTransitionBoneState | null => {
+        const node = resolveRigOverlayBoneNode(vrm, boneName);
+
+        if (!node) {
+          return null;
+        }
+
+        return {
+          node,
+          sourcePosition: node.position.clone(),
+          sourceQuaternion: node.quaternion.clone(),
+          targetPosition: new THREE.Vector3(),
+          targetQuaternion: new THREE.Quaternion()
+        };
+      })
+      .filter((bone): bone is ActiveBaseAnimationTransitionBoneState => bone !== null);
+
+    return {
+      durationSeconds: Math.max(transitionMs / 1000, 1 / 120),
+      elapsedSeconds: 0,
+      sourceRootPosition: root.position.clone(),
+      sourceRootQuaternion: root.quaternion.clone(),
+      targetRootPosition: new THREE.Vector3(),
+      targetRootQuaternion: new THREE.Quaternion(),
+      bones
+    };
+  }
+
+  function applyBaseAnimationTransition(baseAnimationState: ActiveBaseAnimationState, deltaSeconds: number): void {
+    const transitionState = baseAnimationState.transitionState;
+
+    if (!transitionState) {
+      return;
+    }
+
+    transitionState.elapsedSeconds = Math.min(
+      transitionState.elapsedSeconds + Math.max(deltaSeconds, 0),
+      transitionState.durationSeconds
+    );
+
+    const blendWeight = THREE.MathUtils.clamp(
+      transitionState.elapsedSeconds / transitionState.durationSeconds,
+      0,
+      1
+    );
+
+    transitionState.targetRootPosition.copy(baseAnimationState.root.position);
+    transitionState.targetRootQuaternion.copy(baseAnimationState.root.quaternion);
+    baseAnimationState.root.position.lerpVectors(
+      transitionState.sourceRootPosition,
+      transitionState.targetRootPosition,
+      blendWeight
+    );
+    baseAnimationState.root.quaternion.slerpQuaternions(
+      transitionState.sourceRootQuaternion,
+      transitionState.targetRootQuaternion,
+      blendWeight
+    );
+
+    transitionState.bones.forEach((boneState) => {
+      boneState.targetPosition.copy(boneState.node.position);
+      boneState.targetQuaternion.copy(boneState.node.quaternion);
+      boneState.node.position.lerpVectors(
+        boneState.sourcePosition,
+        boneState.targetPosition,
+        blendWeight
+      );
+      boneState.node.quaternion.slerpQuaternions(
+        boneState.sourceQuaternion,
+        boneState.targetQuaternion,
+        blendWeight
+      );
+    });
+
+    if (blendWeight >= 1) {
+      baseAnimationState.transitionState = null;
+    }
+  }
+
   function groundAvatarRootToFloor(root: THREE.Object3D, vrm: VRM | null, debugLabel?: string): void {
     root.updateWorldMatrix(true, true);
 
@@ -2206,21 +2314,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     );
   }
 
-  function resolveReturnToIdleLeadMs(baseAnimationState: ActiveBaseAnimationState): number {
-    const transitionMs = resolveReturnToIdleTransitionMs(baseAnimationState);
-    const durationMs = resolveAnimationDurationMs(baseAnimationState.payload);
-    const maxLeadMs = Math.max(
-      transitionMs + 120,
-      Math.min(MAX_RETURN_TO_IDLE_LEAD_MS, durationMs * 0.62)
-    );
-
-    return Math.round(
-      THREE.MathUtils.clamp(
-        durationMs * 0.38,
-        Math.max(MIN_RETURN_TO_IDLE_LEAD_MS, transitionMs + 120),
-        maxLeadMs
-      )
-    );
+  function resolveReturnToIdleLeadMs(_baseAnimationState: ActiveBaseAnimationState): number {
+    // Let one-shots reach their authored final pose before starting the idle blend.
+    return 0;
   }
 
   function applySelectedIdleAnimation(source: "manual" | "system"): void {
@@ -2292,18 +2388,15 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     // VRMA path: let the VRMA mixer handle playback directly
     if (activeBaseAnimation.playbackPath === "vrma" && vrmaPlayback) {
+      if (!activeBaseAnimation.asyncBridgeReady) {
+        activeBaseAnimation.humanoidPlayback?.apply(0);
+        return;
+      }
+
       if (activeBaseAnimation.command.playback === "loop") {
         activeBaseAnimation.elapsedSeconds += deltaSeconds;
       } else {
         activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
-      }
-
-      if (!activeBaseAnimation.asyncBridgeReady && activeBaseAnimation.humanoidPlayback) {
-        activeBaseAnimation.humanoidPlayback.apply(activeBaseAnimation.elapsedSeconds);
-        if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
-          restoreSelectedIdleAnimation(activeBaseAnimation);
-        }
-        return;
       }
 
       vrmaPlayback.update(deltaSeconds);
@@ -2314,18 +2407,15 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     }
 
     if (activeBaseAnimation.playbackPath === "official" && officialPlayback) {
+      if (!activeBaseAnimation.asyncBridgeReady) {
+        activeBaseAnimation.humanoidPlayback?.apply(0);
+        return;
+      }
+
       if (activeBaseAnimation.command.playback === "loop") {
         activeBaseAnimation.elapsedSeconds += deltaSeconds;
       } else {
         activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
-      }
-
-      if (!activeBaseAnimation.asyncBridgeReady && activeBaseAnimation.humanoidPlayback) {
-        activeBaseAnimation.humanoidPlayback.apply(activeBaseAnimation.elapsedSeconds);
-        if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
-          restoreSelectedIdleAnimation(activeBaseAnimation);
-        }
-        return;
       }
 
       officialPlayback.update(deltaSeconds);
@@ -2408,8 +2498,23 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const transitionMs = previousBaseAnimation
       ? options?.transitionMs ?? resolveAdaptiveBaseAnimationTransitionMs(canonicalCommand, resolvedPayload)
       : 0;
+    const shouldBlendIncomingMixerPose =
+      previousBaseAnimation !== null &&
+      options?.allowIncomingTransition === true &&
+      transitionMs > 0 &&
+      resolvedPlayback.playbackPath === "mixer" &&
+      resolvedPlayback.playback !== null &&
+      currentAvatar.vrm !== null;
+    const incomingTransitionState = shouldBlendIncomingMixerPose
+      ? captureBaseAnimationTransitionState(
+          currentAvatar.vrm!,
+          currentAvatar.root,
+          resolvedPlayback.playback!.getDebugSnapshot().targetedBones,
+          transitionMs
+        )
+      : null;
 
-    if (!blendFromPreviousBaseAnimation && !preservePreviousPoseDuringAsyncLoad) {
+    if (!blendFromPreviousBaseAnimation && !preservePreviousPoseDuringAsyncLoad && !incomingTransitionState) {
       stopBaseAnimation();
     }
 
@@ -2423,6 +2528,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       humanoidPlayback: resolvedPlayback.playback ?? asyncPreviewPlayback,
       asyncBridgeReady: resolvedPlayback.playbackPath !== "official" && resolvedPlayback.playbackPath !== "vrma",
       elapsedSeconds: 0,
+      transitionState: incomingTransitionState,
     };
 
     if (
@@ -2469,7 +2575,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
           error: null
         });
       };
-
       if (!sourcePath.toLowerCase().endsWith(".fbx")) {
         fallbackToMixer();
         return;

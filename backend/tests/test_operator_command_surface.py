@@ -390,7 +390,7 @@ class OperatorCommandSurfaceTests(unittest.TestCase):
         self.assertEqual("idle", initial_snapshot["lifecycle_state"])
         self.assertEqual("idle.neutral", initial_snapshot["command"]["semantic_id"])
         self.assertEqual("speak", updated_snapshot["lifecycle_state"])
-        self.assertEqual("speak.loop", updated_snapshot["command"]["semantic_id"])
+        self.assertEqual("idle.neutral", updated_snapshot["command"]["semantic_id"])
         self.assertEqual(updated_snapshot, refreshed_snapshot)
         self.assertIsInstance(live_response, FakeStreamingResponse)
         self.assertEqual("text/event-stream", live_response.media_type)

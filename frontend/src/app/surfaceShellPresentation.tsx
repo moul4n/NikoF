@@ -254,7 +254,12 @@ export function DisplaySurfaceShell({
       </header>
 
       <main className="app-shell__display">
-        <AvatarStage runtime={runtime} selectedCharacter={selectedCharacter} variant="display" />
+        <AvatarStage
+          runtime={runtime}
+          selectedCharacter={selectedCharacter}
+          variant="display"
+          onSelectDisplayAnimationOverride={onSelectDevDisplayAnimation}
+        />
         <aside className="app-shell__display-rail">
           {isDevAnimationSwitcherEnabled ? (
             <>

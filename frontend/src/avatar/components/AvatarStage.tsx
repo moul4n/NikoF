@@ -44,6 +44,7 @@ interface AvatarStageProps {
   runtime: AvatarRuntimeBridge;
   selectedCharacter: CharacterCatalogEntry | null;
   variant?: "embedded" | "display";
+  onSelectDisplayAnimationOverride?: (optionId: string) => void;
 }
 
 function formatSemanticAnimationLabel(semanticId: string): string {
@@ -66,7 +67,12 @@ function describeOverlayChannel(channel: ReturnType<AvatarRuntimeBridge["snapsho
   return `${channel.channelId} ${channel.mode}`;
 }
 
-export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }: AvatarStageProps): JSX.Element {
+export function AvatarStage({
+  runtime,
+  selectedCharacter,
+  variant = "embedded",
+  onSelectDisplayAnimationOverride
+}: AvatarStageProps): JSX.Element {
   const mountPoints = getAvatarRuntimeMountPoints(variant);
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
 
@@ -119,6 +125,15 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
   const displayCharacterLabel = selectedCharacter?.summary.displayName ?? "Waiting for backend-confirmed selection";
   const emotionControlsEnabled = Boolean(selectedCharacter) && snapshot.loadState === "ready";
   const animationControlsEnabled = Boolean(selectedCharacter) && snapshot.loadState === "ready";
+
+  function triggerDisplayAnimation(optionId: string, command: (typeof DISPLAY_ANIMATION_OPTIONS)[number]["command"]): void {
+    if (variant === "display" && onSelectDisplayAnimationOverride) {
+      onSelectDisplayAnimationOverride(optionId);
+      return;
+    }
+
+    runtime.play(command);
+  }
 
   return (
     <section className={variant === "display" ? "avatar-stage avatar-stage--display" : "avatar-stage"} aria-labelledby="avatar-stage-title">
@@ -222,7 +237,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
                         aria-pressed={isActive}
                         disabled={!animationControlsEnabled}
                         onClick={() => {
-                          runtime.play(option.command);
+                          triggerDisplayAnimation(option.id, option.command);
                         }}
                       >
                         <span className="avatar-stage__animation-button-title">{option.label}</span>
@@ -250,7 +265,7 @@ export function AvatarStage({ runtime, selectedCharacter, variant = "embedded" }
                           aria-pressed={isActive}
                           disabled={!animationControlsEnabled}
                           onClick={() => {
-                            runtime.play(option.command);
+                            triggerDisplayAnimation(option.id, option.command);
                           }}
                         >
                           <span className="avatar-stage__animation-button-title">{option.label}</span>

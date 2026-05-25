@@ -29,6 +29,7 @@ DEFAULT_SHARED_ANIMATION_IDS = frozenset(
         "gesture.clap.once",
         "gesture.crazy.once",
         "greet.wave.small.once",
+        "think.considering.once",
         "idle.confident",
         "idle.default",
         "idle.happy",
@@ -46,7 +47,7 @@ SESSION_ANIMATION_STREAM = "session.animation"
 SESSION_LIFECYCLE_TO_SEMANTIC_ID = {
     "idle": DEFAULT_FALLBACK_SEMANTIC_ID,
     "listen": "listen.loop",
-    "speak": "speak.loop",
+    "speak": DEFAULT_FALLBACK_SEMANTIC_ID,
 }
 
 DEFAULT_PLAYBACK_LIBRARY = {
@@ -89,6 +90,12 @@ DEFAULT_PLAYBACK_LIBRARY = {
         mode="oneshot",
         blend_hint="upper_body_additive",
         expected_duration_ms=5100,
+        loop=False,
+    ),
+    "think.considering.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=1400,
         loop=False,
     ),
     "gesture.clap.once": AnimationPlayback(

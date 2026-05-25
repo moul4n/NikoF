@@ -107,9 +107,9 @@ type SharedAnimationRegistryDocument = {
 
 const sharedSemanticAnimationPlaybackAdapterOverrides: Partial<Record<string, SemanticAnimationRuntimePlaybackAdapter>> = {
   "idle.default": "vrma",
-  "idle.neutral": "official_mixamo_fbx",
-  "listen.loop": "vrma",
-  "speak.loop": "vrma"
+  "idle.neutral": "mixer",
+  "listen.loop": "mixer",
+  "speak.loop": "mixer"
 };
 
 const legacySharedSemanticAnimationAliases: Readonly<Record<string, string>> = {

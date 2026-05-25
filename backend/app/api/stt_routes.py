@@ -37,6 +37,11 @@ class STTListeningRequest:
     enabled: bool
 
 
+@dataclass(slots=True, frozen=True)
+class STTControlRequest:
+    action: str
+
+
 def _serialize_status(status: STTWorkerStatus) -> STTStateResponse:
     return STTStateResponse(
         schema_version=1,
@@ -108,6 +113,8 @@ def _serialize_state_response(response: STTStateResponse) -> dict[str, Any]:
 
 
 def register_stt_routes(router: Any) -> None:
+    from fastapi import HTTPException, status
+
     @router.get("/session/stt")
     async def get_session_stt_state() -> dict[str, Any]:
         response = _serialize_status(get_stt_worker().status())
@@ -130,3 +137,26 @@ def register_stt_routes(router: Any) -> None:
     async def put_session_stt_listening(update: STTListeningRequest) -> dict[str, Any]:
         response = _serialize_status(await get_stt_worker().set_listening(update.enabled))
         return _serialize_state_response(response)
+
+    @router.post("/session/stt/control")
+    async def post_session_stt_control(payload: STTControlRequest) -> dict[str, Any]:
+        worker = get_stt_worker()
+        action = payload.action.strip().lower()
+
+        if action == "start":
+            await worker.start()
+        elif action == "stop":
+            await worker.stop()
+        elif action == "restart":
+            await worker.stop()
+            await worker.start()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported STT control action: {payload.action}",
+            )
+
+        response = _serialize_status(worker.status())
+        result = _serialize_state_response(response)
+        result["action"] = action
+        return result
