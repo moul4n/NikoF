@@ -539,6 +539,10 @@ class FasterWhisperTranscriptionAdapterTests(unittest.TestCase):
 
 
 class OperatorCommandProviderWiringTests(unittest.TestCase):
+    @unittest.skipUnless(
+        os.environ.get("NIKOF_TEST_USE_REAL_ROOT") == "1",
+        "integration test: exercises real provider adapters and needs installed local runtimes (set NIKOF_TEST_USE_REAL_ROOT=1)",
+    )
     def test_default_runtime_services_use_real_provider_adapters_when_local_roots_are_configured(self) -> None:
         with TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -686,6 +690,10 @@ class OperatorCommandProviderWiringTests(unittest.TestCase):
             preview_response.session_event.synthesis.audio_reference,
         )
 
+    @unittest.skipUnless(
+        os.environ.get("NIKOF_TEST_USE_REAL_ROOT") == "1",
+        "integration test: drives the real TTS provider entrypoint which writes tts-request.json (set NIKOF_TEST_USE_REAL_ROOT=1)",
+    )
     def test_text_question_shapes_spoken_reply_and_passes_voice_defaults_to_tts(self) -> None:
         with TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

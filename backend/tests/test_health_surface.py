@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 import sys
 import unittest
 
@@ -38,7 +39,12 @@ def build_app_paths(local_root: Path) -> AppPaths:
 
 
 class HealthSurfaceTests(unittest.TestCase):
-    def test_health_payload_projects_frontend_safe_prerequisite_lanes(self) -> None:
+    # Ollama detection probes the machine PATH and standard install dirs, so on
+    # a developer box with Ollama installed the provider-ollama blocker would be
+    # absent and this assertion would be machine-dependent. Force the
+    # clean-machine view so the lane projection is deterministic everywhere.
+    @mock.patch("app.core.settings._resolve_local_command_path", return_value=None)
+    def test_health_payload_projects_frontend_safe_prerequisite_lanes(self, _which) -> None:
         with TemporaryDirectory() as temp_dir:
             app_paths = build_app_paths(Path(temp_dir) / "local")
             stt_model_root = app_paths.stt_models_root / "faster-whisper-medium"

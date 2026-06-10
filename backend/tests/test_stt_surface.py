@@ -35,6 +35,10 @@ class FakeAPIRouter:
         del kwargs
         return self._register(path, "PUT")
 
+    def post(self, path: str, **kwargs):
+        del kwargs
+        return self._register(path, "POST")
+
     def _register(self, path: str, method: str):
         def decorator(endpoint):
             self.routes.append(FakeRoute(path=path, endpoint=endpoint, methods=(method,)))
