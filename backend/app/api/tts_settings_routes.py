@@ -88,11 +88,16 @@ def register_tts_settings_routes(router: Any) -> None:
 
         if action == "start":
             await worker.start()
+            # An explicit operator start is intent to bring TTS up, so eagerly
+            # warm the model (background load) instead of staying idle until the
+            # first synthesis request. Lifespan auto-start stays lazy.
+            worker.request_warmup()
         elif action == "stop":
             await worker.stop()
         elif action == "restart":
             await worker.stop()
             await worker.start()
+            worker.request_warmup()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

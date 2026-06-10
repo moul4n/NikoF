@@ -156,6 +156,28 @@ class TTSWorker:
         self._processing_task = asyncio.create_task(self._process_loop())
         logger.info("TTS worker started (idle, awaiting first request)")
 
+    def request_warmup(self) -> bool:
+        """Schedule a background model load so the worker becomes ready without
+        waiting for the first synthesis request.
+
+        Non-blocking: model loading (GPT-SoVITS server start) can take tens of
+        seconds, which would exceed the ops-dashboard control timeout. We run it
+        on the executor and let the worker state progress idle -> loading ->
+        ready/error, which the dashboard reflects on its next status poll.
+
+        Returns False if warmup could not be scheduled (worker shut down).
+        """
+        if self._state == TTSWorkerState.SHUTDOWN:
+            return False
+        if self._model_loaded:
+            self._state = TTSWorkerState.READY
+            return True
+        loop = self._loop or asyncio.get_running_loop()
+        # Fire-and-forget: _load_model sets state to LOADING then READY/ERROR
+        # and is idempotent under its own lock.
+        loop.run_in_executor(None, self._load_model)
+        return True
+
     async def stop(self) -> None:
         """Gracefully shut down: flush queue, stop loop."""
         self._state = TTSWorkerState.SHUTDOWN
@@ -271,16 +293,9 @@ class TTSWorker:
 
     def _load_model_locked(self) -> bool:
         self._state = TTSWorkerState.LOADING
-        logger.info("TTS worker: starting persistent GPT-SoVITS server...")
+        logger.info("TTS worker: bringing up GPT-SoVITS synthesis...")
 
         try:
-            monitor = get_resource_monitor()
-            if not monitor.can_load_subsystem("tts", MODEL_ESTIMATED_VRAM_MB):
-                logger.warning("TTS worker: insufficient VRAM to load model")
-                self._state = TTSWorkerState.ERROR
-                self._last_error = "Insufficient VRAM"
-                return False
-
             self._server_manager = get_server_manager(self._app_paths)
 
             if not self._server_manager.server_configured:
@@ -298,6 +313,23 @@ class TTSWorker:
                 self._last_error = None
                 return True
 
+            # Reuse an already-running, healthy server instead of gating on free
+            # VRAM. The model is already resident in that server, so the VRAM
+            # precheck (which fails when other apps hold VRAM) must not block
+            # reuse — and a restarted backend can adopt a still-warm sidecar
+            # rather than reporting "Insufficient VRAM".
+            if self._server_manager.is_healthy:
+                logger.info("TTS worker: reusing already-running GPT-SoVITS server")
+                return self._adopt_running_server()
+
+            # A fresh server has to allocate VRAM, so the budget check applies here.
+            monitor = get_resource_monitor()
+            if not monitor.can_load_subsystem("tts", MODEL_ESTIMATED_VRAM_MB):
+                logger.warning("TTS worker: insufficient VRAM to start a new model")
+                self._state = TTSWorkerState.ERROR
+                self._last_error = "Insufficient VRAM"
+                return False
+
             # Start the persistent server (loads model into GPU)
             if not self._server_manager.start():
                 logger.error("TTS worker: server failed to start")
@@ -310,29 +342,36 @@ class TTSWorker:
                 self._last_error = "TTS sidecar failed to start"
                 return False
 
-            # Server is running — use HTTP adapter
-            self._adapter = None  # We'll use _synthesize_via_server directly
-            self._model_name = f"gpt-sovits server ({self._server_manager.config.base_url})"
-            self._model_loaded = True
-            self._use_server = True
-
-            # Get actual VRAM from server health if available
-            health = self._server_manager.health()
-            vram_mb = health.get("vram_mb") or MODEL_ESTIMATED_VRAM_MB
-            self._tracker.mark_loaded(
-                self._model_name,
-                vram_mb=float(vram_mb) if vram_mb else MODEL_ESTIMATED_VRAM_MB,
-                ram_mb=512,
-            )
-            self._state = TTSWorkerState.READY
-            logger.info(f"TTS worker: persistent server ready ({self._model_name})")
-            return True
+            return self._adopt_running_server()
 
         except Exception as exc:
             self._state = TTSWorkerState.ERROR
             self._last_error = str(exc)
             logger.exception("TTS worker: failed to load model")
             return False
+
+    def _adopt_running_server(self) -> bool:
+        """Wire the worker to the (now running) persistent GPT-SoVITS server."""
+        self._adapter = None  # Synthesis goes through _synthesize_via_server.
+        self._model_name = f"gpt-sovits server ({self._server_manager.config.base_url})"
+        self._model_loaded = True
+        self._use_server = True
+        self._last_error = None
+
+        # Get actual VRAM from server health if available.
+        try:
+            health = self._server_manager.health()
+            vram_mb = health.get("vram_mb") or MODEL_ESTIMATED_VRAM_MB
+        except Exception:
+            vram_mb = MODEL_ESTIMATED_VRAM_MB
+        self._tracker.mark_loaded(
+            self._model_name,
+            vram_mb=float(vram_mb) if vram_mb else MODEL_ESTIMATED_VRAM_MB,
+            ram_mb=512,
+        )
+        self._state = TTSWorkerState.READY
+        logger.info(f"TTS worker: persistent server ready ({self._model_name})")
+        return True
 
     def _unload_model(self) -> None:
         """Release model resources and stop server."""

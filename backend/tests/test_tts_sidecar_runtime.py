@@ -89,10 +89,24 @@ class _FakeMonitor:
         return True
 
 
+class _VramExhaustedMonitor(_FakeMonitor):
+    def can_load_subsystem(self, subsystem: str, estimated_vram_mb: float) -> bool:
+        del subsystem, estimated_vram_mb
+        return False
+
+
 class _FakeServerManager:
-    def __init__(self, *, configured: bool = True, start_result: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        configured: bool = True,
+        start_result: bool = False,
+        healthy: bool = False,
+    ) -> None:
         self.server_configured = configured
         self._start_result = start_result
+        self._healthy = healthy
+        self._started = False
         self.config = type(
             "Config",
             (),
@@ -103,8 +117,18 @@ class _FakeServerManager:
             },
         )()
 
+    @property
+    def is_healthy(self) -> bool:
+        # True when explicitly pre-seeded as an already-running server the
+        # worker should adopt, or after a successful start.
+        return self._healthy or self._started
+
     def start(self) -> bool:
+        self._started = self._start_result
         return self._start_result
+
+    def health(self) -> dict:
+        return {"status": "ready", "vram_mb": 3500.0}
 
 
 class TTSWorkerSidecarRuntimeTests(unittest.TestCase):
@@ -130,6 +154,25 @@ class TTSWorkerSidecarRuntimeTests(unittest.TestCase):
         self.assertEqual("TTS sidecar failed to start", worker.status().last_error)
         self.assertEqual("unavailable", contract.status)
         self.assertEqual("Sidecar failed to start.", contract.text)
+
+    def test_worker_reuses_already_healthy_server_even_when_vram_is_exhausted(self) -> None:
+        # A healthy server already holds the model in VRAM, so the worker must
+        # adopt it instead of failing the free-VRAM precheck (regression: a
+        # restarted backend / warm sidecar previously reported "Insufficient VRAM").
+        fake_monitor = _VramExhaustedMonitor()
+        fake_manager = _FakeServerManager(configured=True, start_result=False, healthy=True)
+
+        with patch("app.services.tts_worker.get_resource_monitor", return_value=fake_monitor), patch(
+            "app.services.tts_worker.get_server_manager",
+            return_value=fake_manager,
+        ):
+            worker = TTSWorker()
+            loaded = worker._load_model()
+
+        self.assertTrue(loaded)
+        self.assertEqual(TTSWorkerState.READY, worker.state)
+        self.assertIsNone(worker.status().last_error)
+        self.assertFalse(fake_manager._started)  # adopted, not (re)started
 
 
 class GPTSoVITSSidecarRequestShapeTests(unittest.TestCase):
