@@ -46,18 +46,17 @@ if ($null -eq $shellExe) {
     throw 'Could not locate a usable PowerShell executable.'
 }
 
-function Get-ListeningProcessInfo {
-    param([Parameter(Mandatory)][int]$PortNumber)
+function ConvertTo-ListeningProcessInfo {
+    param($Listener)
 
-    $listener = Get-NetTCPConnection -LocalPort $PortNumber -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -eq $listener) {
+    if ($null -eq $Listener) {
         return $null
     }
 
-    $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+    $process = Get-Process -Id $Listener.OwningProcess -ErrorAction SilentlyContinue
     if ($null -eq $process) {
         return [pscustomobject]@{
-            pid = [int]$listener.OwningProcess
+            pid = [int]$Listener.OwningProcess
             process_name = $null
             path = $null
         }
@@ -68,6 +67,29 @@ function Get-ListeningProcessInfo {
         process_name = $process.ProcessName
         path = $process.Path
     }
+}
+
+function Get-ListeningProcessInfo {
+    param([Parameter(Mandatory)][int]$PortNumber)
+
+    $listener = Get-NetTCPConnection -LocalPort $PortNumber -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    return ConvertTo-ListeningProcessInfo -Listener $listener
+}
+
+function Get-ListeningProcessMap {
+    # Resolve several ports from a SINGLE Get-NetTCPConnection enumeration.
+    # On a busy machine the per-port CIM query costs ~1.4s each, so probing
+    # 3 ports separately dominated the status build (~4s) and — because the
+    # listener is single-threaded — let polls pile up. One enumeration is ~1.2s.
+    param([Parameter(Mandatory)][int[]]$Ports)
+
+    $map = @{}
+    $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)
+    foreach ($port in $Ports) {
+        $listener = $listeners | Where-Object { $_.LocalPort -eq $port } | Select-Object -First 1
+        $map[$port] = ConvertTo-ListeningProcessInfo -Listener $listener
+    }
+    return $map
 }
 
 function Stop-ProcessTreeByPid {
@@ -377,13 +399,25 @@ function Resolve-OptionalString {
 }
 
 function Build-ManagerStatus {
-    $frontend = Get-ListeningProcessInfo -PortNumber 5173
-    $backend = Get-ListeningProcessInfo -PortNumber 8000
-    $llmListener = Get-ListeningProcessInfo -PortNumber 11434
+    $listeners = Get-ListeningProcessMap -Ports @(5173, 8000, 11434)
+    $frontend = $listeners[5173]
+    $backend = $listeners[8000]
+    $llmListener = $listeners[11434]
 
-    $backendHealth = Invoke-JsonGet -Url 'http://127.0.0.1:8000/health'
-    $resourceSnapshot = Invoke-JsonGet -Url 'http://127.0.0.1:8000/system/resources'
-    $llmState = Invoke-JsonGet -Url 'http://127.0.0.1:8000/session/llm'
+    # Only call the backend HTTP API when something is actually listening on
+    # its port. During backend downtime (e.g. a restart) these calls would each
+    # block on their timeout; with the browser polling /api/status every few
+    # seconds, the single-threaded HttpListener piles up requests faster than it
+    # can drain them and wedges (it stops answering anything, even /health).
+    # Port-gating keeps a status build instant whenever the backend is down.
+    $backendHealth = $null
+    $resourceSnapshot = $null
+    $llmState = $null
+    if ($null -ne $backend) {
+        $backendHealth = Invoke-JsonGet -Url 'http://127.0.0.1:8000/health'
+        $resourceSnapshot = Invoke-JsonGet -Url 'http://127.0.0.1:8000/system/resources'
+        $llmState = Invoke-JsonGet -Url 'http://127.0.0.1:8000/session/llm'
+    }
 
     $sttWorker = $null
     $ttsWorker = $null
@@ -491,6 +525,32 @@ function Build-ManagerStatus {
             backend_to_tts = $backendToTts
         }
     }
+}
+
+$script:StatusCache = $null
+$script:StatusCacheAtUtc = [DateTime]::MinValue
+$script:StatusCacheMaxAgeMs = 2000
+
+function Set-ManagerStatusCache {
+    param([Parameter(Mandatory)]$Status)
+    $script:StatusCache = $Status
+    $script:StatusCacheAtUtc = [DateTime]::UtcNow
+}
+
+function Get-ManagerStatusCached {
+    # Serve a recent cached snapshot for rapid polls so the single-threaded
+    # listener rebuilds status at most a few times per second even when the
+    # browser polls aggressively. Action handlers bypass this and refresh the
+    # cache with a fresh build so post-action status is never stale.
+    if ($null -ne $script:StatusCache) {
+        $ageMs = ([DateTime]::UtcNow - $script:StatusCacheAtUtc).TotalMilliseconds
+        if ($ageMs -lt $script:StatusCacheMaxAgeMs) {
+            return $script:StatusCache
+        }
+    }
+    $status = Build-ManagerStatus
+    Set-ManagerStatusCache -Status $status
+    return $status
 }
 
 function Invoke-ComponentAction {
@@ -911,7 +971,7 @@ try {
         }
 
         if ($request.HttpMethod -eq 'GET' -and $path -eq '/api/status') {
-            $status = Build-ManagerStatus
+            $status = Get-ManagerStatusCached
             Write-JsonResponse -Context $context -Payload $status
             continue
         }
@@ -927,6 +987,7 @@ try {
                 $action = [string]$payload.action
                 $result = Invoke-ComponentAction -Component $component -Action $action
                 $status = Build-ManagerStatus
+                Set-ManagerStatusCache -Status $status
                 $response = [ordered]@{
                     ok = [bool]$result.ok
                     message = [string]$result.message
