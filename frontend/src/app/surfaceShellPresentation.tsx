@@ -7,7 +7,6 @@ import {
   resolveSpeechPlaybackTransportLabel
 } from "./ControlSurfaceShell";
 import type {
-  AvatarAnimationPlaybackPath,
   AvatarDebugProfileView,
   AvatarRuntimeBridge
 } from "../avatar/runtime/avatarRuntime";
@@ -18,14 +17,10 @@ import {
 } from "./useSpeechLifecycleState";
 import { useAttentionState } from "./useAttentionState";
 import type { SpeechPlaybackState } from "./useSpeechPlaybackBridge";
-import type { SessionAnimationLoadState } from "./useSessionAnimationState";
 import {
-  DevAnimationSwitcherPanel,
-  DevDisplayPlaybackPathPanel,
   DevDisplayProfilePanel,
   DevDisplayRenderModePanel,
-  type DevDisplayAnimationOptionId,
-  type DevDisplayAnimationOverrideState
+  type DevDisplayAnimationOptionId
 } from "./devDisplayTools";
 import type {
   BackendSpeechSynthesisDocument,
@@ -167,17 +162,13 @@ interface DisplaySurfaceShellProps {
   backendStatusMessage: string;
   speechLifecycleState: SpeechLifecycleLoadState;
   speechPlaybackStatus: SpeechPlaybackState;
-  sessionAnimationState: SessionAnimationLoadState;
   isDevAnimationSwitcherEnabled: boolean;
   devDisplayProfileView: AvatarDebugProfileView;
   onSelectDevDisplayProfileView: (profileView: AvatarDebugProfileView) => void;
   devDisplayRigOverlayEnabled: boolean;
   onSetDevDisplayRigOverlayEnabled: (enabled: boolean) => void;
-  devDisplayAnimationOverride: DevDisplayAnimationOverrideState;
   onSelectDevDisplayAnimation: (optionId: DevDisplayAnimationOptionId) => void;
   isDisplayRuntimeReady: boolean;
-  devDisplayPlaybackPath: AvatarAnimationPlaybackPath;
-  onSelectDevDisplayPlaybackPath: (playbackPath: AvatarAnimationPlaybackPath) => void;
 }
 
 export function DisplaySurfaceShell({
@@ -186,17 +177,13 @@ export function DisplaySurfaceShell({
   backendStatusMessage,
   speechLifecycleState,
   speechPlaybackStatus,
-  sessionAnimationState,
   isDevAnimationSwitcherEnabled,
   devDisplayProfileView,
   onSelectDevDisplayProfileView,
   devDisplayRigOverlayEnabled,
   onSetDevDisplayRigOverlayEnabled,
-  devDisplayAnimationOverride,
   onSelectDevDisplayAnimation,
-  isDisplayRuntimeReady,
-  devDisplayPlaybackPath,
-  onSelectDevDisplayPlaybackPath
+  isDisplayRuntimeReady
 }: DisplaySurfaceShellProps): JSX.Element {
   const attentionState = useAttentionState();
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
@@ -204,7 +191,6 @@ export function DisplaySurfaceShell({
   const displayReplySnapshot = resolveDisplayReplySnapshot(speechLifecycleSnapshot);
   const controlSurfaceHref = buildSurfaceHref("control");
   const displaySurfaceHref = buildSurfaceHref("display");
-  const backendAnimationId = sessionAnimationState.snapshot?.semanticCommand.id ?? null;
 
   useEffect(() => {
     runtime.setAttentionDebugMarkerEnabled(attentionState.state.showTrackingDebugMarker);
@@ -271,16 +257,6 @@ export function DisplaySurfaceShell({
                 rigOverlayEnabled={devDisplayRigOverlayEnabled}
                 controlsEnabled={isDisplayRuntimeReady}
                 onSetRigOverlayEnabled={onSetDevDisplayRigOverlayEnabled}
-              />
-              <DevAnimationSwitcherPanel
-                selectedOptionId={devDisplayAnimationOverride.optionId}
-                backendAnimationId={backendAnimationId}
-                controlsEnabled={isDisplayRuntimeReady}
-                onSelectOption={onSelectDevDisplayAnimation}
-              />
-              <DevDisplayPlaybackPathPanel
-                selectedPlaybackPath={devDisplayPlaybackPath}
-                onSelectPlaybackPath={onSelectDevDisplayPlaybackPath}
               />
             </>
           ) : null}

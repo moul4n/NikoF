@@ -14,25 +14,19 @@ import type {
   CharacterRuntimeState
 } from "../../shared/types/character";
 import {
+  isIdleSemanticAnimationPayload,
   resolveCanonicalSharedSemanticAnimationId,
   resolveSharedSemanticAnimationPayload,
-  DEFAULT_BASE_ANIMATION_COMMAND
+  DEFAULT_BASE_ANIMATION_COMMAND,
+  SHARED_SEMANTIC_ANIMATION_SOURCE_FALLBACKS
 } from "./defaultBaseAnimation";
 import {
-  type HumanoidChannelPlayback,
-  type HumanoidChannelPlaybackDebugPoseSnapshot
-} from "./humanoidChannelPlayback";
-import {
-  isIdleSemanticAnimationPayload,
-  resolveAvatarRuntimePlayback,
-  type AvatarRuntimeResolvedPlayback
-} from "./avatarRuntimePlaybackRoute";
-import { createVrmaPlayback, type VrmaPlaybackBridge, type VrmaPlaybackDebugSnapshot } from "./vrmaPlayback";
-import {
-  createOfficialMixamoPlayback,
-  type OfficialMixamoPlaybackBridge,
-  type OfficialMixamoPlaybackDebugSnapshot
-} from "./officialMixamoPlayback";
+  createAnimationPlayback,
+  resolveAnimationClipSourceKind,
+  type AnimationClipSourceKind,
+  type AnimationPlaybackBridge,
+  type AnimationPlaybackDebugSnapshot
+} from "./animationPlayback";
 import { probeVrmaAsset } from "./vrmaAssetResolution";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
 import { createPassiveBlinkController, type PassiveBlinkController } from "./passiveBlink";
@@ -48,7 +42,6 @@ type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
 type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
 type AvatarOverlayChannelId = "speech";
 type AvatarOverlaySource = "backend.speech.lifecycle";
-export type AvatarAnimationPlaybackPath = "mixer" | "vrma" | "official";
 export type AvatarRuntimeEmotionName = PassiveEmotionName;
 type VRMHumanBoneNameValue = (typeof VRMHumanBoneName)[keyof typeof VRMHumanBoneName];
 type AvatarLowerBodyRotationBoneName =
@@ -208,57 +201,21 @@ interface GazeDebugMarkerState {
 interface ActiveBaseAnimationState {
   command: SemanticAnimationCommand;
   payload: SemanticAnimationRuntimePayload;
-  playbackPath: AvatarAnimationPlaybackPath;
   root: THREE.Object3D;
   baselinePosition: THREE.Vector3;
   baselineQuaternion: THREE.Quaternion;
-  humanoidPlayback: HumanoidChannelPlayback | null;
   asyncBridgeReady: boolean;
   elapsedSeconds: number;
-  transitionState: ActiveBaseAnimationTransitionState | null;
-}
-
-interface ActiveBaseAnimationTransitionBoneState {
-  node: THREE.Object3D;
-  sourcePosition: THREE.Vector3;
-  sourceQuaternion: THREE.Quaternion;
-  targetPosition: THREE.Vector3;
-  targetQuaternion: THREE.Quaternion;
-}
-
-interface ActiveBaseAnimationTransitionState {
-  durationSeconds: number;
-  elapsedSeconds: number;
-  sourceRootPosition: THREE.Vector3;
-  sourceRootQuaternion: THREE.Quaternion;
-  targetRootPosition: THREE.Vector3;
-  targetRootQuaternion: THREE.Quaternion;
-  bones: ActiveBaseAnimationTransitionBoneState[];
+  sourceKind: AnimationClipSourceKind | null;
 }
 
 interface AvatarHumanoidPlaybackDebugSnapshot {
   activeAnimationId: string | null;
   hasActiveBaseAnimation: boolean;
-  hasHumanoidPlayback: boolean;
-  playbackPath: AvatarAnimationPlaybackPath | null;
+  bridgeReady: boolean;
+  sourceKind: AnimationClipSourceKind | null;
   channelSpace: string | null;
   elapsedSeconds: number | null;
-  currentPose: HumanoidChannelPlaybackDebugPoseSnapshot | null;
-  finalFramePose: HumanoidChannelPlaybackDebugPoseSnapshot | null;
-  boundChannels: Array<{
-    channelName: string;
-    normalizedName: string;
-    boneName: string;
-    axis: "x" | "y" | "z";
-    scale: number;
-    sampledDelta: number | null;
-  }>;
-  quaternionBoundChannels: Array<{
-    normalizedNamePrefix: string;
-    boneName: string;
-    sampledRotation: [number, number, number, number] | null;
-  }>;
-  targetedBones: string[];
 }
 
 interface AvatarProfileOrientationSnapshot {
@@ -326,10 +283,9 @@ interface AvatarPlaybackProgressDebugSnapshot {
   renderFrameCount: number;
   lowerBodySampleCount: number;
   activeAnimationId: string | null;
-  playbackPath: AvatarAnimationPlaybackPath | null;
+  sourceKind: AnimationClipSourceKind | null;
   elapsedSeconds: number | null;
-  vrma: VrmaPlaybackDebugSnapshot | null;
-  official: OfficialMixamoPlaybackDebugSnapshot | null;
+  playback: AnimationPlaybackDebugSnapshot | null;
 }
 
 interface AvatarRuntimeDebugApi {
@@ -363,8 +319,6 @@ interface AvatarRuntimeDebugApi {
     lookAtTargetPosition: { x: number; y: number; z: number } | null;
   };
 }
-
-type ResolvedAnimationPlayback = AvatarRuntimeResolvedPlayback;
 
 declare global {
   interface Window {
@@ -423,7 +377,6 @@ export interface AvatarRuntimeBridge {
   setState: (state: CharacterRuntimeState) => void;
   setDebugProfileView: (profileView: AvatarDebugProfileView) => void;
   setRigOverlayEnabled: (enabled: boolean) => void;
-  setAnimationPlaybackPath: (playbackPath: AvatarAnimationPlaybackPath) => void;
   setEmotion: (emotion: AvatarRuntimeEmotionName | null) => void;
   setAttentionTarget: (target: { normalizedX: number; normalizedY: number; confidence?: number | null } | null) => void;
   setAttentionDebugMarkerEnabled: (enabled: boolean) => void;
@@ -544,9 +497,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let rigOverlayState: RigOverlayState | null = null;
   let gazeDebugMarkerState: GazeDebugMarkerState | null = null;
   let attentionDebugMarkerEnabled = false;
-  let animationPlaybackPath: AvatarAnimationPlaybackPath = "vrma";
-  let vrmaPlayback: VrmaPlaybackBridge | null = null;
-  let officialPlayback: OfficialMixamoPlaybackBridge | null = null;
+  let animationPlayback: AnimationPlaybackBridge | null = null;
   let passiveBlink: PassiveBlinkController | null = null;
   let passiveMouth: PassiveMouthController | null = null;
   let passiveEyeDrift: PassiveEyeDriftController | null = null;
@@ -1088,10 +1039,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       renderFrameCount,
       lowerBodySampleCount: lowerBodyDebugHistory.length,
       activeAnimationId: activeBaseAnimation?.command.id ?? null,
-      playbackPath: activeBaseAnimation?.playbackPath ?? null,
+      sourceKind: activeBaseAnimation?.sourceKind ?? null,
       elapsedSeconds: activeBaseAnimation?.elapsedSeconds ?? null,
-      vrma: activeBaseAnimation?.playbackPath === "vrma" ? vrmaPlayback?.getDebugSnapshot() ?? null : null,
-      official: activeBaseAnimation?.playbackPath === "official" ? officialPlayback?.getDebugSnapshot() ?? null : null,
+      playback: animationPlayback?.getDebugSnapshot() ?? null,
     };
   }
 
@@ -1371,97 +1321,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return vrm.humanoid.getRawBoneNode(boneName) ?? vrm.humanoid.getNormalizedBoneNode(boneName);
   }
 
-  function captureBaseAnimationTransitionState(
-    vrm: VRM,
-    root: THREE.Object3D,
-    targetedBones: readonly VRMHumanBoneNameValue[],
-    transitionMs: number
-  ): ActiveBaseAnimationTransitionState | null {
-    if (transitionMs <= 0) {
-      return null;
-    }
-
-    const uniqueBoneNames = [...new Set(targetedBones)];
-    const bones = uniqueBoneNames
-      .map((boneName): ActiveBaseAnimationTransitionBoneState | null => {
-        const node = resolveRigOverlayBoneNode(vrm, boneName);
-
-        if (!node) {
-          return null;
-        }
-
-        return {
-          node,
-          sourcePosition: node.position.clone(),
-          sourceQuaternion: node.quaternion.clone(),
-          targetPosition: new THREE.Vector3(),
-          targetQuaternion: new THREE.Quaternion()
-        };
-      })
-      .filter((bone): bone is ActiveBaseAnimationTransitionBoneState => bone !== null);
-
-    return {
-      durationSeconds: Math.max(transitionMs / 1000, 1 / 120),
-      elapsedSeconds: 0,
-      sourceRootPosition: root.position.clone(),
-      sourceRootQuaternion: root.quaternion.clone(),
-      targetRootPosition: new THREE.Vector3(),
-      targetRootQuaternion: new THREE.Quaternion(),
-      bones
-    };
-  }
-
-  function applyBaseAnimationTransition(baseAnimationState: ActiveBaseAnimationState, deltaSeconds: number): void {
-    const transitionState = baseAnimationState.transitionState;
-
-    if (!transitionState) {
-      return;
-    }
-
-    transitionState.elapsedSeconds = Math.min(
-      transitionState.elapsedSeconds + Math.max(deltaSeconds, 0),
-      transitionState.durationSeconds
-    );
-
-    const blendWeight = THREE.MathUtils.clamp(
-      transitionState.elapsedSeconds / transitionState.durationSeconds,
-      0,
-      1
-    );
-
-    transitionState.targetRootPosition.copy(baseAnimationState.root.position);
-    transitionState.targetRootQuaternion.copy(baseAnimationState.root.quaternion);
-    baseAnimationState.root.position.lerpVectors(
-      transitionState.sourceRootPosition,
-      transitionState.targetRootPosition,
-      blendWeight
-    );
-    baseAnimationState.root.quaternion.slerpQuaternions(
-      transitionState.sourceRootQuaternion,
-      transitionState.targetRootQuaternion,
-      blendWeight
-    );
-
-    transitionState.bones.forEach((boneState) => {
-      boneState.targetPosition.copy(boneState.node.position);
-      boneState.targetQuaternion.copy(boneState.node.quaternion);
-      boneState.node.position.lerpVectors(
-        boneState.sourcePosition,
-        boneState.targetPosition,
-        blendWeight
-      );
-      boneState.node.quaternion.slerpQuaternions(
-        boneState.sourceQuaternion,
-        boneState.targetQuaternion,
-        blendWeight
-      );
-    });
-
-    if (blendWeight >= 1) {
-      baseAnimationState.transitionState = null;
-    }
-  }
-
   function groundAvatarRootToFloor(root: THREE.Object3D, vrm: VRM | null, debugLabel?: string): void {
     root.updateWorldMatrix(true, true);
 
@@ -1659,49 +1518,20 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return {
         activeAnimationId: null,
         hasActiveBaseAnimation: false,
-        hasHumanoidPlayback: false,
-        playbackPath: null,
+        bridgeReady: false,
+        sourceKind: null,
         channelSpace: null,
-        elapsedSeconds: null,
-        currentPose: null,
-        finalFramePose: null,
-        boundChannels: [],
-        quaternionBoundChannels: [],
-        targetedBones: []
+        elapsedSeconds: null
       };
     }
-
-    const currentPose = activeBaseAnimation.humanoidPlayback?.getPoseSnapshot(activeBaseAnimation.elapsedSeconds) ?? null;
-    const finalFramePose =
-      activeBaseAnimation.humanoidPlayback?.getPoseSnapshot(
-        resolveFinalFrameElapsedSeconds(activeBaseAnimation.payload)
-      ) ?? null;
 
     return {
       activeAnimationId: activeBaseAnimation.command.id,
       hasActiveBaseAnimation: true,
-      hasHumanoidPlayback: Boolean(activeBaseAnimation.humanoidPlayback),
-      playbackPath: activeBaseAnimation.playbackPath,
+      bridgeReady: activeBaseAnimation.asyncBridgeReady,
+      sourceKind: activeBaseAnimation.sourceKind,
       channelSpace: activeBaseAnimation.payload.channelSpace ?? null,
-      elapsedSeconds: activeBaseAnimation.elapsedSeconds,
-      currentPose,
-      finalFramePose,
-      boundChannels:
-        currentPose?.boundChannels.map((binding) => ({
-          channelName: binding.channelName,
-          normalizedName: binding.normalizedName,
-          boneName: binding.boneName,
-          axis: binding.axis,
-          scale: binding.scale,
-          sampledDelta: binding.sampledDelta
-        })) ?? [],
-      quaternionBoundChannels:
-        currentPose?.quaternionBoundChannels.map((binding) => ({
-          normalizedNamePrefix: binding.normalizedNamePrefix,
-          boneName: binding.boneName,
-          sampledRotation: binding.sampledRotation
-        })) ?? [],
-      targetedBones: currentPose?.targetedBones.map((boneName) => boneName) ?? []
+      elapsedSeconds: activeBaseAnimation.elapsedSeconds
     };
   }
 
@@ -2337,21 +2167,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   function restoreSelectedIdleAnimation(baseAnimationState: ActiveBaseAnimationState): void {
     activateBaseAnimation(selectedIdleAnimation, {
       transitionMs: resolveReturnToIdleTransitionMs(baseAnimationState),
-      holdPreviousPoseDuringAsyncLoad: true,
-      allowIncomingTransition: true,
       resumeExistingLoop: true
     });
   }
 
-  function resolveHumanoidPlayback(
-    vrm: VRM | null,
-    payload: SemanticAnimationRuntimePayload
-  ): ResolvedAnimationPlayback {
-    return resolveAvatarRuntimePlayback(vrm, payload, animationPlaybackPath);
-  }
-
   function restoreBaseAnimationPose(baseAnimationState: ActiveBaseAnimationState): void {
-    baseAnimationState.humanoidPlayback?.reset();
     baseAnimationState.root.position.copy(baseAnimationState.baselinePosition);
     baseAnimationState.root.quaternion.copy(baseAnimationState.baselineQuaternion);
   }
@@ -2361,14 +2181,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return;
     }
 
-    if (activeBaseAnimation.playbackPath === "vrma") {
-      vrmaPlayback?.stopAll();
-    }
-
-    if (activeBaseAnimation.playbackPath === "official") {
-      officialPlayback?.stopAll();
-    }
-
+    animationPlayback?.stopAll();
     restoreBaseAnimationPose(activeBaseAnimation);
     activeBaseAnimation = null;
   }
@@ -2378,83 +2191,103 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return;
     }
 
-    const shouldRestoreIdleAfterUpdate = activeBaseAnimation.command.playback !== "loop";
-    const cycleDurationSeconds = shouldRestoreIdleAfterUpdate
-      ? Math.max(resolveAnimationDurationMs(activeBaseAnimation.payload) / 1000, 1 / 30)
-      : null;
-    const restoreIdleAtElapsedSeconds = shouldRestoreIdleAfterUpdate
-      ? Math.max(0, cycleDurationSeconds! - resolveReturnToIdleLeadMs(activeBaseAnimation) / 1000)
-      : null;
+    // Keep the shared mixer advancing even while the next clip streams in so
+    // the previous animation continues instead of freezing mid-pose.
+    animationPlayback?.update(deltaSeconds);
 
-    // VRMA path: let the VRMA mixer handle playback directly
-    if (activeBaseAnimation.playbackPath === "vrma" && vrmaPlayback) {
-      if (!activeBaseAnimation.asyncBridgeReady) {
-        activeBaseAnimation.humanoidPlayback?.apply(0);
-        return;
-      }
-
-      if (activeBaseAnimation.command.playback === "loop") {
-        activeBaseAnimation.elapsedSeconds += deltaSeconds;
-      } else {
-        activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
-      }
-
-      vrmaPlayback.update(deltaSeconds);
-      if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
-        restoreSelectedIdleAnimation(activeBaseAnimation);
-      }
-      return;
-    }
-
-    if (activeBaseAnimation.playbackPath === "official" && officialPlayback) {
-      if (!activeBaseAnimation.asyncBridgeReady) {
-        activeBaseAnimation.humanoidPlayback?.apply(0);
-        return;
-      }
-
-      if (activeBaseAnimation.command.playback === "loop") {
-        activeBaseAnimation.elapsedSeconds += deltaSeconds;
-      } else {
-        activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
-      }
-
-      officialPlayback.update(deltaSeconds);
-      if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
-        restoreSelectedIdleAnimation(activeBaseAnimation);
-      }
+    if (!activeBaseAnimation.asyncBridgeReady) {
       return;
     }
 
     if (activeBaseAnimation.command.playback === "loop") {
       // Let elapsed time grow continuously; the mixer's LoopRepeat handles wrapping internally.
       activeBaseAnimation.elapsedSeconds += deltaSeconds;
-    } else {
-      activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds!);
+      return;
     }
 
-    activeBaseAnimation.humanoidPlayback?.apply(activeBaseAnimation.elapsedSeconds);
+    const cycleDurationSeconds = Math.max(resolveAnimationDurationMs(activeBaseAnimation.payload) / 1000, 1 / 30);
+    const restoreIdleAtElapsedSeconds = Math.max(
+      0,
+      cycleDurationSeconds - resolveReturnToIdleLeadMs(activeBaseAnimation) / 1000
+    );
 
-    if (shouldRestoreIdleAfterUpdate && activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds!) {
+    activeBaseAnimation.elapsedSeconds = Math.min(activeBaseAnimation.elapsedSeconds + deltaSeconds, cycleDurationSeconds);
+
+    if (activeBaseAnimation.elapsedSeconds >= restoreIdleAtElapsedSeconds) {
       restoreSelectedIdleAnimation(activeBaseAnimation);
     }
   }
 
-  function hasActiveOfficialClip(clipId: string): boolean {
-    const clip = officialPlayback?.getDebugSnapshot().clips.find((candidate) => candidate.clipId === clipId);
-    return Boolean(clip && clip.enabled && (clip.running || clip.effectiveWeight > 0.001));
+  interface ResolvedBaseAnimationSource {
+    url: string;
+    sourceKind: AnimationClipSourceKind;
   }
 
-  function hasActiveVrmaClip(clipId: string): boolean {
-    const clip = vrmaPlayback?.getDebugSnapshot().clips.find((candidate) => candidate.clipId === clipId);
-    return Boolean(clip && clip.enabled && (clip.running || clip.effectiveWeight > 0.001));
+  function resolvePlayableSourceUrl(payload: SemanticAnimationRuntimePayload | null): string | null {
+    const sourcePath = payload?.sourceAsset?.path?.trim() ?? "";
+
+    if (resolveAnimationClipSourceKind(sourcePath) !== "mixamo_fbx") {
+      return null;
+    }
+
+    return sourcePath.startsWith("/") ? sourcePath : `/${sourcePath}`;
+  }
+
+  /**
+   * Resolution order for the single official playback core:
+   *   1. character/shared .vrma asset for the semantic id
+   *   2. the payload's Mixamo .fbx source
+   *   3. the same two steps for the semantic's declared source fallback
+   * Unity .anim-only semantics resolve through step 3 until dedicated .vrma
+   * exports exist; anything else is reported as unplayable.
+   */
+  async function resolveBaseAnimationSource(
+    semanticId: string,
+    payload: SemanticAnimationRuntimePayload,
+    characterId: string | undefined
+  ): Promise<ResolvedBaseAnimationSource | null> {
+    const vrmaResolution = await probeVrmaAsset(semanticId, characterId).catch(() => null);
+
+    if (vrmaResolution) {
+      return { url: vrmaResolution.url, sourceKind: "vrma" };
+    }
+
+    const fbxUrl = resolvePlayableSourceUrl(payload);
+
+    if (fbxUrl) {
+      return { url: fbxUrl, sourceKind: "mixamo_fbx" };
+    }
+
+    const fallbackSemanticId = SHARED_SEMANTIC_ANIMATION_SOURCE_FALLBACKS[semanticId];
+
+    if (!fallbackSemanticId) {
+      return null;
+    }
+
+    const fallbackVrmaResolution = await probeVrmaAsset(fallbackSemanticId, characterId).catch(() => null);
+
+    if (fallbackVrmaResolution) {
+      return { url: fallbackVrmaResolution.url, sourceKind: "vrma" };
+    }
+
+    const fallbackPayload = resolveSharedSemanticAnimationPayload({
+      id: fallbackSemanticId,
+      source: "shared",
+      playback: payload.playback
+    });
+    const fallbackFbxUrl = resolvePlayableSourceUrl(fallbackPayload);
+
+    if (fallbackFbxUrl) {
+      return { url: fallbackFbxUrl, sourceKind: "mixamo_fbx" };
+    }
+
+    return null;
   }
 
   function activateBaseAnimation(
     command: SemanticAnimationCommand,
     options?: {
       transitionMs?: number;
-      holdPreviousPoseDuringAsyncLoad?: boolean;
-      allowIncomingTransition?: boolean;
       resumeExistingLoop?: boolean;
     }
   ): void {
@@ -2479,238 +2312,112 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return;
     }
 
+    const playbackBridge = animationPlayback;
+
+    if (!playbackBridge) {
+      stopBaseAnimation();
+      updateSnapshot({
+        pendingAnimation: canonicalCommand,
+        baseAnimation: snapshot.baseAnimation,
+        error: "Animation playback is unavailable until a VRM humanoid finishes loading."
+      });
+      return;
+    }
+
     const previousBaseAnimation = activeBaseAnimation;
-    const resolvedPlayback = resolveHumanoidPlayback(currentAvatar.vrm, resolvedPayload);
-    const asyncPreviewPlayback =
-      resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma"
-        ? resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer").playback
+    const previousCommandId =
+      previousBaseAnimation && previousBaseAnimation.command.id !== canonicalCommand.id
+        ? previousBaseAnimation.command.id
         : null;
-    const blendFromPreviousBaseAnimation =
-      previousBaseAnimation !== null &&
-      previousBaseAnimation.command.id !== canonicalCommand.id &&
-      previousBaseAnimation.playbackPath === resolvedPlayback.playbackPath &&
-      (resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma");
-    const preservePreviousPoseDuringAsyncLoad =
-      previousBaseAnimation !== null &&
-      (options?.holdPreviousPoseDuringAsyncLoad === true ||
-        (!blendFromPreviousBaseAnimation &&
-          (resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma")));
     const transitionMs = previousBaseAnimation
       ? options?.transitionMs ?? resolveAdaptiveBaseAnimationTransitionMs(canonicalCommand, resolvedPayload)
       : 0;
-    const shouldBlendIncomingMixerPose =
-      previousBaseAnimation !== null &&
-      options?.allowIncomingTransition === true &&
-      transitionMs > 0 &&
-      resolvedPlayback.playbackPath === "mixer" &&
-      resolvedPlayback.playback !== null &&
-      currentAvatar.vrm !== null;
-    const incomingTransitionState = shouldBlendIncomingMixerPose
-      ? captureBaseAnimationTransitionState(
-          currentAvatar.vrm!,
-          currentAvatar.root,
-          resolvedPlayback.playback!.getDebugSnapshot().targetedBones,
-          transitionMs
-        )
-      : null;
+    const shouldResumeExistingLoop =
+      options?.resumeExistingLoop === true &&
+      canonicalCommand.playback === "loop" &&
+      isIdleSemanticAnimationPayload(resolvedPayload);
+    const expectedCommandId = canonicalCommand.id;
 
-    if (!blendFromPreviousBaseAnimation && !preservePreviousPoseDuringAsyncLoad && !incomingTransitionState) {
-      stopBaseAnimation();
-    }
-
+    // The previous clip keeps playing in the shared mixer while the next one
+    // streams in; the crossfade starts once the new clip is ready.
     activeBaseAnimation = {
       command: canonicalCommand,
       payload: resolvedPayload,
-      playbackPath: resolvedPlayback.playbackPath,
       root: currentAvatar.root,
       baselinePosition: currentAvatar.root.position.clone(),
       baselineQuaternion: currentAvatar.root.quaternion.clone(),
-      humanoidPlayback: resolvedPlayback.playback ?? asyncPreviewPlayback,
-      asyncBridgeReady: resolvedPlayback.playbackPath !== "official" && resolvedPlayback.playbackPath !== "vrma",
+      asyncBridgeReady: false,
       elapsedSeconds: 0,
-      transitionState: incomingTransitionState,
+      sourceKind: null
     };
 
-    if (
-      (resolvedPlayback.playbackPath === "official" || resolvedPlayback.playbackPath === "vrma") &&
-      asyncPreviewPlayback &&
-      !preservePreviousPoseDuringAsyncLoad
-    ) {
-      // Apply frame 0 immediately so the first click shows a posed preview while
-      // the async official/VRMA bridge finishes loading the authored clip.
-      asyncPreviewPlayback.apply(0);
-      currentAvatar.root.updateMatrixWorld(true);
-    }
-
-    if (resolvedPlayback.playbackPath === "official" && officialPlayback) {
-      const playbackBridge = officialPlayback;
-      const expectedCommandId = canonicalCommand.id;
-      const previousCommandId = blendFromPreviousBaseAnimation ? previousBaseAnimation?.command.id ?? null : null;
-      const shouldTransitionFromPrevious = previousCommandId !== null && hasActiveOfficialClip(previousCommandId);
-      const shouldResumeExistingLoop =
-        options?.resumeExistingLoop === true &&
-        canonicalCommand.playback === "loop" &&
-        isIdleSemanticAnimationPayload(resolvedPayload);
-      const sourcePath = resolvedPayload.sourceAsset?.path?.trim() ?? "";
-      const sourceUrl = sourcePath.startsWith("/") ? sourcePath : `/${sourcePath}`;
-
-      const fallbackToMixer = (): void => {
+    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload, snapshot.currentCharacterId ?? undefined)
+      .then(async (source) => {
         if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
           return;
         }
 
-        const fallbackPlayback = resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer");
-        activeBaseAnimation.playbackPath = fallbackPlayback.playbackPath;
-        activeBaseAnimation.humanoidPlayback = fallbackPlayback.playback;
-        activeBaseAnimation.asyncBridgeReady = true;
-        if (previousCommandId) {
-          playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
+        if (!source) {
+          throw new Error(`Semantic animation '${canonicalCommand.id}' has no playable VRMA or FBX source.`);
         }
-        activeBaseAnimation.humanoidPlayback?.apply(0);
+
+        const clipHandle = await playbackBridge.loadClip(source.url, canonicalCommand.id);
+
+        if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
+          return;
+        }
+
+        activeBaseAnimation.asyncBridgeReady = true;
+        activeBaseAnimation.elapsedSeconds = 0;
+        activeBaseAnimation.sourceKind = clipHandle.sourceKind;
+
+        const shouldTransitionFromPrevious = previousCommandId !== null && playbackBridge.hasActiveClip(previousCommandId);
+
+        playbackBridge.play(canonicalCommand.id, {
+          loop: canonicalCommand.playback === "loop",
+          transitionMs: shouldTransitionFromPrevious ? transitionMs : 0,
+          restart: !shouldResumeExistingLoop
+        });
+
+        // Stop every other clip (not just the remembered previous one) so
+        // overlapping async activations cannot leave a stale clip blended in.
+        playbackBridge.stopAllExcept(canonicalCommand.id, {
+          fadeOutMs: shouldTransitionFromPrevious ? transitionMs : 0
+        });
+
+        // Preserve the load-time ground offset. Re-grounding after frame 0
+        // would treat authored hip/foot motion as world motion and lift the
+        // entire avatar.
+        playbackBridge.update(0);
+        currentAvatar.vrm?.update(0);
         activeBaseAnimation.root.updateMatrixWorld(true);
-        activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
         updateSnapshot({
           pendingAnimation: null,
           baseAnimation: command,
           error: null
         });
-      };
-      if (!sourcePath.toLowerCase().endsWith(".fbx")) {
-        fallbackToMixer();
-        return;
-      }
+      })
+      .catch((err) => {
+        console.warn(`[activateBase] Animation load failed for ${canonicalCommand.id}:`, err);
 
-      playbackBridge.loadClip(sourceUrl, canonicalCommand.id).then(() => {
         if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId) {
           return;
         }
 
-        activeBaseAnimation.asyncBridgeReady = true;
-        activeBaseAnimation.humanoidPlayback = null;
-
-        playbackBridge.play(canonicalCommand.id, {
-          loop: canonicalCommand.playback === "loop",
-          transitionMs: shouldTransitionFromPrevious && options?.allowIncomingTransition === true ? transitionMs : 0,
-          restart: !shouldResumeExistingLoop
-        });
-
-        if (shouldTransitionFromPrevious && previousCommandId) {
-          playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
-        }
-
+        // Leave whatever is already playing in the mixer untouched and surface the failure.
         updateSnapshot({
           pendingAnimation: null,
-          baseAnimation: command,
-          error: null
+          baseAnimation: snapshot.baseAnimation,
+          error:
+            err instanceof Error
+              ? err.message
+              : `Semantic animation '${canonicalCommand.id}' could not be loaded.`
         });
-      }).catch((err) => {
-        console.warn(`[activateBase] Official Mixamo load failed for ${canonicalCommand.id}:`, err);
-        fallbackToMixer();
       });
-
-      updateSnapshot({
-        pendingAnimation: canonicalCommand,
-        baseAnimation: snapshot.baseAnimation,
-        error: null
-      });
-
-      return;
-    }
-
-    // VRMA path: load and play the .vrma file via three-vrm-animation
-    if (resolvedPlayback.playbackPath === "vrma" && vrmaPlayback) {
-      const playbackBridge = vrmaPlayback;
-      const expectedCommandId = canonicalCommand.id;
-      const previousCommandId = blendFromPreviousBaseAnimation ? previousBaseAnimation?.command.id ?? null : null;
-      const shouldTransitionFromPrevious = previousCommandId !== null && hasActiveVrmaClip(previousCommandId);
-      const shouldResumeExistingLoop =
-        options?.resumeExistingLoop === true &&
-        canonicalCommand.playback === "loop" &&
-        isIdleSemanticAnimationPayload(resolvedPayload);
-
-      const fallbackToMixer = (): void => {
-        if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
-          return;
-        }
-
-        const fallbackPlayback = resolveAvatarRuntimePlayback(currentAvatar.vrm, resolvedPayload, "mixer");
-        activeBaseAnimation.playbackPath = fallbackPlayback.playbackPath;
-        activeBaseAnimation.humanoidPlayback = fallbackPlayback.playback;
-        activeBaseAnimation.asyncBridgeReady = true;
-        if (previousCommandId) {
-          playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
-        }
-        activeBaseAnimation.humanoidPlayback?.apply(0);
-        activeBaseAnimation.root.updateMatrixWorld(true);
-        activeBaseAnimation.baselinePosition.copy(activeBaseAnimation.root.position);
-        updateSnapshot({
-          pendingAnimation: null,
-          baseAnimation: command,
-          error: null
-        });
-      };
-
-      probeVrmaAsset(canonicalCommand.id, snapshot.currentCharacterId ?? undefined).then((resolution) => {
-        if (!resolution) {
-          console.warn(`[activateBase] No VRMA asset found for ${canonicalCommand.id}; falling back to mixer playback.`);
-          fallbackToMixer();
-          return;
-        }
-
-        playbackBridge.loadVrma(resolution.url, canonicalCommand.id).then(() => {
-          if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
-            return;
-          }
-
-          activeBaseAnimation.asyncBridgeReady = true;
-          activeBaseAnimation.humanoidPlayback = null;
-
-          playbackBridge.play(canonicalCommand.id, {
-            loop: canonicalCommand.playback === "loop",
-            transitionMs: shouldTransitionFromPrevious && options?.allowIncomingTransition === true ? transitionMs : 0,
-            restart: !shouldResumeExistingLoop
-          });
-
-          if (shouldTransitionFromPrevious && previousCommandId) {
-            playbackBridge.stop(previousCommandId, { fadeOutMs: transitionMs });
-          }
-
-          // For in-place VRMA clips, preserve the load-time ground offset.
-          // Re-grounding after frame 0 would treat authored hip/foot motion as
-          // world motion and lift the entire avatar.
-          playbackBridge.update(0);
-          currentAvatar.vrm?.update(0);
-          activeBaseAnimation.root.updateMatrixWorld(true);
-          updateSnapshot({
-            pendingAnimation: null,
-            baseAnimation: command,
-            error: null
-          });
-        }).catch((err) => {
-          console.warn(`[activateBase] VRMA load failed for ${canonicalCommand.id}:`, err);
-          fallbackToMixer();
-        });
-      }).catch(() => {
-        fallbackToMixer();
-      });
-
-      updateSnapshot({
-        pendingAnimation: canonicalCommand,
-        baseAnimation: snapshot.baseAnimation,
-        error: null
-      });
-    } else {
-      // Mixer path: apply frame 0 so skeleton is in posed position
-      activeBaseAnimation!.humanoidPlayback?.apply(0);
-      activeBaseAnimation!.root.updateMatrixWorld(true);
-      activeBaseAnimation!.baselinePosition.copy(activeBaseAnimation!.root.position);
-    }
-
-    updateBaseAnimation(0);
 
     updateSnapshot({
-      pendingAnimation: null,
-      baseAnimation: command,
+      pendingAnimation: canonicalCommand,
+      baseAnimation: snapshot.baseAnimation,
       error: null
     });
   }
@@ -2730,8 +2437,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       removeRigOverlayHelper();
       removeGazeDebugMarkerHelper();
       stopBaseAnimation();
-      if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
-      if (officialPlayback) { officialPlayback.dispose(); officialPlayback = null; }
+      if (animationPlayback) { animationPlayback.dispose(); animationPlayback = null; }
       if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
       if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
       if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
@@ -2743,8 +2449,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     removeRigOverlayHelper();
   removeGazeDebugMarkerHelper();
     stopBaseAnimation();
-    if (vrmaPlayback) { vrmaPlayback.dispose(); vrmaPlayback = null; }
-    if (officialPlayback) { officialPlayback.dispose(); officialPlayback = null; }
+    if (animationPlayback) { animationPlayback.dispose(); animationPlayback = null; }
     if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
     if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
     if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
@@ -3048,18 +2753,13 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         vrm,
       };
 
-      // Create VRMA playback bridge for this VRM
-      if (vrmaPlayback) {
-        vrmaPlayback.dispose();
-        vrmaPlayback = null;
-      }
-      if (officialPlayback) {
-        officialPlayback.dispose();
-        officialPlayback = null;
+      // Create the unified playback bridge (VRMA + Mixamo FBX) for this VRM
+      if (animationPlayback) {
+        animationPlayback.dispose();
+        animationPlayback = null;
       }
       if (vrm) {
-        vrmaPlayback = createVrmaPlayback(vrm, root);
-        officialPlayback = createOfficialMixamoPlayback(vrm);
+        animationPlayback = createAnimationPlayback(vrm, root);
       }
 
       // Create passive blink controller for this VRM
@@ -3242,18 +2942,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     setRigOverlayEnabled(enabled) {
       rigOverlayEnabled = enabled;
       syncRigOverlayHelper();
-    },
-
-    setAnimationPlaybackPath(playbackPath) {
-      if (animationPlaybackPath === playbackPath) {
-        return;
-      }
-
-      animationPlaybackPath = playbackPath;
-
-      if (currentAvatar && activeBaseAnimation) {
-        activateBaseAnimation(activeBaseAnimation.command);
-      }
     },
 
     setEmotion(emotion) {

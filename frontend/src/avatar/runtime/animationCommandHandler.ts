@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { VRM } from "@pixiv/three-vrm";
-import type { VrmaPlaybackBridge } from "./vrmaPlayback";
+import type { AnimationPlaybackBridge } from "./animationPlayback";
 import { resolveVrmaAssetCandidates } from "./vrmaAssetResolution";
 
 export interface PlayAnimationCommand {
@@ -52,7 +52,7 @@ export interface AnimationCommandHandlerBridge {
 
 export function createAnimationCommandHandler(
   vrm: VRM,
-  vrmaPlayback: VrmaPlaybackBridge
+  animationPlayback: AnimationPlaybackBridge
 ): AnimationCommandHandlerBridge {
   let lookatTarget: THREE.Object3D | null = null;
   const expressionTransitions = new Map<string, {
@@ -80,24 +80,24 @@ export function createAnimationCommandHandler(
   async function handlePlayAnimation(cmd: PlayAnimationCommand): Promise<void> {
     const url = cmd.url ?? resolveVrmaAssetCandidates(cmd.clip_id)[0]?.url;
     if (url) {
-      await vrmaPlayback.loadVrma(url, cmd.clip_id);
+      await animationPlayback.loadClip(url, cmd.clip_id);
     }
-    vrmaPlayback.play(cmd.clip_id, {
+    animationPlayback.play(cmd.clip_id, {
       loop: cmd.loop ?? true,
       transitionMs: cmd.transition_ms ?? 0
     });
   }
 
   async function handleStopAnimation(cmd: StopAnimationCommand): Promise<void> {
-    vrmaPlayback.stop(cmd.clip_id, { fadeOutMs: cmd.fade_out_ms ?? 0 });
+    animationPlayback.stop(cmd.clip_id, { fadeOutMs: cmd.fade_out_ms ?? 0 });
   }
 
   async function handleCrossfade(cmd: CrossfadeCommand): Promise<void> {
     const toUrl = cmd.to_url ?? resolveVrmaAssetCandidates(cmd.to)[0]?.url;
     if (toUrl) {
-      await vrmaPlayback.loadVrma(toUrl, cmd.to);
+      await animationPlayback.loadClip(toUrl, cmd.to);
     }
-    vrmaPlayback.crossfade(cmd.from, cmd.to, cmd.duration_ms);
+    animationPlayback.crossfade(cmd.from, cmd.to, cmd.duration_ms);
   }
 
   async function handleSetExpression(cmd: SetExpressionCommand): Promise<void> {

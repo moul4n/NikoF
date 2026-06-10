@@ -91,14 +91,11 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     setDevDisplayProfileView,
     devDisplayRigOverlayEnabled,
     setDevDisplayRigOverlayEnabled,
-    devDisplayPlaybackPath,
-    setDevDisplayPlaybackPath,
     devDisplayAnimationOverride,
     handleSelectDevDisplayAnimation,
     isDisplayRuntimeReady,
     effectiveDisplayProfileView,
     effectiveDisplayRigOverlayEnabled,
-    effectiveDisplayPlaybackPath,
     desiredConversationAnimationLifecycleState,
     desiredConversationAnimationLifecycleReason,
     handleCommandPublished
@@ -123,8 +120,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     catalogLoadStatus: loadState.status,
     selectedCharacter,
     effectiveDisplayProfileView,
-    effectiveDisplayRigOverlayEnabled,
-    effectiveDisplayPlaybackPath
+    effectiveDisplayRigOverlayEnabled
   });
 
   const sessionAnimationState = useSessionAnimationState({
@@ -208,18 +204,13 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         backendStatusMessage={backendStatusMessage}
         speechLifecycleState={speechLifecycleState}
         speechPlaybackStatus={speechPlaybackStatus}
-        sessionAnimationState={sessionAnimationState}
         isDevAnimationSwitcherEnabled={isDevAnimationSwitcherEnabled}
         devDisplayProfileView={devDisplayProfileView}
         onSelectDevDisplayProfileView={setDevDisplayProfileView}
         devDisplayRigOverlayEnabled={devDisplayRigOverlayEnabled}
         onSetDevDisplayRigOverlayEnabled={setDevDisplayRigOverlayEnabled}
-        devDisplayAnimationOverride={devDisplayAnimationOverride}
         onSelectDevDisplayAnimation={handleSelectDevDisplayAnimation}
         isDisplayRuntimeReady={isDisplayRuntimeReady}
-        devDisplayPlaybackPath={devDisplayPlaybackPath}
-        onSelectDevDisplayPlaybackPath={setDevDisplayPlaybackPath}
-
       />
     );
   }

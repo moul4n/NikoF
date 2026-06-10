@@ -114,8 +114,6 @@ export interface SemanticAnimationRuntimeSourceAsset {
   sourceAssetPath?: string;
 }
 
-export type SemanticAnimationRuntimePlaybackAdapter = "mixer" | "vrma" | "official_mixamo_fbx";
-
 export interface SemanticAnimationRuntimePayload {
   semanticId: SemanticAnimationId;
   playback: SemanticAnimationPlaybackMode;
@@ -126,7 +124,6 @@ export interface SemanticAnimationRuntimePayload {
   channels?: SemanticAnimationRuntimeChannel[];
   exportAudit?: SemanticAnimationRuntimeExportAudit;
   sourceAsset?: SemanticAnimationRuntimeSourceAsset;
-  playbackAdapter?: SemanticAnimationRuntimePlaybackAdapter;
 }
 
 export interface BackendAnimationTimingHintDocument {

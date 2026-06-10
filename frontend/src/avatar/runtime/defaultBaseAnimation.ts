@@ -6,7 +6,6 @@ import type {
   SemanticAnimationPlaybackMode,
   SemanticAnimationRuntimeChannel,
   SemanticAnimationRuntimeExportAudit,
-  SemanticAnimationRuntimePlaybackAdapter,
   SemanticAnimationRuntimePayload,
   SemanticAnimationRuntimeQuaternion,
   SemanticAnimationRuntimeQuaternionSampleSeries,
@@ -18,7 +17,6 @@ import sharedAnimationRegistry from "../../../../assets/animations/dsl/shared/an
 export interface SharedAnimationRuntimeSidecarDocument {
   semantic_id?: string;
   channel_space?: string;
-  runtime_adapter?: string;
   source?: {
     kind?: string;
     path?: string;
@@ -105,12 +103,20 @@ type SharedAnimationRegistryDocument = {
   >;
 };
 
-const sharedSemanticAnimationPlaybackAdapterOverrides: Partial<Record<string, SemanticAnimationRuntimePlaybackAdapter>> = {
-  "idle.default": "vrma",
-  "idle.neutral": "mixer",
-  "listen.loop": "mixer",
-  "speak.loop": "mixer"
+/**
+ * Semantic ids whose generated runtime source is a Unity .anim (not playable
+ * by the official VRMA/Mixamo playback core). They resolve to another
+ * semantic's playable source until dedicated .vrma assets are exported.
+ */
+export const SHARED_SEMANTIC_ANIMATION_SOURCE_FALLBACKS: Readonly<Record<string, string>> = {
+  "idle.default": "idle.neutral",
+  "listen.loop": "idle.neutral",
+  "speak.loop": "idle.neutral"
 };
+
+export function isIdleSemanticAnimationPayload(payload: SemanticAnimationRuntimePayload): boolean {
+  return payload.semanticId.startsWith("idle.");
+}
 
 const legacySharedSemanticAnimationAliases: Readonly<Record<string, string>> = {
   idle1v3: "idle.neutral"
@@ -149,18 +155,6 @@ function resolveRuntimeSourceAsset(
     path,
     sourceAssetPath: runtimeDocument.source?.source_asset_path?.trim() || undefined
   };
-}
-
-function resolveRuntimePlaybackAdapter(
-  runtimeDocument: SharedAnimationRuntimeSidecarDocument
-): SemanticAnimationRuntimePlaybackAdapter | undefined {
-  const runtimeAdapter = runtimeDocument.runtime_adapter?.trim();
-
-  if (runtimeAdapter === "mixer" || runtimeAdapter === "vrma" || runtimeAdapter === "official_mixamo_fbx") {
-    return runtimeAdapter;
-  }
-
-  return undefined;
 }
 
 export const DEFAULT_BASE_ANIMATION_COMMAND: SemanticAnimationCommand = {
@@ -494,7 +488,6 @@ export function buildSharedSemanticAnimationPayloadCatalogFromRuntimeDocuments(
     const channels = resolveRuntimeChannels(runtimeDocument, sampling);
     const exportAudit = resolveRuntimeExportAudit(runtimeDocument, sampling);
     const sourceAsset = resolveRuntimeSourceAsset(runtimeDocument);
-    const playbackAdapter = resolveRuntimePlaybackAdapter(runtimeDocument);
     const existingPayload = semanticId ? catalog.get(semanticId) : null;
 
     if (!semanticId || !playback || typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) {
@@ -510,11 +503,7 @@ export function buildSharedSemanticAnimationPayloadCatalogFromRuntimeDocuments(
       sampling: sampling ?? existingPayload?.sampling,
       channels: channels ?? existingPayload?.channels,
       exportAudit: exportAudit ?? existingPayload?.exportAudit,
-      sourceAsset: sourceAsset ?? existingPayload?.sourceAsset,
-      playbackAdapter:
-        playbackAdapter ??
-        (semanticId ? sharedSemanticAnimationPlaybackAdapterOverrides[semanticId] : undefined) ??
-        existingPayload?.playbackAdapter
+      sourceAsset: sourceAsset ?? existingPayload?.sourceAsset
     });
   });
 
@@ -535,8 +524,7 @@ function createRegisteredSharedSemanticAnimationFallbackPayload(semanticId: stri
   return {
     semanticId,
     playback: inferSemanticAnimationPlaybackMode(semanticId),
-    durationMs: 1,
-    playbackAdapter: sharedSemanticAnimationPlaybackAdapterOverrides[semanticId]
+    durationMs: 1
   };
 }
 
@@ -580,8 +568,7 @@ function resolveSharedSemanticAnimationPayloadFromCatalog(
     sampling: resolvedPayload.sampling,
     channels: resolvedPayload.channels,
     exportAudit: resolvedPayload.exportAudit,
-    sourceAsset: resolvedPayload.sourceAsset,
-    playbackAdapter: resolvedPayload.playbackAdapter
+    sourceAsset: resolvedPayload.sourceAsset
   };
 }
 

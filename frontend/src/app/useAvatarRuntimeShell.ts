@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type {
-  AvatarAnimationPlaybackPath,
   AvatarDebugProfileView,
   AvatarRuntimeBridge,
   AvatarRuntimeSnapshot
@@ -17,7 +16,6 @@ interface UseAvatarRuntimeConfigurationOptions {
   selectedCharacter: CharacterCatalogEntry | null;
   effectiveDisplayProfileView: AvatarDebugProfileView;
   effectiveDisplayRigOverlayEnabled: boolean;
-  effectiveDisplayPlaybackPath: AvatarAnimationPlaybackPath;
 }
 
 export function useAvatarRuntimeSnapshot({
@@ -41,8 +39,7 @@ export function useAvatarRuntimeConfiguration({
   catalogLoadStatus,
   selectedCharacter,
   effectiveDisplayProfileView,
-  effectiveDisplayRigOverlayEnabled,
-  effectiveDisplayPlaybackPath
+  effectiveDisplayRigOverlayEnabled
 }: UseAvatarRuntimeConfigurationOptions): void {
   useEffect(() => {
     runtime.setDebugProfileView(effectiveDisplayProfileView);
@@ -51,10 +48,6 @@ export function useAvatarRuntimeConfiguration({
   useEffect(() => {
     runtime.setRigOverlayEnabled(effectiveDisplayRigOverlayEnabled);
   }, [effectiveDisplayRigOverlayEnabled, runtime]);
-
-  useEffect(() => {
-    runtime.setAnimationPlaybackPath(effectiveDisplayPlaybackPath);
-  }, [effectiveDisplayPlaybackPath, runtime]);
 
   useEffect(() => {
     if (catalogLoadStatus !== "ready" || !selectedCharacter) {

@@ -1,6 +1,6 @@
 # Animation Viewer Strategy
 
-Updated: 2026-05-21
+Updated: 2026-06-10
 
 ## Decision
 
@@ -10,7 +10,7 @@ That viewer has already proven the core contract boundary:
 
 - backend-owned semantic animation selection
 - frontend-owned playback execution
-- multiple frontend playback adapters behind one semantic surface
+- one official playback core behind the semantic surface
 
 Unity remains an offline authoring and export tool. It is not the active runtime target.
 
@@ -20,14 +20,20 @@ The current runtime split is:
 
 - backend emits semantic ids only
 - frontend resolves approved runtime metadata for those ids
-- frontend chooses the playback adapter locally
+- frontend plays everything through one official playback core (`frontend/src/avatar/runtime/animationPlayback.ts`)
 
-Current stable routes:
+The single core feeds one `THREE.AnimationMixer` from two official loaders:
 
-- `idle.neutral` -> official Mixamo FBX playback path
-- `idle.default` -> VRMA playback
-- `listen.loop` -> VRMA playback
-- `speak.loop` -> VRMA playback
+1. `.vrma` assets via `@pixiv/three-vrm-animation` (`createVRMAnimationClip`) — preferred whenever a
+   character-specific or shared `.vrma` exists for the semantic id under `assets/animations/library/`.
+2. Mixamo `.fbx` sources via the official three-vrm retarget path (hips position scaled to the VRM
+   rest pose; only humanoid bone rotations plus the hips track animate, so the avatar root stays
+   anchored in world space and the character does not drift).
+
+Resolution order per semantic id: character `.vrma` → shared `.vrma` → payload `.fbx` source →
+declared source fallback (`idle.default`, `listen.loop`, `speak.loop` resolve through `idle.neutral`
+until dedicated `.vrma` exports exist). There is no legacy mixer/quaternion-keyframe path anymore;
+an unplayable semantic surfaces an error instead of silently degrading.
 
 This is the correct shape for the project because it lets the playback core change without widening the backend contract.
 
@@ -46,10 +52,10 @@ And the frontend should keep owning:
 
 - asset lookup
 - retargeting
-- playback adapter selection
+- playback execution
 - local debug instrumentation
 
-That separation is already proving useful: `idle.neutral` moved to the official adapter while the backend contract stayed stable.
+That separation is already proving useful: the playback core consolidated from three adapters down to one official VRMA/Mixamo bridge while the backend contract stayed stable.
 
 ## What Unity Is For Now
 

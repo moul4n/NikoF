@@ -3,7 +3,7 @@ import {
   DEFAULT_BASE_ANIMATION_COMMAND,
   listSharedSemanticAnimationPayloads
 } from "../avatar/runtime/defaultBaseAnimation";
-import type { AvatarAnimationPlaybackPath, AvatarDebugProfileView } from "../avatar/runtime/avatarRuntime";
+import type { AvatarDebugProfileView } from "../avatar/runtime/avatarRuntime";
 import type { SemanticAnimationCommand, SemanticAnimationRuntimePayload } from "../shared/types/animation";
 
 type DevDisplayAnimationOptionBehavior = "backend" | "neutral" | "command";
@@ -40,22 +40,6 @@ function formatSemanticAnimationLabel(semanticId: string): string {
     .join(" ");
 }
 
-function describeRuntimeAdapter(payload: SemanticAnimationRuntimePayload): string {
-  if (payload.playbackAdapter === "official_mixamo_fbx") {
-    return "Uses the official Mixamo FBX runtime path.";
-  }
-
-  if (payload.playbackAdapter === "vrma") {
-    return "Uses the VRMA runtime path.";
-  }
-
-  if (payload.playbackAdapter === "mixer") {
-    return "Uses the mixer keyframe runtime path.";
-  }
-
-  return "Uses the generated runtime payload path.";
-}
-
 function buildSharedAnimationOption(payload: SemanticAnimationRuntimePayload): DevDisplayAnimationOption {
   const label = payload.semanticId === DEFAULT_BASE_ANIMATION_COMMAND.id ? "Idle Neutral" : formatSemanticAnimationLabel(payload.semanticId);
   const playbackVerb = payload.playback === "once" ? "Play" : "Loop";
@@ -63,7 +47,7 @@ function buildSharedAnimationOption(payload: SemanticAnimationRuntimePayload): D
   return {
     id: payload.semanticId,
     label,
-    description: `${playbackVerb} ${label} on the local display surface. ${describeRuntimeAdapter(payload)}`,
+    description: `${playbackVerb} ${label} on the local display surface.`,
     behavior: "command",
     semanticCommand: {
       id: payload.semanticId,
@@ -101,41 +85,12 @@ const DEV_DISPLAY_PROFILE_OPTIONS = [
   description: string;
 }>;
 
-const DEV_DISPLAY_PLAYBACK_PATH_OPTIONS = [
-  {
-    id: "official",
-    label: "Official Mixamo adapter",
-    description: "Loads raw FBX animation sources and applies the official ThreeVRM Mixamo retarget path in the display runtime. Non-FBX semantics fall back to the legacy mixer."
-  },
-  {
-    id: "mixer",
-    label: "Mixer (quaternion keyframes)",
-    description: "Feeds bone quaternion keyframes directly to THREE.AnimationMixer. No manual scaling or Euler decomposition."
-  },
-  {
-    id: "vrma",
-    label: "VRMA (three-vrm-animation)",
-    description: "Loads .vrma files and uses @pixiv/three-vrm-animation for native retargeting with rest-pose preservation."
-  }
-] as const satisfies ReadonlyArray<{
-  id: AvatarAnimationPlaybackPath;
-  label: string;
-  description: string;
-}>;
-
 export function resolveDevDisplayAnimationOption(optionId: DevDisplayAnimationOptionId) {
   return (
     DEV_DISPLAY_ACTION_OPTIONS.find((option) => option.id === optionId) ??
     DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.find((option) => option.id === optionId) ??
     DEV_DISPLAY_ACTION_OPTIONS[0]
   );
-}
-
-interface DevAnimationSwitcherPanelProps {
-  selectedOptionId: DevDisplayAnimationOptionId;
-  backendAnimationId: string | null;
-  controlsEnabled: boolean;
-  onSelectOption: (optionId: DevDisplayAnimationOptionId) => void;
 }
 
 interface DevDisplayProfilePanelProps {
@@ -147,11 +102,6 @@ interface DevDisplayRenderModePanelProps {
   rigOverlayEnabled: boolean;
   controlsEnabled: boolean;
   onSetRigOverlayEnabled: (enabled: boolean) => void;
-}
-
-interface DevDisplayPlaybackPathPanelProps {
-  selectedPlaybackPath: AvatarAnimationPlaybackPath;
-  onSelectPlaybackPath: (playbackPath: AvatarAnimationPlaybackPath) => void;
 }
 
 export function DevDisplayProfilePanel({
@@ -240,121 +190,4 @@ export function DevDisplayRenderModePanel({
   );
 }
 
-export function DevAnimationSwitcherPanel({
-  selectedOptionId,
-  backendAnimationId,
-  controlsEnabled,
-  onSelectOption
-}: DevAnimationSwitcherPanelProps): JSX.Element {
-  const selectedSharedAnimationOption = DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.find((option) => option.id === selectedOptionId) ?? null;
 
-  return (
-    <section className="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-animation-switcher-title">
-      <div className="surface-panel__header">
-        <div>
-          <p className="eyebrow">Dev-only animation override</p>
-          <h2 id="dev-animation-switcher-title">Local display switcher</h2>
-        </div>
-      </div>
-
-      <p className="surface-panel__summary">
-        This panel is dev-only and only affects the local display window. Switch back to the backend default, hold a neutral T-pose, or trigger any generated shared animation directly from the button grid.
-      </p>
-      <p className="surface-panel__message">
-        Backend snapshot: {backendAnimationId ?? "Unavailable, so the local idle fallback will be used when override is off."}
-      </p>
-      {!controlsEnabled ? (
-        <p className="surface-panel__message">Display runtime is still mounting the avatar. Local animation overrides unlock once the first model load is ready.</p>
-      ) : null}
-
-      <div className="dev-animation-panel__section">
-        <p className="dev-animation-panel__section-label">Generated animations</p>
-        <div className="dev-animation-panel__list dev-animation-panel__list--compact" role="group" aria-label="Generated display animations">
-          {DEV_DISPLAY_SHARED_ANIMATION_OPTIONS.map((option) => {
-            const isActive = option.id === selectedOptionId;
-
-            return (
-              <button
-                key={option.id}
-                type="button"
-                className={isActive ? "dev-animation-panel__button dev-animation-panel__button--active" : "dev-animation-panel__button"}
-                aria-pressed={isActive}
-                disabled={!controlsEnabled}
-                onClick={() => onSelectOption(option.id)}
-              >
-                <span className="dev-animation-panel__button-title">{option.label}</span>
-                <span className="dev-animation-panel__button-summary">{option.description}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <p className="dev-animation-panel__selected-summary">
-        {selectedSharedAnimationOption?.description ??
-          "Choose a generated animation button to preview it locally in the display surface."}
-      </p>
-
-      <div className="dev-animation-panel__section">
-        <p className="dev-animation-panel__section-label">Override mode</p>
-        <div className="dev-animation-panel__list" role="group" aria-label="Display animation override">
-        {DEV_DISPLAY_ACTION_OPTIONS.map((option) => {
-          const isActive = option.id === selectedOptionId;
-
-          return (
-            <button
-              key={option.id}
-              type="button"
-              className={isActive ? "dev-animation-panel__button dev-animation-panel__button--active" : "dev-animation-panel__button"}
-              aria-pressed={isActive}
-              disabled={!controlsEnabled}
-              onClick={() => onSelectOption(option.id)}
-            >
-              <span className="dev-animation-panel__button-title">{option.label}</span>
-              <span className="dev-animation-panel__button-summary">{option.description}</span>
-            </button>
-          );
-        })}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-export function DevDisplayPlaybackPathPanel({
-  selectedPlaybackPath,
-  onSelectPlaybackPath
-}: DevDisplayPlaybackPathPanelProps): JSX.Element {
-  return (
-    <section className="surface-panel surface-panel--display dev-animation-panel" aria-labelledby="dev-display-playback-path-title">
-      <div className="surface-panel__header">
-        <div>
-          <p className="eyebrow">Dev-only display routes</p>
-          <h2 id="dev-display-playback-path-title">Playback route</h2>
-        </div>
-      </div>
-
-      <p className="surface-panel__summary">
-        Switch the local display window between the legacy channel remap, the canonical idle stability slice, and the mixer-backed three-vrm-style punch spike.
-      </p>
-
-      <div className="dev-animation-panel__list" role="group" aria-label="Display playback route">
-        {DEV_DISPLAY_PLAYBACK_PATH_OPTIONS.map((option) => {
-          const isActive = option.id === selectedPlaybackPath;
-
-          return (
-            <button
-              key={option.id}
-              type="button"
-              className={isActive ? "dev-animation-panel__button dev-animation-panel__button--active" : "dev-animation-panel__button"}
-              aria-pressed={isActive}
-              onClick={() => onSelectPlaybackPath(option.id)}
-            >
-              <span className="dev-animation-panel__button-title">{option.label}</span>
-              <span className="dev-animation-panel__button-summary">{option.description}</span>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}

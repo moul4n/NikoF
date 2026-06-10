@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { resolveSelectedCharacterId } from "../avatar/loaders/backendCharacterFlow";
 import type {
-  AvatarAnimationPlaybackPath,
   AvatarDebugProfileView,
   AvatarRuntimeSnapshot
 } from "../avatar/runtime/avatarRuntime";
@@ -51,14 +50,11 @@ interface UseSurfaceShellOrchestrationResult {
   setDevDisplayProfileView: StateSetter<AvatarDebugProfileView>;
   devDisplayRigOverlayEnabled: boolean;
   setDevDisplayRigOverlayEnabled: StateSetter<boolean>;
-  devDisplayPlaybackPath: AvatarAnimationPlaybackPath;
-  setDevDisplayPlaybackPath: StateSetter<AvatarAnimationPlaybackPath>;
   devDisplayAnimationOverride: DevDisplayAnimationOverrideState;
   handleSelectDevDisplayAnimation: (optionId: DevDisplayAnimationOptionId) => void;
   isDisplayRuntimeReady: boolean;
   effectiveDisplayProfileView: AvatarDebugProfileView;
   effectiveDisplayRigOverlayEnabled: boolean;
-  effectiveDisplayPlaybackPath: AvatarAnimationPlaybackPath;
   desiredConversationAnimationLifecycleState: AnimationLifecycleState | null;
   desiredConversationAnimationLifecycleReason: string | null;
   handleCommandPublished: (response: BackendOperatorCommandResponseDocument | null) => void;
@@ -212,7 +208,6 @@ export function useSurfaceShellOrchestration({
 }: UseSurfaceShellOrchestrationOptions): UseSurfaceShellOrchestrationResult {
   const [devDisplayProfileView, setDevDisplayProfileView] = useState<AvatarDebugProfileView>("front");
   const [devDisplayRigOverlayEnabled, setDevDisplayRigOverlayEnabled] = useState(false);
-  const [devDisplayPlaybackPath, setDevDisplayPlaybackPath] = useState<AvatarAnimationPlaybackPath>("official");
   const [devDisplayAnimationOverride, setDevDisplayAnimationOverride] = useState<DevDisplayAnimationOverrideState>({
     optionId: "backend",
     activationKey: 0
@@ -223,8 +218,6 @@ export function useSurfaceShellOrchestration({
     surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayProfileView : "front";
   const effectiveDisplayRigOverlayEnabled =
     surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayRigOverlayEnabled : false;
-  const effectiveDisplayPlaybackPath: AvatarAnimationPlaybackPath =
-    surfaceMode === "display" && isDevAnimationSwitcherEnabled ? devDisplayPlaybackPath : "official";
   const desiredConversationAnimationLifecycleState =
     catalogLoadStatus === "ready" && selectedCharacter
       ? resolveDesiredConversationAnimationLifecycleState(
@@ -339,14 +332,11 @@ export function useSurfaceShellOrchestration({
     setDevDisplayProfileView,
     devDisplayRigOverlayEnabled,
     setDevDisplayRigOverlayEnabled,
-    devDisplayPlaybackPath,
-    setDevDisplayPlaybackPath,
     devDisplayAnimationOverride,
     handleSelectDevDisplayAnimation,
     isDisplayRuntimeReady,
     effectiveDisplayProfileView,
     effectiveDisplayRigOverlayEnabled,
-    effectiveDisplayPlaybackPath,
     desiredConversationAnimationLifecycleState,
     desiredConversationAnimationLifecycleReason,
     handleCommandPublished
