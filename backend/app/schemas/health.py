@@ -35,7 +35,23 @@ class HealthDiagnostics:
 
 
 @dataclass(slots=True, frozen=True)
+class SubsystemReadiness:
+    """Live readiness of a managed runtime subsystem (worker/sidecar).
+
+    Distinct from prerequisite lanes: lanes report install-time state, this
+    reports run-time state so operators can tell "HTTP is up" apart from
+    "the stack is actually ready to take a turn".
+    """
+
+    id: str
+    state: str
+    ready: bool
+    detail: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
 class HealthPayload:
     status: str
     mode: str
     diagnostics: HealthDiagnostics
+    subsystems: list[SubsystemReadiness] = field(default_factory=list)

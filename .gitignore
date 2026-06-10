@@ -42,7 +42,8 @@ frontend/dist/
 frontend/test-results/
 .vite/
 
-# Machine-local Unity export workspace spillover
+# Machine-local scratch / temp working dirs
+.tmp/
 .tmp-unity-temp/
 Logs/
 Library/

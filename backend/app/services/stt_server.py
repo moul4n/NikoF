@@ -321,9 +321,11 @@ class FasterWhisperServerManager:
                     try:
                         self._process.wait(timeout=10.0)
                     except subprocess.TimeoutExpired:
-                        pass
-            except FasterWhisperServerError:
-                pass
+                        logger.warning(
+                            "Faster-Whisper server did not exit within 10s of graceful shutdown; force-killing"
+                        )
+            except FasterWhisperServerError as exc:
+                logger.warning("Graceful Faster-Whisper shutdown request failed (%s); force-killing", exc)
 
             self._kill_process()
 
@@ -420,12 +422,16 @@ _server_manager_lock = threading.Lock()
 def get_server_manager(app_paths: AppPaths | None = None) -> FasterWhisperServerManager:
     global _server_manager
     resolved_paths = app_paths or get_app_paths()
-    if _server_manager is None:
-        with _server_manager_lock:
-            if _server_manager is None:
-                _server_manager = FasterWhisperServerManager(load_server_config(resolved_paths))
-    elif app_paths is not None:
-        expected_config = load_server_config(resolved_paths)
-        if _server_manager.config.provider_root != expected_config.provider_root or _server_manager.config.model_root != expected_config.model_root:
-            _server_manager = FasterWhisperServerManager(expected_config)
+    with _server_manager_lock:
+        if _server_manager is None:
+            _server_manager = FasterWhisperServerManager(load_server_config(resolved_paths))
+        elif app_paths is not None:
+            expected_config = load_server_config(resolved_paths)
+            if _server_manager.config.provider_root != expected_config.provider_root or _server_manager.config.model_root != expected_config.model_root:
+                logger.warning("Faster-Whisper server config changed; stopping previous sidecar before swap")
+                try:
+                    _server_manager.stop()
+                except Exception:
+                    logger.exception("Failed to stop previous Faster-Whisper sidecar during manager swap")
+                _server_manager = FasterWhisperServerManager(expected_config)
     return _server_manager

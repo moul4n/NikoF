@@ -476,11 +476,36 @@ _stt_worker_lock = threading.Lock()
 def get_stt_worker(app_paths: AppPaths | None = None) -> STTWorker:
     global _stt_worker
     resolved_paths = app_paths or get_app_paths()
-    if _stt_worker is None:
-        with _stt_worker_lock:
-            if _stt_worker is None:
-                _stt_worker = STTWorker(app_paths=resolved_paths)
-    elif app_paths is not None:
-        if _stt_worker._app_paths.providers_root != resolved_paths.providers_root or _stt_worker._app_paths.stt_models_root != resolved_paths.stt_models_root:
+    with _stt_worker_lock:
+        if _stt_worker is None:
+            _stt_worker = STTWorker(app_paths=resolved_paths)
+        elif app_paths is not None and (
+            _stt_worker._app_paths.providers_root != resolved_paths.providers_root
+            or _stt_worker._app_paths.stt_models_root != resolved_paths.stt_models_root
+        ):
+            _retire_stt_worker(_stt_worker)
             _stt_worker = STTWorker(app_paths=resolved_paths)
     return _stt_worker
+
+
+def _retire_stt_worker(worker: STTWorker) -> None:
+    """Stop a worker that is being replaced so its poll loop, dispatch executor,
+    and sidecar process are not leaked behind the new instance."""
+    logger.warning("STT worker app paths changed; retiring previous worker instance")
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        # Fire-and-forget; stop() cancels the poll task and stops the sidecar.
+        loop.create_task(worker.stop())
+        return
+    worker._state = STTWorkerState.SHUTDOWN
+    try:
+        worker._manager.stop()
+    except Exception:
+        logger.exception("Failed to stop sidecar while retiring STT worker")
+    if worker._dispatch_executor is not None:
+        worker._dispatch_executor.shutdown(wait=False, cancel_futures=False)
+        worker._dispatch_executor = None
+    worker._tracker.mark_unloaded()

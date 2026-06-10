@@ -978,16 +978,20 @@ def get_text_generation_sidecar_manager(
     global _text_generation_sidecar_manager
 
     resolved_paths = app_paths or get_app_paths()
-    if _text_generation_sidecar_manager is None:
-        with _text_generation_sidecar_lock:
-            if _text_generation_sidecar_manager is None:
-                _text_generation_sidecar_manager = build_text_generation_sidecar_manager(resolved_paths)
-    elif app_paths is not None:
-        current_paths = _text_generation_sidecar_manager._app_paths
-        if (
-            current_paths.providers_root != resolved_paths.providers_root
-            or current_paths.llm_models_root != resolved_paths.llm_models_root
-        ):
+    with _text_generation_sidecar_lock:
+        if _text_generation_sidecar_manager is None:
             _text_generation_sidecar_manager = build_text_generation_sidecar_manager(resolved_paths)
+        elif app_paths is not None:
+            current_paths = _text_generation_sidecar_manager._app_paths
+            if (
+                current_paths.providers_root != resolved_paths.providers_root
+                or current_paths.llm_models_root != resolved_paths.llm_models_root
+            ):
+                logger.warning("LLM sidecar app paths changed; stopping previous manager before swap")
+                try:
+                    _text_generation_sidecar_manager.stop()
+                except Exception:
+                    logger.exception("Failed to stop previous LLM sidecar during manager swap")
+                _text_generation_sidecar_manager = build_text_generation_sidecar_manager(resolved_paths)
 
     return _text_generation_sidecar_manager

@@ -82,6 +82,62 @@ function Stop-ProcessTreeByPid {
     }
 }
 
+function Test-ExpectedProcessName {
+    param(
+        [Parameter()]$ProcessInfo,
+        [Parameter(Mandatory)][string[]]$ExpectedNames
+    )
+
+    if ($null -eq $ProcessInfo) {
+        return $false
+    }
+
+    # PID visible but process metadata unavailable (already exited, or access
+    # denied) — never treat an unidentifiable process as ours.
+    if ([string]::IsNullOrWhiteSpace([string]$ProcessInfo.process_name)) {
+        return $false
+    }
+
+    foreach ($name in $ExpectedNames) {
+        if ($ProcessInfo.process_name -ieq $name) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Wait-ForPortFree {
+    param(
+        [Parameter(Mandatory)][int]$PortNumber,
+        [int]$TimeoutSeconds = 10
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ($null -eq (Get-ListeningProcessInfo -PortNumber $PortNumber)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return ($null -eq (Get-ListeningProcessInfo -PortNumber $PortNumber))
+}
+
+function Wait-ForPortListening {
+    param(
+        [Parameter(Mandatory)][int]$PortNumber,
+        [int]$TimeoutSeconds = 12
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ($null -ne (Get-ListeningProcessInfo -PortNumber $PortNumber)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return ($null -ne (Get-ListeningProcessInfo -PortNumber $PortNumber))
+}
+
 function Invoke-JsonGet {
     param([Parameter(Mandatory)][string]$Url)
 
@@ -111,7 +167,10 @@ function Invoke-JsonPost {
 function Start-Frontend {
     $existing = Get-ListeningProcessInfo -PortNumber 5173
     if ($null -ne $existing) {
-        return [pscustomobject]@{ ok = $true; message = 'Frontend already running.' }
+        if (Test-ExpectedProcessName -ProcessInfo $existing -ExpectedNames @('node')) {
+            return [pscustomobject]@{ ok = $true; message = 'Frontend already running.' }
+        }
+        return [pscustomobject]@{ ok = $false; message = "Port 5173 is held by '$($existing.process_name)' (pid $($existing.pid)), which is not the frontend dev server. Free the port and retry." }
     }
 
     if (-not (Test-Path -LiteralPath $frontendRoot -PathType Container)) {
@@ -120,7 +179,11 @@ function Start-Frontend {
 
     $command = "Set-Location '$frontendRoot'; npm run dev"
     Start-Process -FilePath $shellExe -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-Command', $command) -WorkingDirectory $frontendRoot | Out-Null
-    return [pscustomobject]@{ ok = $true; message = 'Frontend start requested.' }
+
+    if (Wait-ForPortListening -PortNumber 5173) {
+        return [pscustomobject]@{ ok = $true; message = 'Frontend started and listening on 5173.' }
+    }
+    return [pscustomobject]@{ ok = $true; message = 'Frontend start requested; not listening on 5173 yet (still warming up).' }
 }
 
 function Stop-Frontend {
@@ -129,18 +192,28 @@ function Stop-Frontend {
         return [pscustomobject]@{ ok = $true; message = 'Frontend is already stopped.' }
     }
 
-    $stopped = Stop-ProcessTreeByPid -TargetPid $existing.pid
-    if ($stopped) {
-        return [pscustomobject]@{ ok = $true; message = "Frontend stopped (pid $($existing.pid))." }
+    if (-not (Test-ExpectedProcessName -ProcessInfo $existing -ExpectedNames @('node'))) {
+        return [pscustomobject]@{ ok = $false; message = "Port 5173 is held by '$($existing.process_name)' (pid $($existing.pid)), which is not the frontend dev server. Refusing to kill it." }
     }
 
-    return [pscustomobject]@{ ok = $false; message = "Failed to stop frontend pid $($existing.pid)." }
+    $stopped = Stop-ProcessTreeByPid -TargetPid $existing.pid
+    if (-not $stopped) {
+        return [pscustomobject]@{ ok = $false; message = "Failed to stop frontend pid $($existing.pid)." }
+    }
+
+    if (Wait-ForPortFree -PortNumber 5173) {
+        return [pscustomobject]@{ ok = $true; message = "Frontend stopped (pid $($existing.pid))." }
+    }
+    return [pscustomobject]@{ ok = $false; message = "Frontend pid $($existing.pid) was killed but port 5173 is still busy." }
 }
 
 function Start-Backend {
     $existing = Get-ListeningProcessInfo -PortNumber 8000
     if ($null -ne $existing) {
-        return [pscustomobject]@{ ok = $true; message = 'Backend already running.' }
+        if (Test-ExpectedProcessName -ProcessInfo $existing -ExpectedNames @('python')) {
+            return [pscustomobject]@{ ok = $true; message = 'Backend already running.' }
+        }
+        return [pscustomobject]@{ ok = $false; message = "Port 8000 is held by '$($existing.process_name)' (pid $($existing.pid)), which is not the backend. Free the port and retry." }
     }
 
     if (-not (Test-Path -LiteralPath $backendPython -PathType Leaf)) {
@@ -149,7 +222,11 @@ function Start-Backend {
 
     $command = "Set-Location '$backendRoot'; & '$backendPython' -m app.dev_server"
     Start-Process -FilePath $shellExe -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-Command', $command) -WorkingDirectory $backendRoot | Out-Null
-    return [pscustomobject]@{ ok = $true; message = 'Backend start requested.' }
+
+    if (Wait-ForPortListening -PortNumber 8000) {
+        return [pscustomobject]@{ ok = $true; message = 'Backend started and listening on 8000.' }
+    }
+    return [pscustomobject]@{ ok = $true; message = 'Backend start requested; not listening on 8000 yet (still warming up).' }
 }
 
 function Stop-Backend {
@@ -158,18 +235,42 @@ function Stop-Backend {
         return [pscustomobject]@{ ok = $true; message = 'Backend is already stopped.' }
     }
 
-    $stopped = Stop-ProcessTreeByPid -TargetPid $existing.pid
-    if ($stopped) {
-        return [pscustomobject]@{ ok = $true; message = "Backend stopped (pid $($existing.pid))." }
+    if (-not (Test-ExpectedProcessName -ProcessInfo $existing -ExpectedNames @('python'))) {
+        return [pscustomobject]@{ ok = $false; message = "Port 8000 is held by '$($existing.process_name)' (pid $($existing.pid)), which is not the backend. Refusing to kill it." }
     }
 
-    return [pscustomobject]@{ ok = $false; message = "Failed to stop backend pid $($existing.pid)." }
+    # Graceful first: lets the backend's lifespan shutdown stop its STT/TTS/LLM
+    # sidecars cleanly instead of orphaning them under a tree-kill.
+    $graceful = $false
+    try {
+        Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8000/system/shutdown' -TimeoutSec 3 | Out-Null
+        $graceful = Wait-ForPortFree -PortNumber 8000 -TimeoutSeconds 25
+    }
+    catch {
+        $graceful = $false
+    }
+    if ($graceful) {
+        return [pscustomobject]@{ ok = $true; message = "Backend stopped gracefully (pid $($existing.pid))." }
+    }
+
+    $stopped = Stop-ProcessTreeByPid -TargetPid $existing.pid
+    if (-not $stopped) {
+        return [pscustomobject]@{ ok = $false; message = "Failed to stop backend pid $($existing.pid)." }
+    }
+
+    if (Wait-ForPortFree -PortNumber 8000) {
+        return [pscustomobject]@{ ok = $true; message = "Backend stopped (pid $($existing.pid))." }
+    }
+    return [pscustomobject]@{ ok = $false; message = "Backend pid $($existing.pid) was killed but port 8000 is still busy." }
 }
 
 function Start-Llm {
     $existing = Get-ListeningProcessInfo -PortNumber 11434
     if ($null -ne $existing) {
-        return [pscustomobject]@{ ok = $true; message = 'LLM listener already running.' }
+        if (Test-ExpectedProcessName -ProcessInfo $existing -ExpectedNames @('ollama', 'ollama app')) {
+            return [pscustomobject]@{ ok = $true; message = 'LLM listener already running.' }
+        }
+        return [pscustomobject]@{ ok = $false; message = "Port 11434 is held by '$($existing.process_name)' (pid $($existing.pid)), which is not Ollama. Free the port and retry." }
     }
 
     $ollama = Get-Command ollama -ErrorAction SilentlyContinue
@@ -178,7 +279,11 @@ function Start-Llm {
     }
 
     Start-Process -FilePath $ollama.Source -ArgumentList @('serve') | Out-Null
-    return [pscustomobject]@{ ok = $true; message = 'LLM start requested via ollama serve.' }
+
+    if (Wait-ForPortListening -PortNumber 11434) {
+        return [pscustomobject]@{ ok = $true; message = 'LLM listener started on 11434.' }
+    }
+    return [pscustomobject]@{ ok = $true; message = 'LLM start requested via ollama serve; not listening yet.' }
 }
 
 function Stop-Llm {
@@ -187,12 +292,19 @@ function Stop-Llm {
         return [pscustomobject]@{ ok = $true; message = 'LLM listener is already stopped.' }
     }
 
-    $stopped = Stop-ProcessTreeByPid -TargetPid $existing.pid
-    if ($stopped) {
-        return [pscustomobject]@{ ok = $true; message = "LLM listener stopped (pid $($existing.pid))." }
+    if (-not (Test-ExpectedProcessName -ProcessInfo $existing -ExpectedNames @('ollama', 'ollama app'))) {
+        return [pscustomobject]@{ ok = $false; message = "Port 11434 is held by '$($existing.process_name)' (pid $($existing.pid)), which is not Ollama. Refusing to kill it." }
     }
 
-    return [pscustomobject]@{ ok = $false; message = "Failed to stop LLM listener pid $($existing.pid)." }
+    $stopped = Stop-ProcessTreeByPid -TargetPid $existing.pid
+    if (-not $stopped) {
+        return [pscustomobject]@{ ok = $false; message = "Failed to stop LLM listener pid $($existing.pid)." }
+    }
+
+    if (Wait-ForPortFree -PortNumber 11434) {
+        return [pscustomobject]@{ ok = $true; message = "LLM listener stopped (pid $($existing.pid))." }
+    }
+    return [pscustomobject]@{ ok = $false; message = "LLM listener pid $($existing.pid) was killed but port 11434 is still busy." }
 }
 
 function Invoke-BackendControl {
@@ -398,13 +510,18 @@ function Invoke-ComponentAction {
         'frontend' {
             if ($normalizedAction -eq 'start') { return Start-Frontend }
             if ($normalizedAction -eq 'stop') { return Stop-Frontend }
-            [void](Stop-Frontend)
+            # Restart: Stop-Frontend waits for the port to be released, so the
+            # subsequent start cannot race the dying process. If stop failed,
+            # surface that instead of a misleading "already running" start.
+            $stopResult = Stop-Frontend
+            if (-not $stopResult.ok) { return $stopResult }
             return Start-Frontend
         }
         'backend' {
             if ($normalizedAction -eq 'start') { return Start-Backend }
             if ($normalizedAction -eq 'stop') { return Stop-Backend }
-            [void](Stop-Backend)
+            $stopResult = Stop-Backend
+            if (-not $stopResult.ok) { return $stopResult }
             return Start-Backend
         }
         'llm' {
@@ -415,7 +532,8 @@ function Invoke-ComponentAction {
 
             if ($normalizedAction -eq 'start') { return Start-Llm }
             if ($normalizedAction -eq 'stop') { return Stop-Llm }
-            [void](Stop-Llm)
+            $stopResult = Stop-Llm
+            if (-not $stopResult.ok) { return $stopResult }
             return Start-Llm
         }
         'stt' {

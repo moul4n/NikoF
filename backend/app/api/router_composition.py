@@ -182,6 +182,7 @@ def build_api_route_definitions() -> list[RouteDefinition]:
         RouteDefinition(method="POST", path="/session/tts/control", name="post_session_tts_control"),
         RouteDefinition(method="PUT", path="/session/active-character", name="set_active_character"),
         RouteDefinition(method="GET", path="/system/resources", name="get_system_resources"),
+        RouteDefinition(method="POST", path="/system/shutdown", name="post_system_shutdown"),
     ]
 
 

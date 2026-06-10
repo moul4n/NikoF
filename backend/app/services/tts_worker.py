@@ -12,6 +12,7 @@ Design goals:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 import threading
@@ -111,6 +112,9 @@ class TTSWorker:
         self._loop: asyncio.AbstractEventLoop | None = None
 
         # Model adapter (created lazily)
+        # _model_load_lock serializes _load_model between the async loop's
+        # executor thread and sync callers (QueuedSynthesisService / eager load).
+        self._model_load_lock = threading.Lock()
         self._adapter: SpeechSynthesisService | None = None
         self._model_loaded = False
         self._model_name: str | None = None
@@ -159,17 +163,27 @@ class TTSWorker:
         # Drain pending items and cancel their futures
         self._flush_queue("Worker shutting down")
 
-        # Signal the processing loop to exit
-        try:
-            self._queue.put_nowait(None)
-        except asyncio.QueueFull:
-            pass
+        # Signal the processing loop to exit. A producer can refill the queue
+        # between flush and put, so retry rather than dropping the sentinel
+        # silently — a lost sentinel leaves the loop running forever.
+        sentinel_delivered = False
+        for _ in range(3):
+            try:
+                self._queue.put_nowait(None)
+                sentinel_delivered = True
+                break
+            except asyncio.QueueFull:
+                self._flush_queue("Worker shutting down")
+        if not sentinel_delivered:
+            logger.warning("TTS worker: shutdown sentinel could not be queued; cancelling loop directly")
 
         if self._processing_task is not None:
             try:
                 await asyncio.wait_for(self._processing_task, timeout=5.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._processing_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self._processing_task
             self._processing_task = None
 
         self._unload_model()
@@ -245,7 +259,17 @@ class TTSWorker:
             logger.info(f"TTS queue flushed: {dropped} items dropped ({reason})")
 
     def _load_model(self) -> bool:
-        """Start the persistent GPT-SoVITS server. Returns True on success."""
+        """Start the persistent GPT-SoVITS server. Returns True on success.
+
+        Safe to call from both the processing loop's executor thread and sync
+        callers; the lock plus loaded re-check makes the load happen once.
+        """
+        with self._model_load_lock:
+            if self._model_loaded:
+                return True
+            return self._load_model_locked()
+
+    def _load_model_locked(self) -> bool:
         self._state = TTSWorkerState.LOADING
         logger.info("TTS worker: starting persistent GPT-SoVITS server...")
 
@@ -312,6 +336,10 @@ class TTSWorker:
 
     def _unload_model(self) -> None:
         """Release model resources and stop server."""
+        with self._model_load_lock:
+            self._unload_model_locked()
+
+    def _unload_model_locked(self) -> None:
         if self._model_loaded:
             # Stop the persistent server if we started one
             if hasattr(self, "_server_manager") and self._server_manager is not None:
@@ -329,8 +357,6 @@ class TTSWorker:
 
     async def _process_loop(self) -> None:
         """Main processing loop: waits for items and synthesizes sequentially."""
-        model_loaded = False
-
         while self._state != TTSWorkerState.SHUTDOWN:
             try:
                 item = await self._queue.get()
@@ -341,12 +367,14 @@ class TTSWorker:
                 # Sentinel for shutdown
                 break
 
-            # Lazy model loading on first real request
-            if not model_loaded:
-                model_loaded = await asyncio.get_running_loop().run_in_executor(
+            # Lazy model loading on first real request. Checked via the shared
+            # flag because the sync path (QueuedSynthesisService) may have
+            # already loaded the model — don't load twice.
+            if not self._model_loaded:
+                loaded = await asyncio.get_running_loop().run_in_executor(
                     None, self._load_model
                 )
-                if not model_loaded:
+                if not loaded:
                     # Model failed to load — reject this and future items
                     if not item.future.done():
                         item.future.set_result(SpeechSynthesisContract(
@@ -493,14 +521,33 @@ def get_tts_worker(app_paths: AppPaths | None = None) -> TTSWorker:
     """Get or create the global TTS worker instance."""
     global _tts_worker
     resolved_paths = app_paths or get_app_paths()
-    if _tts_worker is None:
-        with _tts_worker_lock:
-            if _tts_worker is None:
-                _tts_worker = TTSWorker(app_paths=resolved_paths)
-    elif app_paths is not None:
-        if _tts_worker._app_paths.providers_root != resolved_paths.providers_root or _tts_worker._app_paths.tts_models_root != resolved_paths.tts_models_root:
+    with _tts_worker_lock:
+        if _tts_worker is None:
+            _tts_worker = TTSWorker(app_paths=resolved_paths)
+        elif app_paths is not None and (
+            _tts_worker._app_paths.providers_root != resolved_paths.providers_root
+            or _tts_worker._app_paths.tts_models_root != resolved_paths.tts_models_root
+        ):
+            _retire_tts_worker(_tts_worker)
             _tts_worker = TTSWorker(app_paths=resolved_paths)
     return _tts_worker
+
+
+def _retire_tts_worker(worker: TTSWorker) -> None:
+    """Stop a worker that is being replaced so its loop, queue futures, and
+    sidecar process are not leaked behind the new instance."""
+    logger.warning("TTS worker app paths changed; retiring previous worker instance")
+    loop = worker._loop
+    if loop is not None and loop.is_running():
+        # stop() must run on the worker's own loop (queue/futures are not
+        # thread-safe). Fire-and-forget; the new worker does not depend on it.
+        asyncio.run_coroutine_threadsafe(worker.stop(), loop)
+        return
+    worker._state = TTSWorkerState.SHUTDOWN
+    try:
+        worker._unload_model()
+    except Exception:
+        logger.exception("Failed to unload model while retiring TTS worker")
 
 
 class QueuedSynthesisService:

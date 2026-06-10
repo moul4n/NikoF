@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import signal
+import threading
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -9,6 +12,9 @@ from app.services.llm import TextGenerationSidecarManager, TextGenerationSidecar
 from app.services.resource_monitor import get_resource_monitor, ResourceSnapshot
 from app.services.stt_worker import STTWorkerStatus, get_stt_worker
 from app.services.tts_worker import get_tts_worker, TTSWorkerStatus
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
@@ -197,4 +203,23 @@ def register_resource_routes(router: Any) -> None:
             "tts_worker": response.tts_worker,
             "stt_worker": response.stt_worker,
             "warnings": response.warnings,
+        }
+
+    @router.post("/system/shutdown")
+    def post_system_shutdown() -> dict[str, Any]:
+        """Request a graceful backend shutdown.
+
+        Raising SIGINT mimics Ctrl+C: uvicorn runs its graceful shutdown and
+        the lifespan teardown stops the STT/TTS/LLM sidecars cleanly. This is
+        the supported alternative to tree-killing the backend process, which
+        orphans sidecars. Delayed slightly so this response can flush first.
+        """
+        logger.info("Graceful shutdown requested via POST /system/shutdown")
+        timer = threading.Timer(0.2, signal.raise_signal, [signal.SIGINT])
+        timer.daemon = True
+        timer.start()
+        return {
+            "schema_version": 1,
+            "status": "shutting-down",
+            "detail": "Graceful shutdown initiated; sidecars will be stopped by lifespan teardown.",
         }

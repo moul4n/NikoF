@@ -379,9 +379,11 @@ class GPTSoVITSServerManager:
                     try:
                         self._process.wait(timeout=10.0)
                     except subprocess.TimeoutExpired:
-                        pass
-            except GPTSoVITSServerError:
-                pass
+                        logger.warning(
+                            "GPT-SoVITS server did not exit within 10s of graceful shutdown; force-killing"
+                        )
+            except GPTSoVITSServerError as exc:
+                logger.warning("Graceful GPT-SoVITS shutdown request failed (%s); force-killing", exc)
 
             self._kill_process()
             self._started = False
@@ -553,13 +555,17 @@ def get_server_manager(app_paths: AppPaths | None = None) -> GPTSoVITSServerMana
     """Get or create the global server manager."""
     global _server_manager
     resolved_paths = app_paths or get_app_paths()
-    if _server_manager is None:
-        with _server_manager_lock:
-            if _server_manager is None:
-                config = load_server_config(resolved_paths)
-                _server_manager = GPTSoVITSServerManager(config=config)
-    elif app_paths is not None:
-        expected_config = load_server_config(resolved_paths)
-        if _server_manager.config.provider_root != expected_config.provider_root or _server_manager.config.model_root != expected_config.model_root:
-            _server_manager = GPTSoVITSServerManager(config=expected_config)
+    with _server_manager_lock:
+        if _server_manager is None:
+            config = load_server_config(resolved_paths)
+            _server_manager = GPTSoVITSServerManager(config=config)
+        elif app_paths is not None:
+            expected_config = load_server_config(resolved_paths)
+            if _server_manager.config.provider_root != expected_config.provider_root or _server_manager.config.model_root != expected_config.model_root:
+                logger.warning("GPT-SoVITS server config changed; stopping previous sidecar before swap")
+                try:
+                    _server_manager.stop()
+                except Exception:
+                    logger.exception("Failed to stop previous GPT-SoVITS sidecar during manager swap")
+                _server_manager = GPTSoVITSServerManager(config=expected_config)
     return _server_manager

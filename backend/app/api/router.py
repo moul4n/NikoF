@@ -106,7 +106,11 @@ def build_api_contract_snapshot() -> dict[str, Any]:
         animation_service=animation_service,
         build_active_character_response=_build_active_character_response,
         build_character_catalog_response=_build_character_catalog_response,
-        build_health_payload=_build_health_payload,
+        # The contract snapshot must stay deterministic: keep the subsystems
+        # key in the surface but exclude live worker state from the payload.
+        build_health_payload=lambda character_service: _build_health_payload(
+            character_service, include_subsystems=False
+        ),
         build_speech_contract_examples=_build_speech_contract_examples,
         build_session_animation_response=_build_session_animation_response,
         serialize_dataclass_payload=_serialize_dataclass_payload,

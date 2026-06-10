@@ -12,6 +12,7 @@ from app.schemas.health import (
     HealthPayload,
     PrerequisiteBlocker,
     PrerequisiteLane,
+    SubsystemReadiness,
 )
 from app.schemas.session import (
     ActiveCharacterResponse,
@@ -129,10 +130,76 @@ def _build_prerequisite_lanes(app_paths: AppPaths) -> list[PrerequisiteLane]:
     return lanes
 
 
+def build_subsystem_readiness() -> list[SubsystemReadiness]:
+    """Snapshot live worker/sidecar readiness for the health surface.
+
+    Reads only in-memory worker state — no HTTP probes — so /health stays
+    cheap and can never hang on a wedged sidecar. Each subsystem is isolated:
+    a failure to read one is reported as that subsystem's error state instead
+    of failing the whole health endpoint.
+    """
+    readiness: list[SubsystemReadiness] = []
+
+    try:
+        from app.services.stt_worker import get_stt_worker
+
+        stt_status = get_stt_worker().status()
+        readiness.append(
+            SubsystemReadiness(
+                id="stt",
+                state=str(stt_status.state.value),
+                ready=bool(stt_status.available),
+                detail=stt_status.last_error,
+            )
+        )
+    except Exception as exc:
+        readiness.append(SubsystemReadiness(id="stt", state="error", ready=False, detail=str(exc)))
+
+    try:
+        from app.services.tts_worker import TTSWorkerState, get_tts_worker
+
+        tts_worker = get_tts_worker()
+        tts_status = tts_worker.status()
+        # TTS loads lazily: an idle worker with a running loop is accepting
+        # work, so it counts as ready even though the model is not loaded yet.
+        loop_running = tts_worker._processing_task is not None
+        tts_ready = tts_status.state in (TTSWorkerState.READY, TTSWorkerState.PROCESSING) or (
+            tts_status.state == TTSWorkerState.IDLE and loop_running
+        )
+        readiness.append(
+            SubsystemReadiness(
+                id="tts",
+                state=str(tts_status.state.value),
+                ready=tts_ready,
+                detail=tts_status.last_error,
+            )
+        )
+    except Exception as exc:
+        readiness.append(SubsystemReadiness(id="tts", state="error", ready=False, detail=str(exc)))
+
+    try:
+        from app.services.llm import get_text_generation_sidecar_manager
+
+        llm_status = get_text_generation_sidecar_manager().status()
+        readiness.append(
+            SubsystemReadiness(
+                id="llm",
+                state=str(llm_status.state.value),
+                ready=bool(llm_status.available),
+                detail=llm_status.last_error,
+            )
+        )
+    except Exception as exc:
+        readiness.append(SubsystemReadiness(id="llm", state="error", ready=False, detail=str(exc)))
+
+    return readiness
+
+
 def build_health_payload(
     character_service: CharacterService,
     *,
     app_paths: AppPaths | None = None,
+    include_subsystems: bool = True,
 ) -> HealthPayload:
     app_paths = app_paths or get_app_paths()
     character_count = len(character_service.list_character_summaries())
@@ -171,7 +238,13 @@ def build_health_payload(
             "Create the local model and provider roots through bootstrap before Stage 3 integrations.",
         ],
     )
-    return HealthPayload(status="ok", mode="scaffold", diagnostics=diagnostics)
+    subsystems = build_subsystem_readiness() if include_subsystems else []
+    return HealthPayload(
+        status="ok",
+        mode="scaffold",
+        diagnostics=diagnostics,
+        subsystems=subsystems,
+    )
 
 
 def build_speech_contract_examples(

@@ -102,6 +102,27 @@ class HealthSurfaceTests(unittest.TestCase):
         self.assertNotIn("expected_path", serialized_lanes["stt"]["blockers"][0])
         self.assertNotIn("remediation", serialized_lanes["tts"]["blockers"][0])
 
+    def test_health_payload_reports_runtime_subsystem_readiness(self) -> None:
+        payload = build_health_payload(
+            CharacterService(FileSystemCharacterManifestSource()),
+        )
+
+        subsystems = {entry.id: entry for entry in payload.subsystems}
+        self.assertEqual({"stt", "tts", "llm"}, set(subsystems.keys()))
+        for entry in payload.subsystems:
+            self.assertIsInstance(entry.state, str)
+            self.assertIsInstance(entry.ready, bool)
+        # Nothing is started in a unit-test process, so the workers that need
+        # a live sidecar must not claim readiness.
+        self.assertFalse(subsystems["stt"].ready)
+
+    def test_health_payload_can_exclude_subsystems_for_pure_contract_checks(self) -> None:
+        payload = build_health_payload(
+            CharacterService(FileSystemCharacterManifestSource()),
+            include_subsystems=False,
+        )
+        self.assertEqual([], payload.subsystems)
+
 
 if __name__ == "__main__":
     unittest.main()
