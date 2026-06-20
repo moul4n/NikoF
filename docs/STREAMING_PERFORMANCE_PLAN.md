@@ -68,7 +68,7 @@ These come from `CLAUDE.md` and the earned speech seams. Every phase must honor 
 ## Phase 0 — Instrumentation + warmups + interval tightening
 **Win: ~1–2 s · Change: tiny · Risk: very low · Dependencies: none**
 
-> **Status (2026-06-20): partially landed.**
+> **Status (2026-06-20): landed.**
 > - ✅ **Warmups** wired into the FastAPI lifespan (`backend/app/main.py`): TTS
 >   `request_warmup()` + non-blocking LLM `warmup()` off the event loop, both
 >   gated by toggles.
@@ -77,7 +77,14 @@ These come from `CLAUDE.md` and the earned speech seams. Every phase must honor 
 >   speech-lifecycle poll 0.25→0.10 s. STT silence window made env-configurable
 >   (`NIKOF_STT_SPEECH_END_BLOCKS`, default kept at 8 / ~800 ms until validated on
 >   real-mic audio). Covered by `backend/tests/test_runtime_tuning.py`.
-> - ⏳ **Per-stage telemetry** still to do — next increment.
+> - ✅ **Per-stage telemetry** (`backend/app/services/turn_telemetry.py`):
+>   `run_user_text_turn` records `memory_ms` / `llm_ms` / `tts_ms` / `total_ms`
+>   per turn into a bounded ring buffer, surfaced read-only under the existing
+>   `GET /system/resources` as `turn_telemetry` (averages + last + recent). No
+>   new route and not part of the contract snapshot, so no baseline refresh.
+>   Covered by `backend/tests/test_turn_telemetry.py`. Note: deferred (STT) turns
+>   report `tts_ms=null` since synthesis runs in the background — that latency is
+>   still tracked by the TTS subsystem (`tts_worker.average_latency_ms`).
 
 The cheapest, safest gains. Do this first so later phases are measurable.
 

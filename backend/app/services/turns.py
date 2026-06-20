@@ -30,6 +30,7 @@ from app.services.speech import (
     project_public_session_event,
     project_public_speech_lifecycle_envelope,
 )
+from app.services.turn_telemetry import get_turn_telemetry
 
 
 logger = logging.getLogger(__name__)
@@ -557,6 +558,11 @@ def run_user_text_turn(
     *,
     services: UserTurnServices,
 ) -> UserTurnResult:
+    turn_started_perf = time.perf_counter()
+    turn_started_epoch = time.time()
+    memory_ms: float | None = None
+    llm_ms: float | None = None
+    tts_ms: float | None = None
     snapshot = services.session_service.get_snapshot()
     active_character = services.character_service.get_character_summary(snapshot.active_character_id)
     voice_profile = services.character_service.get_character_voice_profile(active_character.character_id)
@@ -564,6 +570,7 @@ def run_user_text_turn(
     turn_input_text = _resolve_turn_input_text(request)
     memory_context = None
     if services.memory_service is not None:
+        memory_started = time.perf_counter()
         try:
             services.memory_service.ensure_persona_core(
                 persona_id=active_character.character_id,
@@ -575,9 +582,10 @@ def run_user_text_turn(
                 query_text=turn_input_text,
                 include_appearance_context=_should_include_appearance_context(turn_input_text),
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("User turn memory context preparation failed")
             memory_context = None
+        memory_ms = (time.perf_counter() - memory_started) * 1000.0
 
     speech_lifecycle_events: list[SpeechLifecycleEventEnvelope] = []
     if request.transcription is not None:
@@ -605,6 +613,7 @@ def run_user_text_turn(
         except Exception:
             logger.exception("User turn thinking animation publication failed")
 
+    llm_started = time.perf_counter()
     try:
         assistant = services.text_generation_service.generate(
             TextGenerationRequest(
@@ -628,6 +637,7 @@ def run_user_text_turn(
             text="Local text generation failed.",
             locale=request.locale,
         )
+    llm_ms = (time.perf_counter() - llm_started) * 1000.0
     assistant_envelope = services.session_service.event_store.append(
         SPEECH_LIFECYCLE_STREAM,
         services.session_event_factory.build_event(
@@ -655,7 +665,9 @@ def run_user_text_turn(
                 voice_profile_id=voice_profile.profile_id,
             )
         else:
+            tts_started = time.perf_counter()
             synthesis = _run_synthesis_request(synthesis_request, services=services)
+            tts_ms = (time.perf_counter() - tts_started) * 1000.0
             synthesis_envelope = _append_synthesis_event(
                 synthesis,
                 services=services,
@@ -743,6 +755,18 @@ def run_user_text_turn(
             )
         except Exception:
             logger.exception("User turn memory persistence failed")
+
+    get_turn_telemetry().record(
+        input_source="stt" if request.transcription is not None else "manual_text",
+        status=turn_status,
+        character_id=active_character.character_id,
+        deferred_synthesis=bool(request.defer_synthesis and assistant.status == "ready"),
+        total_ms=(time.perf_counter() - turn_started_perf) * 1000.0,
+        started_epoch=turn_started_epoch,
+        llm_ms=llm_ms,
+        tts_ms=tts_ms,
+        memory_ms=memory_ms,
+    )
 
     return UserTurnResult(
         session_id=snapshot.session_id,

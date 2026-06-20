@@ -12,6 +12,7 @@ from app.services.llm import TextGenerationSidecarManager, TextGenerationSidecar
 from app.services.resource_monitor import get_resource_monitor, ResourceSnapshot
 from app.services.stt_worker import STTWorkerStatus, get_stt_worker
 from app.services.tts_worker import get_tts_worker, TTSWorkerStatus
+from app.services.turn_telemetry import get_turn_telemetry
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class ResourceStatusResponse:
     llm_sidecar: dict[str, Any]
     tts_worker: dict[str, Any]
     stt_worker: dict[str, Any]
+    turn_telemetry: dict[str, Any]
     warnings: list[str]
 
 
@@ -181,6 +183,7 @@ def build_resource_status_response(
         llm_sidecar=_serialize_llm_sidecar(llm_manager.status()),
         tts_worker=_serialize_tts_worker(tts_worker.status()),
         stt_worker=_serialize_stt_worker(stt_worker.status()),
+        turn_telemetry=get_turn_telemetry().summary(),
         warnings=list(snap.warnings),
     )
 
@@ -202,6 +205,7 @@ def register_resource_routes(router: Any) -> None:
             "llm_sidecar": response.llm_sidecar,
             "tts_worker": response.tts_worker,
             "stt_worker": response.stt_worker,
+            "turn_telemetry": response.turn_telemetry,
             "warnings": response.warnings,
         }
 
