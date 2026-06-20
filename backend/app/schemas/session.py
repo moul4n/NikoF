@@ -23,6 +23,11 @@ LLM_BASELINE_PROFILE_IDS = (
     "llm.ollama.llama3.1-8b-2026",
 )
 
+# Session-event contract version. Bumped to 2 in Phase 1 when the synthesis
+# contract gained the multi-segment streaming fields (utterance_id,
+# segment_index, segment_count, is_final).
+SESSION_EVENT_SCHEMA_VERSION = 2
+
 
 @dataclass(slots=True, frozen=True)
 class SpeechAdapterProfile:
@@ -121,6 +126,12 @@ class SpeechSynthesisContract:
     locale: str
     audio_reference: str | None = None
     timing: SpeechTimingMetadata | None = None
+    # Multi-segment streaming fields (Phase 1). Defaults describe a single,
+    # final segment so a non-streamed utterance is semantically unchanged.
+    utterance_id: str | None = None
+    segment_index: int = 0
+    segment_count: int | None = None
+    is_final: bool = True
 
 
 @dataclass(slots=True, frozen=True)

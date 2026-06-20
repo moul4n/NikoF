@@ -96,8 +96,11 @@ commit** (contracts-first):
   `Invoke-StabilitySuite.ps1 -RefreshBaselines` **only after** confirming the diffs are exactly
   the four additive fields (this is the approved behavior change the rule allows).
 
-No new fields on the planner/`AssistantMessageContract`. No `schema_version` bump needed (additive,
-back-compatible); if review prefers signalling, bump `session-event.schema.json` const + SessionEvent.
+No new fields on the planner/`AssistantMessageContract`. **Decision (approved): bump the
+session-event contract to `schema_version: 2`.** This is a global session-event version change
+(all event types), implemented via the `SESSION_EVENT_SCHEMA_VERSION` constant in
+`schemas/session.py`, the `build_event` factory, the schema `const`, all session-event fixtures,
+and the 9 session-event-bearing stability baselines.
 
 ## 6. Backend changes — file by file
 
@@ -194,6 +197,56 @@ Add knobs (env-driven, safe defaults), all reversible:
 - **Full rollback:** set `NIKOF_TTS_SEGMENTATION=false` (→ today’s single-utterance synthesis) and
   `NIKOF_LLM_STREAMING=false` (→ today’s non-streaming generate). The contract fields remain but are
   populated as a single final segment, identical in behavior to pre-Phase-1.
+
+## 9a. Build status & Windows verification (read before merging)
+
+> **Step 1 of the commit sequence (the contract change) has landed on this branch.** It is
+> behavior-neutral: every synthesis event is still a single, final segment until Phase 1a/1b wire
+> up segmentation.
+
+**Landed (verified at unit-test level on Linux):**
+- `schemas/session.py`: `SpeechSynthesisContract` gained `utterance_id` / `segment_index` /
+  `segment_count` / `is_final`; added `SESSION_EVENT_SCHEMA_VERSION = 2`.
+- `services/speech.py`: `build_event` now stamps `schema_version = SESSION_EVENT_SCHEMA_VERSION`.
+  (The two `SpeechLifecycleTransportSnapshot` builders and the operator/active-character/catalog
+  responses are **separate** contracts and intentionally stay at `schema_version: 1`.)
+- `tests/contracts/schemas/session-event.schema.json`: `const` 1→2; `synthesisContract` gained
+  `audio_reference`, `utterance_id`, `segment_index`, `segment_count`, `is_final`
+  (`additionalProperties:false` kept; `required` unchanged).
+- `tests/contracts/fixtures/`: all three session-event fixtures bumped to `schema_version: 2`;
+  synthesis fixture shows a single-final-segment example.
+- New `backend/tests/test_session_event_contract.py` (3 tests, green). Full backend `unittest`
+  failing set is **identical to baseline** (16 pre-existing sandbox-only failures).
+
+**NOT runnable in this sandbox (no PowerShell, no `jsonschema`) — run on the Windows box:**
+
+```powershell
+# 1. Contract gate — fixtures must validate against the updated schema
+powershell -ExecutionPolicy Bypass -File .\scripts\asset_validation\validate-contracts.ps1
+
+# 2. Backend unit tests
+.venv\Scripts\python.exe -m unittest discover -s backend/tests -t backend
+
+# 3. Stability suite — EXPECT diffs, then refresh ONLY if the diff is exactly the
+#    schema_version 1->2 bump plus the four additive synthesis fields.
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1
+#    Review the diff, confirm it is only the expected additive change, then:
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\Invoke-StabilitySuite.ps1 -RefreshBaselines
+```
+
+**Likely-affected baselines (verify against the suite's actual diff output — let
+`-RefreshBaselines` regenerate exactly what changed).** These are the files that embed a serialized
+session event and/or synthesis contract:
+`animation-contract-boundaries.json`, `backend-operator-command-surface.json`,
+`backend-speech-contracts.json`, `backend-speech-event-store.json`,
+`backend-speech-real-adapter-degraded.json`, `backend-stage1-contracts.json`,
+`backend-stage1-payload-surface.json`, `backend-turn-publication.json`,
+`frontend-speech-lifecycle-runtime.json`.
+
+Expected diff per file: embedded session events change `schema_version` 1→2, and synthesis
+payloads gain the four fields (`segment_index:0`, `is_final:true`, and `utterance_id`/
+`segment_count` null unless populated). **If any other field moves, stop and investigate before
+refreshing.**
 
 ## 10. Suggested commit sequence
 1. Contract: schema + fixture + dataclass fields + baseline refresh (additive, behavior-neutral —

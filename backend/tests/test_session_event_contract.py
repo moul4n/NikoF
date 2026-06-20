@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+import unittest
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.schemas.session import (
+    SESSION_EVENT_SCHEMA_VERSION,
+    SessionSnapshot,
+    SpeechSynthesisContract,
+)
+from app.services.speech import DefaultSessionEventFactory
+
+
+class SessionEventContractTests(unittest.TestCase):
+    def test_session_event_schema_version_is_two(self) -> None:
+        self.assertEqual(SESSION_EVENT_SCHEMA_VERSION, 2)
+
+    def test_synthesis_segment_defaults_describe_single_final_segment(self) -> None:
+        synthesis = SpeechSynthesisContract(
+            profile_id="tts.gpt-sovits.2026-stable",
+            status="ready",
+            text="Hello.",
+            locale="en-US",
+        )
+        self.assertIsNone(synthesis.utterance_id)
+        self.assertEqual(synthesis.segment_index, 0)
+        self.assertIsNone(synthesis.segment_count)
+        self.assertTrue(synthesis.is_final)
+
+    def test_build_event_stamps_version_two_and_preserves_segment_fields(self) -> None:
+        factory = DefaultSessionEventFactory()
+        snapshot = SessionSnapshot(session_id="session-1", active_character_id="niko")
+        synthesis = SpeechSynthesisContract(
+            profile_id="tts.gpt-sovits.2026-stable",
+            status="ready",
+            text="Second sentence.",
+            locale="en-US",
+            utterance_id="utterance-1",
+            segment_index=2,
+            segment_count=3,
+            is_final=False,
+        )
+
+        event = factory.build_event(
+            snapshot,
+            character_id="niko",
+            event_type="speech.synthesis",
+            status="ready",
+            synthesis=synthesis,
+        )
+
+        self.assertEqual(event.schema_version, 2)
+        self.assertEqual(event.event_type, "speech.synthesis")
+        self.assertIsNotNone(event.synthesis)
+        self.assertEqual(event.synthesis.utterance_id, "utterance-1")
+        self.assertEqual(event.synthesis.segment_index, 2)
+        self.assertEqual(event.synthesis.segment_count, 3)
+        self.assertFalse(event.synthesis.is_final)
+
+
+if __name__ == "__main__":
+    unittest.main()

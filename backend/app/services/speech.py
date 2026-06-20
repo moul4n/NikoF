@@ -16,6 +16,7 @@ from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import (
     AssistantMessageContract,
     AudioFormatMetadata,
+    SESSION_EVENT_SCHEMA_VERSION,
     SessionEvent,
     SessionSnapshot,
     SpeechLifecycleEventEnvelope,
@@ -1580,7 +1581,7 @@ class DefaultSessionEventFactory:
         synthesis: SpeechSynthesisContract | None = None,
     ) -> SessionEvent:
         return SessionEvent(
-            schema_version=1,
+            schema_version=SESSION_EVENT_SCHEMA_VERSION,
             event_type=event_type,
             session_id=snapshot.session_id,
             character_id=character_id,
