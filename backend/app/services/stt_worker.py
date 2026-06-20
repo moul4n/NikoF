@@ -11,6 +11,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
 
+from app.core.runtime_tuning import get_runtime_tuning
 from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import AudioFormatMetadata, SpeechTimingMetadata, STT_BASELINE_PROFILE_IDS, SpeechTranscriptionContract
 from app.services.resource_monitor import SubsystemTracker, get_resource_monitor
@@ -111,6 +112,7 @@ class STTWorker:
         self._poll_task: asyncio.Task[None] | None = None
         self._turn_services: UserTurnServices | None = None
         self._dispatch_executor: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
+        self._poll_interval_seconds = get_runtime_tuning().stt_poll_interval_seconds
         self._lock = threading.Lock()
 
     def _ensure_dispatch_executor(self) -> None:
@@ -224,7 +226,7 @@ class STTWorker:
         while True:
             try:
                 await self._process_events()
-                await asyncio.sleep(0.35)
+                await asyncio.sleep(self._poll_interval_seconds)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

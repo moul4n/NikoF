@@ -43,7 +43,27 @@ MIN_UTTERANCE_SECONDS = 0.45
 MAX_UTTERANCE_SECONDS = 15.0
 MIN_RMS_THRESHOLD = 0.012
 SPEECH_START_BLOCKS = 1
-SPEECH_END_BLOCKS = 8
+
+
+def _speech_end_blocks_from_env() -> int:
+    """Number of consecutive silent blocks (100ms each) that end an utterance.
+
+    Defaults to 8 (~800ms) to preserve historical capture behavior. Lowering it
+    (e.g. NIKOF_STT_SPEECH_END_BLOCKS=4 for ~400ms) reduces end-of-speech latency
+    but risks clipping trailing words, so the tightening is opt-in until validated
+    on real-microphone audio (see docs/STREAMING_PERFORMANCE_PLAN.md, Phase 0).
+    """
+    raw_value = os.environ.get("NIKOF_STT_SPEECH_END_BLOCKS", "").strip()
+    if not raw_value:
+        return 8
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return 8
+    return value if value >= 1 else 1
+
+
+SPEECH_END_BLOCKS = _speech_end_blocks_from_env()
 OWNER_POLL_INTERVAL_SECONDS = 2.0
 
 

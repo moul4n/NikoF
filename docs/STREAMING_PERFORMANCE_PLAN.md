@@ -68,6 +68,17 @@ These come from `CLAUDE.md` and the earned speech seams. Every phase must honor 
 ## Phase 0 — Instrumentation + warmups + interval tightening
 **Win: ~1–2 s · Change: tiny · Risk: very low · Dependencies: none**
 
+> **Status (2026-06-20): partially landed.**
+> - ✅ **Warmups** wired into the FastAPI lifespan (`backend/app/main.py`): TTS
+>   `request_warmup()` + non-blocking LLM `warmup()` off the event loop, both
+>   gated by toggles.
+> - ✅ **Interval tightening** via a new env-driven settings module
+>   (`backend/app/core/runtime_tuning.py`): STT worker poll 0.35→0.10 s,
+>   speech-lifecycle poll 0.25→0.10 s. STT silence window made env-configurable
+>   (`NIKOF_STT_SPEECH_END_BLOCKS`, default kept at 8 / ~800 ms until validated on
+>   real-mic audio). Covered by `backend/tests/test_runtime_tuning.py`.
+> - ⏳ **Per-stage telemetry** still to do — next increment.
+
 The cheapest, safest gains. Do this first so later phases are measurable.
 
 1. **Per-stage latency telemetry.** Stamp each turn with `stt_ms`, `llm_ms`, `tts_ms`,

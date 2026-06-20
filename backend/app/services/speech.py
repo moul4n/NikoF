@@ -11,6 +11,7 @@ import threading
 import time
 from typing import Any, Iterator, Protocol
 
+from app.core.runtime_tuning import get_runtime_tuning
 from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import (
     AssistantMessageContract,
@@ -1714,8 +1715,10 @@ class PollingSpeechLifecycleLiveDeliveryService:
         *,
         character_id: str,
         cursor: str | None = None,
-        poll_interval_seconds: float = 0.25,
+        poll_interval_seconds: float | None = None,
     ) -> Iterator[SpeechLifecycleEventEnvelope]:
+        if poll_interval_seconds is None:
+            poll_interval_seconds = get_runtime_tuning().speech_lifecycle_poll_interval_seconds
         current_cursor = cursor
 
         while True:
