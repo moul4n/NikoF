@@ -26,8 +26,11 @@ NIKOF_TTS_SEGMENTATION=1 and NIKOF_LLM_STREAMING=1, then re-running.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import os
 import statistics
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -60,6 +63,32 @@ def _baseline_cursor(base_url: str) -> str | None:
     return snapshot.get("next_cursor")
 
 
+class _SttTranscriber:
+    """Optional STT leg: transcribe a WAV with faster-whisper (the backend's STT
+    engine) so the full audio->text->LLM->TTS path can be benchmarked from a
+    recorded question, since the live mic can't be driven headlessly."""
+
+    def __init__(self, model_dir: str, *, device: str, compute_type: str) -> None:
+        from faster_whisper import WhisperModel
+
+        self._model = WhisperModel(model_dir, device=device, compute_type=compute_type)
+
+    def transcribe(self, path: str) -> tuple[str, float]:
+        start = time.perf_counter()
+        segments, _info = self._model.transcribe(path, beam_size=1)
+        text = " ".join(segment.text for segment in segments).strip()
+        return text, (time.perf_counter() - start) * 1000.0
+
+
+def _resolve_stt_model_dir(explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
+    from app.core.settings import get_app_paths
+
+    return str(get_app_paths().stt_models_root / "faster-whisper-medium")
+
+
 def _percentile(values: list[float], pct: float) -> float | None:
     if not values:
         return None
@@ -72,7 +101,14 @@ def _percentile(values: list[float], pct: float) -> float | None:
     return ordered[low] + (ordered[high] - ordered[low]) * (rank - low)
 
 
-def run_once(base_url: str, prompt: str, *, poll_seconds: float, timeout_seconds: float) -> dict:
+def run_once(
+    base_url: str,
+    prompt: str,
+    *,
+    poll_seconds: float,
+    timeout_seconds: float,
+    stt_ms: float | None = None,
+) -> dict:
     cursor = _baseline_cursor(base_url)
     start = time.perf_counter()
     response = _http_json(
@@ -152,12 +188,19 @@ def run_once(base_url: str, prompt: str, *, poll_seconds: float, timeout_seconds
     except urllib.error.URLError:
         server = {}
 
+    # Full mic->ear when an STT leg was used: transcription + first audio.
+    end_to_end_ms = None
+    if stt_ms is not None and first_audio_ms is not None:
+        end_to_end_ms = round(stt_ms + first_audio_ms, 1)
+
     return {
         "prompt": prompt,
         "status": response.get("status"),
+        "stt_ms": round(stt_ms, 1) if stt_ms is not None else None,
         "response_ms": round(response_ms, 1),
         "assistant_ms": round(assistant_ms, 1) if assistant_ms is not None else None,
         "first_audio_ms": round(first_audio_ms, 1) if first_audio_ms is not None else None,
+        "end_to_end_ms": end_to_end_ms,
         "total_ms": round(total_ms, 1) if total_ms is not None else None,
         "segment_count": len(audio_segments),
         "completed": final_seen,
@@ -190,11 +233,33 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=60.0, help="per-run seconds")
     parser.add_argument("--prompt", action="append", dest="prompts", help="prompt (repeatable)")
     parser.add_argument("--out", default=None, help="JSON artifact path")
+    parser.add_argument("--stt-dir", default=None, help="dir of .wav questions; transcribe via faster-whisper as input")
+    parser.add_argument("--stt-model-dir", default=None, help="faster-whisper model dir (default: backend STT model)")
+    parser.add_argument("--stt-device", default="cuda")
+    parser.add_argument("--stt-compute", default="float16")
     args = parser.parse_args()
 
     base_url = args.base_url.rstrip("/")
     prompts = args.prompts or DEFAULT_PROMPTS
     poll_seconds = max(0.005, args.poll_ms / 1000.0)
+
+    # Optional STT leg: transcribe recorded questions and use them as input.
+    stt_files = sorted(glob.glob(os.path.join(args.stt_dir, "*.wav"))) if args.stt_dir else []
+    transcriber: _SttTranscriber | None = None
+    if stt_files:
+        transcriber = _SttTranscriber(
+            _resolve_stt_model_dir(args.stt_model_dir),
+            device=args.stt_device,
+            compute_type=args.stt_compute,
+        )
+        print(f"STT leg: {len(stt_files)} wav(s) from {args.stt_dir}")
+
+    def _input_for(index: int) -> tuple[str, float | None]:
+        if transcriber is not None:
+            path = stt_files[index % len(stt_files)]
+            text, stt_ms = transcriber.transcribe(path)
+            return text, stt_ms
+        return prompts[index % len(prompts)], None
 
     try:
         resources = _http_json(f"{base_url}/system/resources")
@@ -210,20 +275,21 @@ def main() -> None:
     print()
 
     for index in range(max(0, args.warmup)):
-        prompt = prompts[index % len(prompts)]
+        prompt, stt_ms = _input_for(index)
         print(f"[warmup {index + 1}/{args.warmup}] {prompt!r}")
-        run_once(base_url, prompt, poll_seconds=poll_seconds, timeout_seconds=args.timeout)
+        run_once(base_url, prompt, poll_seconds=poll_seconds, timeout_seconds=args.timeout, stt_ms=stt_ms)
 
     runs: list[dict] = []
     for index in range(args.runs):
-        prompt = prompts[index % len(prompts)]
-        result = run_once(base_url, prompt, poll_seconds=poll_seconds, timeout_seconds=args.timeout)
+        prompt, stt_ms = _input_for(index)
+        result = run_once(
+            base_url, prompt, poll_seconds=poll_seconds, timeout_seconds=args.timeout, stt_ms=stt_ms
+        )
         runs.append(result)
         print(
-            f"[run {index + 1}/{args.runs}] first_audio={result['first_audio_ms']}ms "
-            f"total={result['total_ms']}ms segments={result['segment_count']} "
-            f"server_llm={result['server'].get('llm_ms')}ms server_tts={result['server'].get('tts_ms')}ms "
-            f"completed={result['completed']}"
+            f"[run {index + 1}/{args.runs}] stt={result['stt_ms']}ms first_audio={result['first_audio_ms']}ms "
+            f"end_to_end={result['end_to_end_ms']}ms segments={result['segment_count']} "
+            f"server_llm={result['server'].get('llm_ms')}ms completed={result['completed']}"
         )
 
     summary = {
@@ -232,9 +298,11 @@ def main() -> None:
         "llm_model": llm_model,
         "runtime_tuning": tuning,
         "aggregates": {
+            "stt_ms": _summarize(runs, "stt_ms"),
             "response_ms": _summarize(runs, "response_ms"),
             "assistant_ms": _summarize(runs, "assistant_ms"),
             "first_audio_ms": _summarize(runs, "first_audio_ms"),
+            "end_to_end_ms": _summarize(runs, "end_to_end_ms"),
             "total_ms": _summarize(runs, "total_ms"),
             "segment_count": _summarize(runs, "segment_count"),
             "server_llm_ms": _summarize([r["server"] for r in runs], "llm_ms"),

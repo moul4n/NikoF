@@ -63,6 +63,21 @@ lean is on (off by default).
 at/under the original ~1–1.5 s plan target. The remaining ~0.84 s is qwen3:4b generating the slim
 JSON; further gains would come from a smaller/faster model or the Claude Haiku backend.
 
+## Full mic→ear (STT from a recorded question)
+
+`latency_bench.py --stt-dir <dir>` transcribes recorded `.wav` questions with faster-whisper (the
+backend's STT engine) and uses the transcript as input — so the whole audio→text→LLM→TTS path is
+measurable headlessly (the live mic can't be driven). Measured with the winning stack
+(qwen3:4b lean + Kokoro), questions like *"Explain the theory of relativity."*:
+
+| Leg | ms |
+|---|---|
+| STT (faster-whisper, GPU) | ~290 ms |
+| first-audio | ~1.5 s (p50 ~1.1 s) |
+| **end-to-end (STT + first-audio)** | **p50 ~1.37 s** |
+
+STT adds only ~290 ms; the full spoken-question → first-audio path is ~1.4 s.
+
 ## Reproduce
 
 Install engines (optional extras in `backend/pyproject.toml`):
