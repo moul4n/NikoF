@@ -305,6 +305,44 @@ def _build_llm_thinking_animation_snapshot(
     )
 
 
+def _build_lean_reply_prompt(
+    text: str,
+    *,
+    character_id: str,
+    voice_profile: Any,
+    memory_context: CompanionMemoryContext | None = None,
+) -> str:
+    """Slim planner prompt (Phase: LLM latency). Requests only reply_text +
+    feeling + a single animation cue, dropping thinking_summary / voice_tone /
+    memory_writebacks and the verbose guidance to cut generation tokens."""
+    lines = [
+        "You are a companion. Return exactly one JSON object and nothing else.",
+        'Schema: {"reply_text":"string","feeling":{"name":"string","intensity":0.0},"animation_cues":[{"cue":"string"}]}',
+        "reply_text: concise and natural aloud, one to three short sentences.",
+        "feeling.name: one mood word. animation_cues[].cue: one id like idle.neutral, idle.happy, "
+        "greet.wave.once, emote.excited.once (omit the array if none fits).",
+    ]
+    if memory_context is not None:
+        persona = memory_context.persona
+        if persona.display_name:
+            lines.append(f"You are {persona.display_name}.")
+        if persona.speech_style:
+            lines.append(f"Speech style: {persona.speech_style}.")
+        if persona.core_traits:
+            lines.append(f"Traits: {'; '.join(persona.core_traits)}.")
+        lines.append(
+            f"Mood: {memory_context.demeanor.mood}, energy {memory_context.demeanor.energy_level:.2f}."
+        )
+        retrieved = [f"- {entry.summary}" for entry in memory_context.retrieved_memories]
+        if retrieved:
+            lines.append("Relevant memory:")
+            lines.extend(retrieved)
+    if getattr(voice_profile, "style", None):
+        lines.append(f"Delivery style: {voice_profile.style}.")
+    lines.extend(["User message:", text])
+    return "\n".join(lines)
+
+
 def _build_spoken_reply_prompt(
     text: str,
     *,
@@ -312,7 +350,15 @@ def _build_spoken_reply_prompt(
     voice_profile: Any,
     memory_context: CompanionMemoryContext | None = None,
     input_source: str = "manual_text",
+    lean: bool = False,
 ) -> str:
+    if lean:
+        return _build_lean_reply_prompt(
+            text,
+            character_id=character_id,
+            voice_profile=voice_profile,
+            memory_context=memory_context,
+        )
     persona_lines = [f"persona_id: {character_id}"]
     if memory_context is not None:
         persona_lines = [
@@ -835,6 +881,7 @@ def run_user_text_turn(
             voice_profile=voice_profile,
             memory_context=memory_context,
             input_source="stt" if request.transcription is not None else "manual_text",
+            lean=tuning.llm_lean_planner,
         ),
         locale=request.locale,
         profile_id=LLM_BASELINE_PROFILE_IDS[0],

@@ -43,19 +43,25 @@ Since TTS is no longer the long pole, we benchmarked LLMs with **Kokoro** TTS (s
 reasoning model — thinking off gives fast, clean JSON-planner output). Model selected via
 `NIKOF_LLM_MODEL`. `gen` = `/system/resources` `turn_telemetry` `llm_ms`.
 
-| Model | VRAM | gen (LLM) | first-audio (+Kokoro) |
+| Model | Planner | gen (LLM) | first-audio (+Kokoro) |
 |---|---|---|---|
-| llama3.2:3b | 2.0 GB | ~4.4 s | ~5.6 s |
-| **qwen3:4b** (think off) | 2.5 GB | **~2.4 s** | **~3.3 s** |
-| qwen3:8b (think off) | 5.2 GB | ~3.6 s | ~4.3 s |
+| llama3.2:3b | full | ~4.4 s | ~5.6 s |
+| qwen3:4b (think off) | full | ~2.4 s | ~3.3 s |
+| qwen3:8b (think off) | full | ~3.6 s | ~4.3 s |
+| **qwen3:4b (think off)** | **lean** | **~0.84 s** | **~1.6 s** |
 
-**qwen3:4b is the speed winner** — it roughly halves generation vs llama3.2:3b, and qwen3:8b still
-beats llama3.2:3b despite being larger (qwen3 efficiency + thinking off). Confirm reply quality
-separately, but the JSON planner output is valid (turns came back `ready`).
+**qwen3:4b is the speed winner** (qwen3 efficiency + thinking off), and the **lean planner**
+(`NIKOF_LLM_LEAN_PLANNER=1`) is the single biggest LLM lever: requesting only
+`reply_text + feeling + animation_cues` (dropping `thinking_summary`, `voice_tone`,
+`memory_writebacks` and the verbose guidance) cut generation from **~2.4 s → ~0.84 s**. Reply
+quality is preserved (coherent, in-character, with a feeling) — the dropped fields were metadata,
+not the spoken reply. Trade-off: no per-turn durable memory writebacks or voice-tone hints while
+lean is on (off by default).
 
-**Cumulative win across all phases:** original GPT-SoVITS + llama3.2:3b first-audio **~6 s →
-qwen3:4b + Kokoro ~3.3 s** (streaming + segmentation + eager dispatch on). The remaining ~2.4 s is
-qwen3:4b generating the full planner JSON; trimming that prompt is the next lever.
+**Cumulative win across all phases:** original GPT-SoVITS + llama3.2:3b full-planner first-audio
+**~6 s → qwen3:4b + Kokoro + lean planner ~1.6 s** (streaming + segmentation + eager dispatch on) —
+at/under the original ~1–1.5 s plan target. The remaining ~0.84 s is qwen3:4b generating the slim
+JSON; further gains would come from a smaller/faster model or the Claude Haiku backend.
 
 ## Reproduce
 

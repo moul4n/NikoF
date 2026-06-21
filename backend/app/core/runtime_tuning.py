@@ -80,6 +80,11 @@ _DEFAULT_TTS_SEGMENT_MAX_CHARS = 240
 # also enabled. Requires a text-generation service that supports generate_stream.
 _DEFAULT_LLM_STREAMING_ENABLED = False
 
+# Lean planner: request a slim JSON planner (reply_text + feeling + animation
+# cue only — drop thinking_summary, voice_tone, memory_writebacks and the verbose
+# guidance) to cut generation tokens/latency. Off by default (full planner).
+_DEFAULT_LLM_LEAN_PLANNER = False
+
 
 @dataclass(slots=True, frozen=True)
 class RuntimeTuning:
@@ -93,6 +98,7 @@ class RuntimeTuning:
     tts_segment_min_chars: int
     tts_segment_max_chars: int
     llm_streaming_enabled: bool
+    llm_lean_planner: bool
 
 
 @lru_cache(maxsize=1)
@@ -121,4 +127,5 @@ def get_runtime_tuning() -> RuntimeTuning:
             "NIKOF_TTS_SEGMENT_MAX_CHARS", _DEFAULT_TTS_SEGMENT_MAX_CHARS, minimum=1
         ),
         llm_streaming_enabled=_bool_env("NIKOF_LLM_STREAMING", _DEFAULT_LLM_STREAMING_ENABLED),
+        llm_lean_planner=_bool_env("NIKOF_LLM_LEAN_PLANNER", _DEFAULT_LLM_LEAN_PLANNER),
     )
