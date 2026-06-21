@@ -16,6 +16,7 @@ from app.services.animation import (
 from app.services.animation_commands import AnimationCommandTranslator
 from app.services.character import CharacterService
 from app.services.session import InvalidEventCursor, SessionService
+from app.services.speech_audio_broadcast import get_speech_audio_broadcaster
 from app.services.speech import (
     SPEECH_LIFECYCLE_STREAM,
     SpeechLifecycleLiveDeliveryService,
@@ -255,11 +256,11 @@ def register_session_transport_routes(
 
     @router.websocket("/session/stream")
     async def session_stream(websocket: WebSocket) -> None:
-        # Phase 2 increment 1: unified streaming transport. Carries the SAME
-        # speech.lifecycle envelopes as the SSE read seam (control frames); binary
-        # audio frames are a later increment. SSE + file fetch remain the default
-        # fallback. Each frame is {event, kind, cursor, data} so web and Unity
-        # parse one shape.
+        # Phase 2: unified streaming transport. Carries the SAME speech.lifecycle
+        # envelopes as the SSE read seam (JSON control frames: {event,kind,cursor,
+        # data}) AND binary audio frames per synthesized segment (a JSON header
+        # {event:"speech.audio",utterance_id,segment_index,is_final,mime,bytes}
+        # followed by the WAV bytes). SSE + file fetch remain the default fallback.
         await websocket.accept()
         cursor = websocket.query_params.get("cursor")
         snapshot = services.session_service.get_snapshot()
@@ -269,15 +270,11 @@ def register_session_transport_routes(
             character_id=active_character.character_id,
             cursor=cursor,
         )
-        try:
-            await websocket.send_json(
-                {
-                    "event": SPEECH_LIFECYCLE_STREAM,
-                    "kind": "snapshot",
-                    "cursor": None,
-                    "data": serialize_dataclass_payload(transport_snapshot),
-                }
-            )
+        broadcaster = get_speech_audio_broadcaster()
+        broadcaster.bind_loop(asyncio.get_running_loop())
+        audio_queue = broadcaster.subscribe(snapshot.session_id)
+
+        async def pump_lifecycle() -> None:
             async for envelope in _iterate_blocking_iterator(
                 services.speech_lifecycle_live_delivery.iter_live_events(
                     snapshot,
@@ -293,9 +290,39 @@ def register_session_transport_routes(
                         "data": serialize_dataclass_payload(envelope),
                     }
                 )
+
+        async def pump_audio() -> None:
+            while True:
+                frame, audio = await audio_queue.get()
+                await websocket.send_json(frame)
+                await websocket.send_bytes(audio)
+
+        tasks: list[asyncio.Task] = []
+        try:
+            await websocket.send_json(
+                {
+                    "event": SPEECH_LIFECYCLE_STREAM,
+                    "kind": "snapshot",
+                    "cursor": None,
+                    "data": serialize_dataclass_payload(transport_snapshot),
+                }
+            )
+            tasks = [asyncio.create_task(pump_lifecycle()), asyncio.create_task(pump_audio())]
+            # Either pump ending (lifecycle stream finished, or a send raised on
+            # disconnect) tears the connection down.
+            done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                exc = task.exception()
+                if exc is not None and not isinstance(exc, WebSocketDisconnect):
+                    raise exc
         except WebSocketDisconnect:
-            return
-        except Exception:  # pragma: no cover - best-effort close on unexpected errors
+            pass
+        except Exception:  # pragma: no cover - best-effort cleanup on unexpected errors
+            pass
+        finally:
+            for task in tasks:
+                task.cancel()
+            broadcaster.unsubscribe(snapshot.session_id, audio_queue)
             try:
                 await websocket.close()
             except Exception:

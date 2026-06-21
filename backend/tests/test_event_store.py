@@ -225,6 +225,9 @@ class FakeWebSocket:
     async def send_json(self, data: dict) -> None:
         self.sent.append(data)
 
+    async def send_bytes(self, data: bytes) -> None:
+        self.sent.append(data)
+
     async def close(self) -> None:
         self.closed = True
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import logging
+from pathlib import Path
 import queue
 import threading
 import time
@@ -32,6 +33,7 @@ from app.services.speech import (
     project_public_session_event,
     project_public_speech_lifecycle_envelope,
 )
+from app.services.speech_audio_broadcast import get_speech_audio_broadcaster
 from app.services.text_segmentation import StreamingSentenceSegmenter, iter_sentence_segments
 from app.services.turn_telemetry import get_turn_telemetry
 
@@ -529,7 +531,7 @@ def _append_synthesis_event(
     snapshot: Any,
     character_id: str,
 ) -> SpeechLifecycleEventEnvelope:
-    return services.session_service.event_store.append(
+    envelope = services.session_service.event_store.append(
         SPEECH_LIFECYCLE_STREAM,
         services.session_event_factory.build_event(
             snapshot,
@@ -538,6 +540,39 @@ def _append_synthesis_event(
             status=synthesis.status,
             synthesis=synthesis,
         ),
+    )
+    _publish_segment_audio(snapshot, synthesis)
+    return envelope
+
+
+def _publish_segment_audio(snapshot: Any, synthesis: SpeechSynthesisContract) -> None:
+    """Phase 2: push the segment's WAV bytes to any connected WebSocket clients
+    (no-op when none are listening). The lifecycle event + artifact fetch remain
+    the source of truth; this just lets a client start audio without a fetch."""
+    broadcaster = get_speech_audio_broadcaster()
+    if not broadcaster.has_subscribers:
+        return
+    reference = synthesis.audio_reference
+    if not reference:
+        return
+    path = Path(reference)
+    if not path.is_file():  # session:// or non-file references aren't pushed
+        return
+    try:
+        audio = path.read_bytes()
+    except OSError:
+        return
+    broadcaster.publish(
+        snapshot.session_id,
+        {
+            "event": "speech.audio",
+            "utterance_id": synthesis.utterance_id,
+            "segment_index": synthesis.segment_index,
+            "is_final": synthesis.is_final,
+            "mime": "audio/wav",
+            "bytes": len(audio),
+        },
+        audio,
     )
 
 
