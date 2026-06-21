@@ -466,6 +466,16 @@ class TextGenerationStreamEvent:
     contract: AssistantMessageContract | None = None
 
 
+def _optional_generate_params() -> dict[str, Any]:
+    """Optional Ollama /api/generate params from env. NIKOF_LLM_THINK toggles a
+    reasoning model's thinking (e.g. qwen3) — set it false for fast, clean JSON
+    planner output during speed testing."""
+    raw = os.environ.get("NIKOF_LLM_THINK")
+    if raw is None or not raw.strip():
+        return {}
+    return {"think": raw.strip().lower() in {"1", "true", "yes", "on"}}
+
+
 @dataclass(slots=True)
 class StubTextGenerationService:
     """Deterministic fallback while no local LLM runtime is configured."""
@@ -509,7 +519,9 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             runtime_config.get("health_url") or runtime_config.get("health_endpoint"),
             endpoint=endpoint,
         )
-        model_name = _normalize_model_name(runtime_config.get("model"))
+        model_name = os.environ.get("NIKOF_LLM_MODEL", "").strip() or _normalize_model_name(
+            runtime_config.get("model")
+        )
         configured = provider_root.exists() and model_root.exists()
         manage_process = _coerce_bool(
             runtime_config.get("manage_process")
@@ -576,6 +588,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
                     "model": binding.model_name,
                     "prompt": request.prompt,
                     **({"format": "json"} if request.expect_structured_output else {}),
+                    **_optional_generate_params(),
                     "stream": False,
                 },
                 timeout_seconds=binding.timeout_seconds,
@@ -652,6 +665,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             "prompt": request.prompt,
             "stream": True,
             **({"format": "json"} if request.expect_structured_output else {}),
+            **_optional_generate_params(),
         }
         extractor = ReplyTextStreamExtractor()
         completion_parts: list[str] = []

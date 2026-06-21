@@ -36,6 +36,27 @@ slowest of the three — XTTS is heavier per synth even on GPU.
 **Next lever for first-audio: the LLM** — trim the planner prompt, use a faster local model, or the
 Claude Haiku backend (Phase 5). TTS is no longer the long pole once Kokoro is used.
 
+## LLM comparison (the actual bottleneck)
+
+Since TTS is no longer the long pole, we benchmarked LLMs with **Kokoro** TTS (so the LLM dominates),
+`NIKOF_TTS_SEGMENTATION=1`, `NIKOF_LLM_STREAMING=1`, and `NIKOF_LLM_THINK=false` (qwen3 is a
+reasoning model — thinking off gives fast, clean JSON-planner output). Model selected via
+`NIKOF_LLM_MODEL`. `gen` = `/system/resources` `turn_telemetry` `llm_ms`.
+
+| Model | VRAM | gen (LLM) | first-audio (+Kokoro) |
+|---|---|---|---|
+| llama3.2:3b | 2.0 GB | ~4.4 s | ~5.6 s |
+| **qwen3:4b** (think off) | 2.5 GB | **~2.4 s** | **~3.3 s** |
+| qwen3:8b (think off) | 5.2 GB | ~3.6 s | ~4.3 s |
+
+**qwen3:4b is the speed winner** — it roughly halves generation vs llama3.2:3b, and qwen3:8b still
+beats llama3.2:3b despite being larger (qwen3 efficiency + thinking off). Confirm reply quality
+separately, but the JSON planner output is valid (turns came back `ready`).
+
+**Cumulative win across all phases:** original GPT-SoVITS + llama3.2:3b first-audio **~6 s →
+qwen3:4b + Kokoro ~3.3 s** (streaming + segmentation + eager dispatch on). The remaining ~2.4 s is
+qwen3:4b generating the full planner JSON; trimming that prompt is the next lever.
+
 ## Reproduce
 
 Install engines (optional extras in `backend/pyproject.toml`):

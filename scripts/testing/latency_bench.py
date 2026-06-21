@@ -201,7 +201,10 @@ def main() -> None:
     except urllib.error.URLError as exc:
         raise SystemExit(f"Backend not reachable at {base_url}: {exc}")
     tuning = resources.get("runtime_tuning", {})
-    print("Active runtime tuning:")
+    llm_model = (resources.get("llm_sidecar") or {}).get("model_name")
+    print("Active config:")
+    print(f"  llm_model                = {llm_model}")
+    print(f"  tts_engine               = {tuning.get('tts_engine')}")
     print(f"  tts_segmentation_enabled = {tuning.get('tts_segmentation_enabled')}")
     print(f"  llm_streaming_enabled    = {tuning.get('llm_streaming_enabled')}")
     print()
@@ -226,6 +229,7 @@ def main() -> None:
     summary = {
         "base_url": base_url,
         "runs": len(runs),
+        "llm_model": llm_model,
         "runtime_tuning": tuning,
         "aggregates": {
             "response_ms": _summarize(runs, "response_ms"),

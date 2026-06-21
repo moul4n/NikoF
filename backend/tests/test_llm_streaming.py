@@ -97,5 +97,17 @@ class OllamaStreamTests(unittest.TestCase):
         self.assertEqual(events[0].contract.status, "unavailable")
 
 
+class OptionalGenerateParamsTests(unittest.TestCase):
+    def test_absent_returns_empty(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(llm._optional_generate_params(), {})
+
+    def test_think_false_and_true(self) -> None:
+        with patch.dict("os.environ", {"NIKOF_LLM_THINK": "false"}, clear=True):
+            self.assertEqual(llm._optional_generate_params(), {"think": False})
+        with patch.dict("os.environ", {"NIKOF_LLM_THINK": "1"}, clear=True):
+            self.assertEqual(llm._optional_generate_params(), {"think": True})
+
+
 if __name__ == "__main__":
     unittest.main()
