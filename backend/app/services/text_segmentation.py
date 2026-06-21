@@ -57,10 +57,12 @@ class StreamingSentenceSegmenter:
     ``iter_sentence_segments`` so streamed and batch segmentation agree.
     """
 
-    def __init__(self, *, min_chars: int, max_chars: int) -> None:
+    def __init__(self, *, min_chars: int, max_chars: int, eager_first: bool = True) -> None:
         self._buffer = ""
         self._min_chars = min_chars
         self._max_chars = max_chars
+        self._eager_first = eager_first
+        self._emitted_any = False
 
     def feed(self, text: str) -> list[str]:
         if not text:
@@ -68,22 +70,47 @@ class StreamingSentenceSegmenter:
         self._buffer += text
         # Sentence-start offsets in the RAW buffer (so spacing is preserved).
         starts = [match.end() for match in _SENTENCE_BOUNDARY.finditer(self._buffer)]
-        # Hold back the last *complete* sentence as well as the trailing partial
-        # one, so a short fragment can still merge forward into what follows.
+
+        if self._eager_first and not self._emitted_any:
+            # First audio dominates perceived latency, so dispatch the opening
+            # sentence(s) as soon as a boundary appears and there is enough text
+            # to be worth a synthesis call — don't wait for a second boundary.
+            if not starts:
+                return []
+            split = starts[-1]
+            stable = self._buffer[:split]
+            if len(stable.strip()) < self._min_chars:
+                return []  # too short; let it merge forward instead
+            emitted = iter_sentence_segments(
+                stable, min_chars=self._min_chars, max_chars=self._max_chars
+            )
+            if not emitted:
+                return []
+            self._buffer = self._buffer[split:]
+            self._emitted_any = True
+            return emitted
+
+        # Subsequent segments: hold back the last *complete* sentence plus the
+        # trailing partial, so a short fragment can still merge forward.
         if len(starts) < 2:
             return []
         split = starts[-2]
         stable = self._buffer[:split]
         self._buffer = self._buffer[split:]
-        return iter_sentence_segments(
+        emitted = iter_sentence_segments(
             stable, min_chars=self._min_chars, max_chars=self._max_chars
         )
+        if emitted:
+            self._emitted_any = True
+        return emitted
 
     def flush(self) -> list[str]:
         segments = iter_sentence_segments(
             self._buffer, min_chars=self._min_chars, max_chars=self._max_chars
         )
         self._buffer = ""
+        if segments:
+            self._emitted_any = True
         return segments
 
 

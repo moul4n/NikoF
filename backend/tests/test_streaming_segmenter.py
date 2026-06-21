@@ -16,13 +16,14 @@ class StreamingSentenceSegmenterTests(unittest.TestCase):
     def _segmenter(self) -> StreamingSentenceSegmenter:
         return StreamingSentenceSegmenter(min_chars=12, max_chars=240)
 
-    def test_emits_completed_sentences_and_holds_growing_tail(self) -> None:
+    def test_eager_first_emits_opening_sentence_immediately(self) -> None:
         segmenter = self._segmenter()
         emitted: list[str] = []
-        # One boundary seen so far -> hold (the sentence could still merge fwd).
+        # Eager: the opening sentence dispatches on its first boundary so first
+        # audio can start while the LLM is still generating the rest.
         emitted += segmenter.feed("First sentence here. Second sen")
-        self.assertEqual(emitted, [])
-        # A second boundary confirms sentence 1 is complete and won't merge.
+        self.assertEqual(emitted, ["First sentence here."])
+        # Later sentences hold the last complete one for merge-forward.
         emitted += segmenter.feed("tence here. Third sentence here.")
         self.assertEqual(emitted, ["First sentence here."])
         emitted += segmenter.flush()
@@ -30,6 +31,17 @@ class StreamingSentenceSegmenterTests(unittest.TestCase):
             emitted,
             ["First sentence here.", "Second sentence here.", "Third sentence here."],
         )
+
+    def test_eager_first_holds_short_opening_fragment_until_it_merges(self) -> None:
+        segmenter = self._segmenter()
+        # "Sure." is below min_chars, so eager dispatch waits and lets it merge.
+        self.assertEqual(segmenter.feed("Sure. "), [])
+        self.assertEqual(segmenter.feed("Here is the real first sentence. And more."), ["Sure. Here is the real first sentence."])
+
+    def test_hold_back_mode_waits_for_second_boundary(self) -> None:
+        segmenter = StreamingSentenceSegmenter(min_chars=12, max_chars=240, eager_first=False)
+        self.assertEqual(segmenter.feed("First sentence here. Second sen"), [])
+        self.assertEqual(segmenter.feed("tence here. Third sentence here."), ["First sentence here."])
 
     def test_flush_only_when_no_boundary_seen(self) -> None:
         segmenter = self._segmenter()
