@@ -42,6 +42,28 @@ The dominant cost is **waiting**, not raw model speed. Overlap recovers most of 
 
 ---
 
+## Measuring it (benchmark harness)
+
+`scripts/testing/latency_bench.py` drives the **real** pipeline through the canonical write seam
+and measures the numbers above so each phase can be proven, not asserted. Against a live backend
+(models loaded):
+
+```powershell
+.venv\Scripts\python.exe scripts\testing\latency_bench.py --runs 5
+```
+
+It posts real prompts to `POST /session/operator-command`, watches `GET /session/speech-lifecycle`,
+and reports `first_audio_ms` (time to the first speech.synthesis segment), `total_ms` (to the final
+segment), `segment_count`, and the backend's own `llm_ms`/`tts_ms` (from `/system/resources`
+`turn_telemetry`). It records the active flags (`tts_segmentation_enabled`, `llm_streaming_enabled`,
+now exposed under `/system/resources` `runtime_tuning`) so results are self-documenting, and fetches
+the first segment's audio artifact to confirm real, playable output. Compare configs by restarting
+the backend with different env (e.g. `NIKOF_TTS_SEGMENTATION=1`, `NIKOF_LLM_STREAMING=1`) and
+re-running. **Limitation:** the STT (mic) leg is not driven — automating it needs a sidecar
+audio-injection feature; this harness measures the text→LLM→TTS path where Phase 1 latency lives.
+
+---
+
 ## Cross-cutting rules (do not regress)
 
 These come from `CLAUDE.md` and the earned speech seams. Every phase must honor them:

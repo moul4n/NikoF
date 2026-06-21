@@ -10,6 +10,7 @@ from typing import Any
 
 from app.services.llm import TextGenerationSidecarManager, TextGenerationSidecarStatus, get_text_generation_sidecar_manager
 from app.services.resource_monitor import get_resource_monitor, ResourceSnapshot
+from app.core.runtime_tuning import get_runtime_tuning
 from app.services.stt_worker import STTWorkerStatus, get_stt_worker
 from app.services.tts_worker import get_tts_worker, TTSWorkerStatus
 from app.services.turn_telemetry import get_turn_telemetry
@@ -31,6 +32,7 @@ class ResourceStatusResponse:
     tts_worker: dict[str, Any]
     stt_worker: dict[str, Any]
     turn_telemetry: dict[str, Any]
+    runtime_tuning: dict[str, Any]
     warnings: list[str]
 
 
@@ -163,6 +165,20 @@ def _serialize_stt_worker(status: STTWorkerStatus) -> dict[str, Any]:
     }
 
 
+def _serialize_runtime_tuning() -> dict[str, Any]:
+    tuning = get_runtime_tuning()
+    return {
+        "stt_poll_interval_seconds": tuning.stt_poll_interval_seconds,
+        "speech_lifecycle_poll_interval_seconds": tuning.speech_lifecycle_poll_interval_seconds,
+        "warm_llm_on_start": tuning.warm_llm_on_start,
+        "warm_tts_on_start": tuning.warm_tts_on_start,
+        "tts_segmentation_enabled": tuning.tts_segmentation_enabled,
+        "tts_segment_min_chars": tuning.tts_segment_min_chars,
+        "tts_segment_max_chars": tuning.tts_segment_max_chars,
+        "llm_streaming_enabled": tuning.llm_streaming_enabled,
+    }
+
+
 def build_resource_status_response(
     llm_sidecar_manager: TextGenerationSidecarManager | None = None,
 ) -> ResourceStatusResponse:
@@ -184,6 +200,7 @@ def build_resource_status_response(
         tts_worker=_serialize_tts_worker(tts_worker.status()),
         stt_worker=_serialize_stt_worker(stt_worker.status()),
         turn_telemetry=get_turn_telemetry().summary(),
+        runtime_tuning=_serialize_runtime_tuning(),
         warnings=list(snap.warnings),
     )
 
@@ -206,6 +223,7 @@ def register_resource_routes(router: Any) -> None:
             "tts_worker": response.tts_worker,
             "stt_worker": response.stt_worker,
             "turn_telemetry": response.turn_telemetry,
+            "runtime_tuning": response.runtime_tuning,
             "warnings": response.warnings,
         }
 
