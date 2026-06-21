@@ -85,6 +85,8 @@ interface BridgeProps {
   canonicalSynthesisEvent: BackendSessionEventDocument | null;
   latestAvailableSynthesisEvent: BackendSessionEventDocument | null;
   canonicalSynthesisSegments: BackendSessionEventDocument[];
+  playbackEnabled?: boolean;
+  resolveSegmentAudioOverride?: (utteranceId: string | null, segmentIndex: number | null) => string | null;
 }
 
 async function flush(): Promise<void> {
@@ -197,6 +199,58 @@ describe("useSpeechPlaybackBridge playlist sequencing", () => {
       FakeAudio.instances[0].dispatch("ended");
     });
     expect((runtime.clearSpeechReaction as ReturnType<typeof vi.fn>).mock.calls.length).toBe(clearsBefore + 1);
+  });
+
+  it("does not voice replies when playbackEnabled is false (non-avatar surface)", async () => {
+    const runtime = makeRuntime();
+    renderHook((props: BridgeProps) => useSpeechPlaybackBridge(props), {
+      initialProps: {
+        runtime,
+        canonicalSynthesisEvent: null,
+        latestAvailableSynthesisEvent: null,
+        canonicalSynthesisSegments: [segment(0, true, "Only here for the avatar window.")],
+        playbackEnabled: false
+      }
+    });
+
+    await flush();
+    expect(FakeAudio.instances).toHaveLength(0);
+    expect((runtime.beginSpeechReaction as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("prefers a streamed audio override (blob url) over the canonical audio_reference", async () => {
+    const runtime = makeRuntime();
+    renderHook((props: BridgeProps) => useSpeechPlaybackBridge(props), {
+      initialProps: {
+        runtime,
+        canonicalSynthesisEvent: null,
+        latestAvailableSynthesisEvent: null,
+        canonicalSynthesisSegments: [segment(0, true, "Streamed.")],
+        resolveSegmentAudioOverride: (utteranceId, segmentIndex) =>
+          utteranceId === "u1" && segmentIndex === 0 ? "blob:streamed-seg0" : null
+      }
+    });
+
+    await flush();
+    expect(FakeAudio.instances.map((audio) => audio.src)).toEqual(["blob:streamed-seg0"]);
+  });
+
+  it("falls back to the artifact fetch when no streamed override is available", async () => {
+    const runtime = makeRuntime();
+    renderHook((props: BridgeProps) => useSpeechPlaybackBridge(props), {
+      initialProps: {
+        runtime,
+        canonicalSynthesisEvent: null,
+        latestAvailableSynthesisEvent: null,
+        canonicalSynthesisSegments: [segment(0, true, "Fetched.")],
+        resolveSegmentAudioOverride: () => null
+      }
+    });
+
+    await flush();
+    expect(FakeAudio.instances.map((audio) => audio.src)).toEqual([
+      "/api/session/speech-artifacts/seg0/audio"
+    ]);
   });
 
   it("suppresses auto-play on mount when the latest event is already resolved", async () => {

@@ -7,6 +7,7 @@ import {
 import {
   useSpeechPlaybackBridge,
 } from "./useSpeechPlaybackBridge";
+import { useSpeechAudioStream } from "./useSpeechAudioStream";
 import {
   ControlSurfaceShell,
   DisplaySurfaceShell
@@ -80,11 +81,18 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     speechLifecycleState.snapshot,
     latestPublishedCommand
   );
+  // Voice replies only on the surface that renders the avatar/animation
+  // (the display surface). This both fixes duplicate audio across windows and
+  // scopes the streamed-audio WebSocket consumer to the page with the avatar.
+  const isAvatarPlaybackSurface = surfaceMode === "display";
+  const speechAudioStream = useSpeechAudioStream({ enabled: isAvatarPlaybackSurface });
   const speechPlaybackStatus = useSpeechPlaybackBridge({
     runtime,
     canonicalSynthesisEvent: preferredSpeechSynthesisEvent,
     latestAvailableSynthesisEvent: speechLifecycleState.snapshot?.canonicalSpeechSynthesisEvent ?? null,
-    canonicalSynthesisSegments: speechLifecycleState.snapshot?.canonicalSpeechSynthesisSegments ?? []
+    canonicalSynthesisSegments: speechLifecycleState.snapshot?.canonicalSpeechSynthesisSegments ?? [],
+    playbackEnabled: isAvatarPlaybackSurface,
+    resolveSegmentAudioOverride: speechAudioStream.getSegmentAudioUrl
   });
   const avatarRuntimeSnapshot = useAvatarRuntimeSnapshot({ runtime });
   const {

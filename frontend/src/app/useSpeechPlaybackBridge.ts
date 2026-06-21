@@ -63,6 +63,18 @@ interface UseSpeechPlaybackBridgeOptions {
   // Phase 1a: ordered segments of the current utterance. Defaults to empty,
   // in which case the bridge plays the single canonicalSynthesisEvent (legacy).
   canonicalSynthesisSegments?: BackendSessionEventDocument[];
+  // When false, the bridge tracks lifecycle status (so non-avatar surfaces can
+  // show playback state and still relay cross-window replays) but never starts
+  // local audio/timing playback. Wire this to "is this the avatar surface?" so
+  // a reply is voiced on exactly one page — no duplicate audio on control/
+  // settings windows. Defaults to true (legacy single-surface behavior).
+  playbackEnabled?: boolean;
+  // Phase 2 increment 3: optional browser-safe override for a segment's audio
+  // source, keyed by (utterance_id, segment_index). When it returns a URL
+  // (a streamed blob: from the WebSocket transport), the bridge plays it
+  // instead of resolving the backend audio_reference — saving the artifact
+  // fetch round-trip. Returns null to fall back to the canonical reference.
+  resolveSegmentAudioOverride?: (utteranceId: string | null, segmentIndex: number | null) => string | null;
 }
 
 interface SpeechPlaybackStateSeed {
@@ -84,7 +96,9 @@ export function useSpeechPlaybackBridge({
   runtime,
   canonicalSynthesisEvent,
   latestAvailableSynthesisEvent,
-  canonicalSynthesisSegments
+  canonicalSynthesisSegments,
+  playbackEnabled = true,
+  resolveSegmentAudioOverride
 }: UseSpeechPlaybackBridgeOptions): SpeechPlaybackState {
   const [speechPlaybackStatus, setSpeechPlaybackStatus] = useState<SpeechPlaybackSnapshot>(() => createIdleSpeechPlaybackState(null));
   const [speechPlaybackWindowId] = useState(() => {
@@ -163,6 +177,12 @@ export function useSpeechPlaybackBridge({
   }, [latestAvailableSynthesisEvent]);
 
   useEffect(() => {
+    if (!playbackEnabled) {
+      // Non-avatar surface: do not voice replies here. Lifecycle status is
+      // still tracked by the latestAvailableSynthesisEvent effect above.
+      return;
+    }
+
     const segments = resolvePlaylistSegments(canonicalSynthesisSegments, canonicalSynthesisEvent);
 
     if (segments.length === 0) {
@@ -186,7 +206,7 @@ export function useSpeechPlaybackBridge({
 
     speechPlaybackBridge.utteranceSegments = segments;
     playSegmentAtCursor();
-  }, [canonicalSynthesisSegments, canonicalSynthesisEvent, runtime, speechPlaybackBridge]);
+  }, [canonicalSynthesisSegments, canonicalSynthesisEvent, runtime, speechPlaybackBridge, playbackEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -278,7 +298,15 @@ export function useSpeechPlaybackBridge({
 
     speechPlaybackBridge.handledPlaybackKey = playbackKey;
 
-    const audioResolution = resolveSpeechSynthesisAudioSource(segmentEvent.synthesis.audio_reference);
+    // Prefer a streamed blob: URL for this segment (WebSocket transport) over a
+    // fetch of the canonical audio_reference; fall back when none has arrived.
+    const streamedAudioUrl = resolveSegmentAudioOverride?.(
+      normalizeOptionalText(segmentEvent.synthesis.utterance_id),
+      segmentEvent.synthesis.segment_index ?? null
+    ) ?? null;
+    const audioResolution = resolveSpeechSynthesisAudioSource(
+      streamedAudioUrl ?? segmentEvent.synthesis.audio_reference
+    );
     const playbackBundle = buildSpeechPlaybackBundle(segmentEvent, playbackKey, audioResolution);
     const playbackStateSeed = buildSpeechPlaybackStateSeed(playbackBundle, segmentEvent);
     const speechReactionInput = resolveSpeechReactionInput(playbackBundle);
@@ -620,6 +648,13 @@ export function useSpeechPlaybackBridge({
     replayPlaybackKey: string,
     synthesisStatus: string | null
   ): void {
+    if (!playbackEnabled) {
+      // Non-avatar surface: relay-only. replayLastBundle still broadcasts the
+      // request to the avatar window via localStorage; we just don't voice it
+      // here. Inbound storage relays are likewise ignored on this surface.
+      return;
+    }
+
     const playbackStateSeed: SpeechPlaybackStateSeed = {
       bundle: playbackBundle,
       synthesisStatus

@@ -62,6 +62,9 @@ export default defineConfig({
       "/api": {
         target: backendProxyTarget,
         changeOrigin: true,
+        // Proxy WebSocket upgrades too (the /api/session/stream binary-audio
+        // transport), not just HTTP requests.
+        ws: true,
         rewrite: (path: string) => path.replace(/^\/api/, "")
       }
     }
