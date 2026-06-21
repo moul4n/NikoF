@@ -13,7 +13,8 @@ from typing import Any
 
 from app.core.runtime_tuning import get_runtime_tuning
 from app.core.settings import AppPaths, get_app_paths
-from app.schemas.session import AudioFormatMetadata, SpeechTimingMetadata, STT_BASELINE_PROFILE_IDS, SpeechTranscriptionContract
+from app.schemas.session import AudioFormatMetadata, SpeechTimingMetadata, SpeechTranscriptionContract
+from app.providers.stt_engines import resolve_stt_engine_name, stt_profile_id_for
 from app.services.resource_monitor import SubsystemTracker, get_resource_monitor
 from app.services.stt_server import FasterWhisperServerError, FasterWhisperServerManager, get_server_manager
 from app.services.turns import UserTurnRequest, UserTurnServices, run_user_text_turn
@@ -331,7 +332,7 @@ class STTWorker:
             return
 
         transcription = SpeechTranscriptionContract(
-            profile_id=STT_BASELINE_PROFILE_IDS[0],
+            profile_id=stt_profile_id_for(resolve_stt_engine_name()),
             status="ready",
             locale=locale,
             transcript=transcript,

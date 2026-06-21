@@ -32,6 +32,16 @@ xtts = [
 	"torchaudio>=2.6,<2.9",
 	"transformers>=4.57,<4.58",
 ]
+# Streaming STT (Phase 3), selected via NIKOF_STT_ENGINE=parakeet. NVIDIA
+# Parakeet TDT 0.6B v2 via onnx-asr on onnxruntime-gpu (CUDA EP), in-process
+# like Kokoro — no NeMo/torch. onnxruntime-gpu replaces the CPU onnxruntime
+# wheel (it still ships CPUExecutionProvider, so Kokoro keeps working). Model
+# files live at <stt_models_root>/parakeet-tdt-0.6b-v2 (acquired locally, not
+# committed).
+parakeet = [
+	"onnx-asr>=0.11,<1.0",
+	"onnxruntime-gpu>=1.20,<2.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

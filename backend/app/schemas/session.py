@@ -13,6 +13,7 @@ from app.schemas.character import CharacterSummary
 STT_BASELINE_PROFILE_IDS = (
     "stt.faster-whisper.medium-2026",
     "stt.faster-whisper.small-2026",
+    "stt.parakeet-tdt.0.6b-v2-2026",
 )
 
 TTS_BASELINE_PROFILE_IDS = (

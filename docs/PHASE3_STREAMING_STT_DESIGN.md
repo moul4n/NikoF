@@ -10,7 +10,7 @@ selectable fallback. Default only switches after a WER A/B gate passes.
 
 ## Where it plugs in (current architecture)
 
-```
+```text
 HotMicRuntime (sidecar)  →  /events poll  →  STTWorker  →  run_user_text_turn  →  LLM/TTS
 faster_whisper_runtime.py     stt_server     stt_worker.py    turns.py
 ```
@@ -69,6 +69,26 @@ Faster-Whisper), never committed.
    speaking (Parakeet streaming or periodic re-decode); worker forwards them display-only (LLM still
    fires on confirmed); frontend shows live captions on the avatar surface. Endpointing tightened so
    the final lands ~0.2–0.4 s after speech end.
+
+## Status (2026-06-21)
+
+Increments 1 + 2 (engine seam, deps, wiring) are committed:
+
+- Contract plumbing (`is_final`, `transcript.partial`) — additive, baseline-safe.
+- `NIKOF_STT_ENGINE` selection; default `faster-whisper`.
+- Deps installed: `onnxruntime-gpu` (replaced the CPU `onnxruntime` wheel; Kokoro still imports and
+  keeps `CPUExecutionProvider`) + `onnx-asr`. Captured as the `backend[parakeet]` extra.
+- Parakeet wired into the sidecar hot-mic loop and the one-shot path (`faster_whisper_runtime.py`,
+  inlined to keep the sidecar free of `app.*` imports) and into the worker's profile-id stamping.
+
+**Remaining (needs the GPU free):**
+
+1. **Model acquisition.** Place the Parakeet TDT 0.6B v2 ONNX export at
+   `<NIKOF_STT_MODELS_ROOT>/parakeet-tdt-0.6b-v2` (default `%LOCALAPPDATA%\NikoF\models\stt\…`).
+   `onnx-asr` resolves `nemo-parakeet-tdt-0.6b-v2` from that local dir; fetch the pre-exported ONNX
+   from Hugging Face (e.g. `huggingface-cli download istupakov/parakeet-tdt-0.6b-v2-onnx --local-dir
+   <…>/parakeet-tdt-0.6b-v2`). Never committed.
+2. **Smoke + WER A/B** with `NIKOF_STT_ENGINE=parakeet` and `NIKOF_STT_ALLOW_GPU=1`.
 
 ## Risk & rollout
 

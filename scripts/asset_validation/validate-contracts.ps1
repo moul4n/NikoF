@@ -370,7 +370,8 @@ function Assert-SessionEventShape {
 
     $baselineSttProfileIds = @(
         'stt.faster-whisper.medium-2026',
-        'stt.faster-whisper.small-2026'
+        'stt.faster-whisper.small-2026',
+        'stt.parakeet-tdt.0.6b-v2-2026'
     )
     $baselineTtsProfileIds = @(
         'tts.gpt-sovits.2026-stable'

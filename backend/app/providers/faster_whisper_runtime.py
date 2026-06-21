@@ -150,11 +150,63 @@ def _resample_audio(audio: Any, source_rate_hz: int, target_rate_hz: int) -> Any
     return np.interp(target_positions, source_positions, audio).astype(np.float32)
 
 
+# Phase 3: selectable recognizer. "faster-whisper" (default) keeps the existing
+# engine; "parakeet" loads NVIDIA Parakeet TDT 0.6B v2 via onnx-asr. The sidecar
+# stays self-contained (no app.* imports) so the Parakeet glue is inlined here,
+# mirroring app/providers/stt_engines.py (the in-process equivalent).
+PARAKEET_MODEL_DIRNAME = "parakeet-tdt-0.6b-v2"
+_PARAKEET_ONNX_MODEL_ID = "nemo-parakeet-tdt-0.6b-v2"
+
+
+def _resolve_engine_name() -> str:
+    raw = os.environ.get("NIKOF_STT_ENGINE", "").strip().lower()
+    return raw if raw in {"faster-whisper", "parakeet"} else "faster-whisper"
+
+
+def _prefer_gpu() -> bool:
+    if os.environ.get("NIKOF_STT_DEVICE_POLICY", "auto").strip().lower() == "cpu":
+        return False
+    return os.environ.get("NIKOF_STT_ALLOW_GPU", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parakeet_model_root(whisper_model_root: Path) -> Path:
+    # Parakeet lives beside the Faster-Whisper model under the shared STT root.
+    return whisper_model_root.parent / PARAKEET_MODEL_DIRNAME
+
+
+def _load_parakeet_model(model_root: Path) -> tuple[Any, str, str]:
+    try:
+        import onnx_asr
+    except ImportError as error:
+        raise RuntimeError("onnx-asr is not installed; install backend[parakeet] for the Parakeet engine.") from error
+
+    if not model_root.exists():
+        raise RuntimeError(f"Parakeet model directory not found: {model_root}")
+
+    if _prefer_gpu():
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        device = "cuda"
+    else:
+        providers = ["CPUExecutionProvider"]
+        device = "cpu"
+    model = onnx_asr.load_model(_PARAKEET_ONNX_MODEL_ID, str(model_root), providers=providers)
+    return model, device, "onnx"
+
+
+def _coerce_parakeet_text(recognized: Any) -> str:
+    if isinstance(recognized, str):
+        return recognized.strip()
+    if isinstance(recognized, (list, tuple)):
+        return " ".join(str(part) for part in recognized).strip()
+    text = getattr(recognized, "text", None)
+    return str(text).strip() if text is not None else str(recognized).strip()
+
+
 def _load_model(model_root: Path) -> tuple[Any, str, str]:
     if WhisperModel is None:
         raise RuntimeError("faster-whisper is not installed")
 
-    prefer_gpu = os.environ.get("NIKOF_STT_ALLOW_GPU", "0").strip().lower() in {"1", "true", "yes", "on"}
+    prefer_gpu = _prefer_gpu()
     device_policy = os.environ.get("NIKOF_STT_DEVICE_POLICY", "auto").strip().lower() or "auto"
     model_path = str(model_root)
 
@@ -167,9 +219,37 @@ def _load_model(model_root: Path) -> tuple[Any, str, str]:
     return WhisperModel(model_path, device="cpu", compute_type="int8"), "cpu", "int8"
 
 
+def _transcribe_audio_parakeet(model_root: Path, audio: Any, *, locale: str) -> dict[str, Any]:
+    model, device, compute_type = _load_parakeet_model(model_root)
+    transcript = _coerce_parakeet_text(model.recognize(audio.astype(np.float32)))
+    duration_ms = int(round(audio.shape[0] * 1000 / SERVER_SAMPLE_RATE_HZ)) if getattr(audio, "shape", None) else 0
+    success = bool(transcript)
+    return {
+        "status": "final" if success else "unavailable",
+        "transcript": transcript or "Local transcription is unavailable.",
+        "locale": locale,
+        "confidence": None,
+        "timing": {
+            "utterance_duration_ms": duration_ms,
+            "segment_ranges": [],
+            "audio_format": {
+                "container": "wav",
+                "encoding": "pcm_f32le",
+                "sample_rate_hz": SERVER_SAMPLE_RATE_HZ,
+                "channels": 1,
+            },
+        },
+        "device": device,
+        "compute_type": compute_type,
+    }
+
+
 def _transcribe_audio(model_root: Path, audio: Any, *, locale: str) -> dict[str, Any]:
     if np is None:
         raise RuntimeError("numpy is not installed")
+
+    if _resolve_engine_name() == "parakeet":
+        return _transcribe_audio_parakeet(_parakeet_model_root(model_root), audio, locale=locale)
 
     model, device, compute_type = _load_model(model_root)
     segments, _info = model.transcribe(
@@ -285,6 +365,7 @@ class HotMicRuntime:
     def __init__(self, *, model_root: Path, locale: str = "en-US") -> None:
         self._model_root = model_root
         self._locale = locale
+        self._engine_name = _resolve_engine_name()
         self._owner_pid = _owner_pid_from_env()
         self._model = None
         self._compute_device = "cpu"
@@ -317,7 +398,12 @@ class HotMicRuntime:
 
     def _load_runtime(self) -> None:
         try:
-            self._model, self._compute_device, self._compute_type = _load_model(self._model_root)
+            if self._engine_name == "parakeet":
+                self._model, self._compute_device, self._compute_type = _load_parakeet_model(
+                    _parakeet_model_root(self._model_root)
+                )
+            else:
+                self._model, self._compute_device, self._compute_type = _load_model(self._model_root)
             self._set_state("ready")
         except Exception as exc:
             self._last_error = str(exc)
@@ -341,12 +427,16 @@ class HotMicRuntime:
         )
 
     def health(self) -> dict[str, Any]:
+        model_name = (
+            PARAKEET_MODEL_DIRNAME if self._engine_name == "parakeet" else self._model_root.name
+        )
         return {
             "status": "ready" if self._state != "error" else "error",
             "model_loaded": self._model is not None,
             "state": self._state,
             "owner_pid": self._owner_pid,
-            "model_name": self._model_root.name,
+            "engine": self._engine_name,
+            "model_name": model_name,
             "compute_device": self._compute_device,
             "compute_type": self._compute_type,
             "last_error": self._last_error,
@@ -608,6 +698,45 @@ class HotMicRuntime:
             if self._listening:
                 self._set_state("listening")
 
+    def _transcribe_segment(self, audio: Any) -> tuple[str, list[dict[str, Any]], float | None]:
+        """Engine-neutral utterance transcription. Returns
+        (transcript, segment_ranges, confidence)."""
+        if self._engine_name == "parakeet":
+            transcript = _coerce_parakeet_text(self._model.recognize(audio))
+            return transcript, [], None
+
+        segments, _info = self._model.transcribe(
+            audio,
+            language=_resolve_locale_language(self._locale),
+            beam_size=1,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            compression_ratio_threshold=2.4,
+            no_speech_threshold=0.55,
+        )
+        transcript_parts: list[str] = []
+        segment_ranges: list[dict[str, Any]] = []
+        confidences: list[float] = []
+        for segment in segments:
+            text = str(getattr(segment, "text", "") or "").strip()
+            if not text:
+                continue
+            transcript_parts.append(text)
+            segment_ranges.append(
+                {
+                    "start_ms": int(round(float(getattr(segment, "start", 0.0)) * 1000)),
+                    "end_ms": int(round(float(getattr(segment, "end", 0.0)) * 1000)),
+                    "text": text,
+                }
+            )
+            avg_logprob = getattr(segment, "avg_logprob", None)
+            if avg_logprob is not None:
+                confidences.append(max(0.0, min(1.0, math.exp(float(avg_logprob)))))
+
+        transcript = " ".join(transcript_parts).strip()
+        confidence = sum(confidences) / len(confidences) if confidences else None
+        return transcript, segment_ranges, confidence
+
     def _process_loop(self) -> None:
         while not self._processor_stop.is_set():
             try:
@@ -620,37 +749,8 @@ class HotMicRuntime:
 
             started_at = time.time()
             try:
-                segments, _info = self._model.transcribe(
-                    audio,
-                    language=_resolve_locale_language(self._locale),
-                    beam_size=1,
-                    vad_filter=False,
-                    condition_on_previous_text=False,
-                    compression_ratio_threshold=2.4,
-                    no_speech_threshold=0.55,
-                )
-                transcript_parts: list[str] = []
-                segment_ranges: list[dict[str, Any]] = []
-                confidences: list[float] = []
-                for segment in segments:
-                    text = str(getattr(segment, "text", "") or "").strip()
-                    if not text:
-                        continue
-                    transcript_parts.append(text)
-                    segment_ranges.append(
-                        {
-                            "start_ms": int(round(float(getattr(segment, "start", 0.0)) * 1000)),
-                            "end_ms": int(round(float(getattr(segment, "end", 0.0)) * 1000)),
-                            "text": text,
-                        }
-                    )
-                    avg_logprob = getattr(segment, "avg_logprob", None)
-                    if avg_logprob is not None:
-                        confidences.append(max(0.0, min(1.0, math.exp(float(avg_logprob)))))
-
-                transcript = " ".join(transcript_parts).strip()
+                transcript, segment_ranges, confidence = self._transcribe_segment(audio)
                 if transcript:
-                    confidence = sum(confidences) / len(confidences) if confidences else None
                     self._latest_confirmed_text = transcript
                     self._latest_confirmed_at = time.time()
                     self._total_confirmed += 1

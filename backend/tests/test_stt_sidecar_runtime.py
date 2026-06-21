@@ -111,12 +111,76 @@ class FasterWhisperServerRuntimeTests(unittest.TestCase):
         self.assertIsNone(manager._process)
 
 
+class SttEngineResolutionTests(unittest.TestCase):
+    def test_resolve_engine_defaults_to_faster_whisper(self) -> None:
+        with patch.dict(faster_whisper_runtime.os.environ, {}, clear=True):
+            self.assertEqual(faster_whisper_runtime._resolve_engine_name(), "faster-whisper")
+
+    def test_resolve_engine_selects_parakeet(self) -> None:
+        with patch.dict(faster_whisper_runtime.os.environ, {"NIKOF_STT_ENGINE": "Parakeet"}, clear=True):
+            self.assertEqual(faster_whisper_runtime._resolve_engine_name(), "parakeet")
+
+    def test_resolve_engine_unknown_falls_back(self) -> None:
+        with patch.dict(faster_whisper_runtime.os.environ, {"NIKOF_STT_ENGINE": "vosk"}, clear=True):
+            self.assertEqual(faster_whisper_runtime._resolve_engine_name(), "faster-whisper")
+
+    def test_parakeet_model_root_sits_beside_whisper(self) -> None:
+        whisper_root = Path("/models/stt/faster-whisper-medium")
+        self.assertEqual(
+            faster_whisper_runtime._parakeet_model_root(whisper_root),
+            Path("/models/stt") / faster_whisper_runtime.PARAKEET_MODEL_DIRNAME,
+        )
+
+
+@unittest.skipIf(faster_whisper_runtime.np is None, "numpy is required for STT runtime buffer tests")
+class HotMicTranscribeSegmentTests(unittest.TestCase):
+    def _runtime(self, engine_name: str, model: object) -> HotMicRuntime:
+        runtime = HotMicRuntime.__new__(HotMicRuntime)
+        runtime._engine_name = engine_name
+        runtime._locale = "en-US"
+        runtime._model = model
+        return runtime
+
+    def test_parakeet_branch_returns_recognized_text_without_ranges(self) -> None:
+        class _FakeParakeet:
+            def recognize(self, audio: object) -> str:
+                return "  hey niko  "
+
+        runtime = self._runtime("parakeet", _FakeParakeet())
+        audio = faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ, dtype=faster_whisper_runtime.np.float32)
+        transcript, ranges, confidence = runtime._transcribe_segment(audio)
+        self.assertEqual(transcript, "hey niko")
+        self.assertEqual(ranges, [])
+        self.assertIsNone(confidence)
+
+    def test_whisper_branch_aggregates_segments_and_confidence(self) -> None:
+        class _Seg:
+            def __init__(self, text: str, start: float, end: float, logprob: float) -> None:
+                self.text = text
+                self.start = start
+                self.end = end
+                self.avg_logprob = logprob
+
+        class _FakeWhisper:
+            def transcribe(self, audio: object, **kwargs: object) -> tuple[list[object], None]:
+                return [_Seg("Hello", 0.0, 0.5, -0.1), _Seg("there.", 0.5, 1.0, -0.2)], None
+
+        runtime = self._runtime("faster-whisper", _FakeWhisper())
+        audio = faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ, dtype=faster_whisper_runtime.np.float32)
+        transcript, ranges, confidence = runtime._transcribe_segment(audio)
+        self.assertEqual(transcript, "Hello there.")
+        self.assertEqual(len(ranges), 2)
+        self.assertEqual(ranges[0]["end_ms"], 500)
+        self.assertIsNotNone(confidence)
+
+
 @unittest.skipIf(faster_whisper_runtime.np is None, "numpy is required for STT runtime buffer tests")
 class HotMicRuntimeTests(unittest.TestCase):
     def test_stop_listening_flushes_active_segment_for_processing(self) -> None:
         runtime = HotMicRuntime.__new__(HotMicRuntime)
         runtime._model_root = Path("faster-whisper-medium")
         runtime._locale = "en-US"
+        runtime._engine_name = "faster-whisper"
         runtime._owner_pid = None
         runtime._model = object()
         runtime._compute_device = "cpu"
@@ -157,6 +221,7 @@ class HotMicRuntimeTests(unittest.TestCase):
         runtime = HotMicRuntime.__new__(HotMicRuntime)
         runtime._model_root = Path("faster-whisper-medium")
         runtime._locale = "en-US"
+        runtime._engine_name = "faster-whisper"
         runtime._owner_pid = None
         runtime._model = object()
         runtime._compute_device = "cpu"
