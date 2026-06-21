@@ -2165,6 +2165,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   }
 
   function restoreSelectedIdleAnimation(baseAnimationState: ActiveBaseAnimationState): void {
+    console.debug(
+      `[returnToIdle] ${baseAnimationState.command.id} -> ${selectedIdleAnimation.id}`
+    );
     activateBaseAnimation(selectedIdleAnimation, {
       transitionMs: resolveReturnToIdleTransitionMs(baseAnimationState),
       resumeExistingLoop: true
@@ -2401,6 +2404,18 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         console.warn(`[activateBase] Animation load failed for ${canonicalCommand.id}:`, err);
 
         if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId) {
+          return;
+        }
+
+        // A return-to-idle target that fails to load would otherwise leave the
+        // avatar frozen on the previous gesture's final pose. Fall back to the
+        // known-good default idle (the same target the emote button returns to)
+        // so a one-shot always blends back instead of hanging.
+        if (isIdleAnimationCommand(canonicalCommand) && canonicalCommand.id !== DEFAULT_BASE_ANIMATION_COMMAND.id) {
+          activateBaseAnimation(cloneSemanticAnimationCommand(DEFAULT_BASE_ANIMATION_COMMAND), {
+            transitionMs: options?.transitionMs,
+            resumeExistingLoop: true
+          });
           return;
         }
 
