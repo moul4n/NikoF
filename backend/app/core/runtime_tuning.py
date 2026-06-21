@@ -85,6 +85,11 @@ _DEFAULT_LLM_STREAMING_ENABLED = False
 # guidance) to cut generation tokens/latency. Off by default (full planner).
 _DEFAULT_LLM_LEAN_PLANNER = False
 
+# When the lean planner is on (no memory_writebacks in the reply), recover
+# durable memory by extracting writebacks in a background thread via a separate
+# LLM call — off the turn's latency path. Default on.
+_DEFAULT_LLM_ASYNC_MEMORY = True
+
 
 @dataclass(slots=True, frozen=True)
 class RuntimeTuning:
@@ -99,6 +104,7 @@ class RuntimeTuning:
     tts_segment_max_chars: int
     llm_streaming_enabled: bool
     llm_lean_planner: bool
+    llm_async_memory: bool
 
 
 @lru_cache(maxsize=1)
@@ -128,4 +134,5 @@ def get_runtime_tuning() -> RuntimeTuning:
         ),
         llm_streaming_enabled=_bool_env("NIKOF_LLM_STREAMING", _DEFAULT_LLM_STREAMING_ENABLED),
         llm_lean_planner=_bool_env("NIKOF_LLM_LEAN_PLANNER", _DEFAULT_LLM_LEAN_PLANNER),
+        llm_async_memory=_bool_env("NIKOF_LLM_ASYNC_MEMORY", _DEFAULT_LLM_ASYNC_MEMORY),
     )

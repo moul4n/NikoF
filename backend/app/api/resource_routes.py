@@ -179,6 +179,7 @@ def _serialize_runtime_tuning() -> dict[str, Any]:
         "tts_segment_max_chars": tuning.tts_segment_max_chars,
         "llm_streaming_enabled": tuning.llm_streaming_enabled,
         "llm_lean_planner": tuning.llm_lean_planner,
+        "llm_async_memory": tuning.llm_async_memory,
         "tts_engine": resolve_tts_engine_name(),
     }
 
