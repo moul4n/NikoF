@@ -213,7 +213,20 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
             locale="en-US",
         )
     )
-    synthesis_service: SpeechSynthesisService = QueuedSynthesisService(get_tts_worker(app_paths), eager=False)
+    # Phase 3/4: NIKOF_TTS_ENGINE selects the synthesis engine (gpt-sovits
+    # default via the TTS worker; kokoro / xtts as in-process adapters) so we can
+    # benchmark speed/quality. An unconfigured alternate engine returns
+    # status="unavailable" rather than breaking the turn.
+    from app.services.tts_engines import build_alternate_synthesis_service, resolve_tts_engine_name
+
+    _alternate_synthesis_service = build_alternate_synthesis_service(
+        resolve_tts_engine_name(), app_paths=app_paths
+    )
+    synthesis_service: SpeechSynthesisService = (
+        _alternate_synthesis_service
+        if _alternate_synthesis_service is not None
+        else QueuedSynthesisService(get_tts_worker(app_paths), eager=False)
+    )
     llm_sidecar_manager = get_text_generation_sidecar_manager(app_paths)
     text_generation_service = llm_sidecar_manager.resolve(
         TextGenerationRequest(prompt="", locale="en-US")

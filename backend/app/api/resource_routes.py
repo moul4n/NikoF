@@ -166,6 +166,8 @@ def _serialize_stt_worker(status: STTWorkerStatus) -> dict[str, Any]:
 
 
 def _serialize_runtime_tuning() -> dict[str, Any]:
+    from app.services.tts_engines import resolve_tts_engine_name
+
     tuning = get_runtime_tuning()
     return {
         "stt_poll_interval_seconds": tuning.stt_poll_interval_seconds,
@@ -176,6 +178,7 @@ def _serialize_runtime_tuning() -> dict[str, Any]:
         "tts_segment_min_chars": tuning.tts_segment_min_chars,
         "tts_segment_max_chars": tuning.tts_segment_max_chars,
         "llm_streaming_enabled": tuning.llm_streaming_enabled,
+        "tts_engine": resolve_tts_engine_name(),
     }
 
 
