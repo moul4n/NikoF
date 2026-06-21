@@ -80,6 +80,21 @@ to TTS *before generation finishes* (LLM↔TTS overlap). Win: the larger latency
 
 Both stages share the same contract and frontend changes; 1b only adds the streaming source.
 
+> **Phase 1b status (2026-06-21): landed (backend), flag OFF.**
+> - `streaming_reply.ReplyTextStreamExtractor` (option B) + `StreamingSentenceSegmenter`
+>   (`text_segmentation.py`), both pure + tested.
+> - LLM seam: `generate_stream` on the Ollama adapter (NDJSON `_read_ndjson_stream`), the
+>   managed wrapper, and the stub fallback; `TextGenerationStreamEvent` carries deltas + the
+>   final contract.
+> - `turns.py`: `_run_streamed_generation` + ordered background `_StreamingSegmentSink` dispatch
+>   one `speech.synthesis` event per sentence as it completes, behind `NIKOF_LLM_STREAMING`
+>   (only effective with `NIKOF_TTS_SEGMENTATION`). Buffered path untouched when off.
+> - Tests: `test_streaming_reply`, `test_streaming_segmenter`, `test_llm_streaming`,
+>   `test_streamed_turn_flow`. The frontend playlist (Phase 1a) already consumes these segments.
+> - Next: enable `NIKOF_TTS_SEGMENTATION=1` + `NIKOF_LLM_STREAMING=1` and validate end-to-end on
+>   real hardware; the streamed segments omit the LLM voice-tone hint (known until the full reply
+>   parses) — confirm voice quality is acceptable or refine.
+
 ## 5. Contract changes (additive) — the one place baselines move
 
 Extend `SpeechSynthesisContract` (`schemas/session.py:117`) with four additive fields:
