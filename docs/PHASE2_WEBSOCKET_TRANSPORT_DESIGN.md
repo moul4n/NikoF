@@ -98,6 +98,34 @@ snapshot frame then ordered event frames.
 - Unity consumes the identical frames: JSON control → state; binary audio → `AudioClip` streaming
   buffer. Document the framing as the shared client contract.
 
+## 6b. Implementation status & live verification (2026-06-21)
+
+All three increments shipped:
+
+- **Inc 1** — `/session/stream` WS endpoint carrying `speech.lifecycle` control frames (commit prior).
+- **Inc 2** — `SpeechAudioBroadcaster` (thread→asyncio fan-out, drop-on-full) + `turns.py`
+  `_publish_segment_audio` push + WS `pump_audio` forwarding (header JSON then binary WAV).
+- **Inc 3** — frontend `useSpeechAudioStream` consumer pairing header+binary into `blob:` URLs,
+  injected into the playback bridge via `resolveSegmentAudioOverride` (falls back to the artifact
+  fetch). Playback is gated to the avatar surface (`surfaceMode === "display"`) via
+  `playbackEnabled`, so a reply is voiced on exactly one page — no duplicate audio on control/
+  settings windows.
+
+**Live check** (`scripts/testing/ws_audio_live_check.py`, Kokoro + qwen3:4b lean + streaming +
+segmentation, "Tell me about your day in three short sentences."): a WS subscriber fired a turn and
+received **4 ordered segments as paired header+WAV frames**, all valid `RIFF/WAVE`, every frame's
+byte count matching its header. First audio over the WS at **~1.16 s**; final segment received.
+
+| seg | WS arrival | bytes | wav | clip len | final |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 1158 ms | 43,052 | ✓ | 896 ms | no |
+| 1 | 1533 ms | 125,996 | ✓ | 2624 ms | no |
+| 2 | 2282 ms | 147,500 | ✓ | 3072 ms | no |
+| 3 | 2726 ms | 120,876 | ✓ | 2517 ms | **yes** |
+
+The first segment's audio is delivered (1.16 s) well before later segments finish synthesizing —
+the overlap the streaming pipeline was built for. SSE + artifact fetch remain the fallback.
+
 ## 7. Rollout & risk
 
 - Increment 1 is additive and unused by default → near-zero risk; gated only by the harness/dep
