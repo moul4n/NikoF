@@ -2998,6 +2998,21 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         return;
       }
 
+      // A backend idle/base reconcile can arrive while a one-shot gesture (e.g.
+      // greet.wave.once) is still playing — the session command resolves back to
+      // the persistent idle right after the gesture is published. Don't cut the
+      // gesture: let it finish and run its own smooth return-to-idle (the same
+      // path the dev emote button uses). Non-idle commands still interrupt
+      // normally (a genuinely new gesture should take over).
+      const incomingIsIdle = isIdleAnimationCommand(resolveCanonicalAnimationCommand(command));
+      const activeOneShotPlaying =
+        activeBaseAnimation !== null &&
+        activeBaseAnimation.command.playback !== "loop" &&
+        !isIdleAnimationCommand(activeBaseAnimation.command);
+      if (incomingIsIdle && activeOneShotPlaying) {
+        return;
+      }
+
       activateBaseAnimation(command);
     },
 
