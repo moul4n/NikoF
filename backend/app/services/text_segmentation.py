@@ -48,6 +48,45 @@ def _split_long(sentence: str, max_chars: int) -> list[str]:
     return capped
 
 
+class StreamingSentenceSegmenter:
+    """Online sentence segmenter for Phase 1b.
+
+    Feed reply-text deltas as they stream; ``feed`` returns the segments that are
+    now definitely complete (every segment except the still-growing tail), and
+    ``flush`` returns whatever remains at end-of-stream. Delegates to
+    ``iter_sentence_segments`` so streamed and batch segmentation agree.
+    """
+
+    def __init__(self, *, min_chars: int, max_chars: int) -> None:
+        self._buffer = ""
+        self._min_chars = min_chars
+        self._max_chars = max_chars
+
+    def feed(self, text: str) -> list[str]:
+        if not text:
+            return []
+        self._buffer += text
+        # Sentence-start offsets in the RAW buffer (so spacing is preserved).
+        starts = [match.end() for match in _SENTENCE_BOUNDARY.finditer(self._buffer)]
+        # Hold back the last *complete* sentence as well as the trailing partial
+        # one, so a short fragment can still merge forward into what follows.
+        if len(starts) < 2:
+            return []
+        split = starts[-2]
+        stable = self._buffer[:split]
+        self._buffer = self._buffer[split:]
+        return iter_sentence_segments(
+            stable, min_chars=self._min_chars, max_chars=self._max_chars
+        )
+
+    def flush(self) -> list[str]:
+        segments = iter_sentence_segments(
+            self._buffer, min_chars=self._min_chars, max_chars=self._max_chars
+        )
+        self._buffer = ""
+        return segments
+
+
 def iter_sentence_segments(text: str, *, min_chars: int, max_chars: int) -> list[str]:
     """Return ordered speakable segments for ``text``.
 
