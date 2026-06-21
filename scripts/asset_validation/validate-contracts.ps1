@@ -358,8 +358,8 @@ function Assert-SessionEventShape {
         }
     }
 
-    if ($Event.schema_version -ne 1) {
-        Add-Failure -Failures $Failures -Message "$Label schema_version must equal 1."
+    if ($Event.schema_version -ne 2) {
+        Add-Failure -Failures $Failures -Message "$Label schema_version must equal 2."
     }
 
     foreach ($propertyName in @('event_type', 'session_id', 'character_id', 'status')) {
