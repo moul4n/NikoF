@@ -189,6 +189,14 @@ class XttsSynthesisAdapter:
                 return None
             try:
                 self._engine = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+                try:
+                    import torch
+
+                    if torch.cuda.is_available():
+                        self._engine.to("cuda")
+                        logger.info("XTTS-v2 running on CUDA")
+                except Exception:  # pragma: no cover - GPU move is best-effort
+                    pass
             except Exception as exc:  # pragma: no cover - load guard
                 self._load_error = f"failed to load XTTS-v2: {exc}"
                 return None

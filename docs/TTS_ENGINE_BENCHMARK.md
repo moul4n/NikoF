@@ -13,9 +13,14 @@ and `NIKOF_LLM_STREAMING=1`. Engine selected by `NIKOF_TTS_ENGINE`.
 |---|---|---|---|---|---|---|
 | GPT-SoVITS | GPU | ~5.9 s | **7–14 s** | ~700 ms | ~1.5 s | ~3.5 GB |
 | **Kokoro-82M** | CPU | **~5.6 s** | **~5.5 s** | **~470 ms** | **~1.0 s** | **0 (frees ~3.5 GB)** |
+| XTTS-v2 | **GPU** (RTX 4070) | ~5.5 s | ~5.6–6.5 s | ~1.0 s | ~1.2 s | ~1.9 GB |
 | XTTS-v2 | CPU | ~10 s | (not run) | — | ~5.6 s | (CPU) |
 
-LLM generation was **~4.3–5.4 s** across all runs (large persona/planner prompt on a 3B model).
+LLM generation was **~4.3–6.4 s** across all runs (large persona/planner prompt on a 3B model).
+
+XTTS-v2 on GPU: warm synth RTF ~0.22 (~1.0 s to render a ~4.8 s clip), ~1.9 GB VRAM. CUDA build
+used: `torch 2.8.0+cu128`. First-audio is competitive (LLM-bound) but per-segment (~1.0 s) is the
+slowest of the three — XTTS is heavier per synth even on GPU.
 
 ## Conclusions
 
