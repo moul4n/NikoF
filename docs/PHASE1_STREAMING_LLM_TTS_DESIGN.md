@@ -55,6 +55,19 @@ fall back to today's parse-at-end behavior).
 
 ## 4. Staged delivery (de-risks the contract change)
 
+> **Phase 1a status (2026-06-21): landed (backend + frontend), flag OFF.**
+> - Backend: `text_segmentation.iter_sentence_segments` + per-segment dispatch in `turns.py`
+>   behind `NIKOF_TTS_SEGMENTATION` (inline path synthesizes segment 0 inline + defers the rest in
+>   order; deferred/STT path dispatches all in one ordered background thread). Tests:
+>   `test_text_segmentation`, `test_segmented_synthesis_flow`.
+> - Frontend: ordered playlist playback in `useSpeechPlaybackBridge` keyed on
+>   `utterance_id`/`segment_index`/`is_final`, with symmetric speech-reaction cleanup on the final
+>   segment only; `selectCurrentUtteranceSegments` in `speechLifecycle.ts`. Validated with
+>   `tsc --noEmit` + `vite build` (no frontend test runner exists).
+> - Next: enable `NIKOF_TTS_SEGMENTATION=1` and validate end-to-end on real hardware (segment
+>   ordering, gapless-ness, per-segment lip-sync), then refresh the speech stability baselines in a
+>   clean env.
+
 ### Phase 1a — Multi-segment synthesis from the *final* reply (no LLM streaming yet)
 Split the finished `reply_text` into sentences and dispatch each as its own synthesis segment.
 This exercises the new contract, ordered events, and gapless frontend playback end-to-end while
