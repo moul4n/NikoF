@@ -2287,6 +2287,32 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return null;
   }
 
+  // Warm a clip into the playback bridge cache (loadClip dedupes by id) without
+  // playing it, so a later activation — e.g. a one-shot's return to a freshly
+  // selected mood idle — crossfades instantly instead of pausing on the FBX
+  // fetch/parse the first time that idle is needed.
+  function preloadBaseAnimation(command: SemanticAnimationCommand): void {
+    const playbackBridge = animationPlayback;
+    if (!playbackBridge || !currentAvatar) {
+      return;
+    }
+    const canonicalCommand = resolveCanonicalAnimationCommand(command);
+    const resolvedPayload = resolveBaseAnimationPayload(canonicalCommand);
+    if (!resolvedPayload) {
+      return;
+    }
+    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload, snapshot.currentCharacterId ?? undefined)
+      .then((source) => {
+        if (source) {
+          return playbackBridge.loadClip(source.url, canonicalCommand.id);
+        }
+        return undefined;
+      })
+      .catch(() => {
+        // Best-effort warmup; activation will surface/handle a real failure.
+      });
+  }
+
   function activateBaseAnimation(
     command: SemanticAnimationCommand,
     options?: {
@@ -2999,6 +3025,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         idleAnimation: cloneSemanticAnimationCommand(selectedIdleAnimation),
         error: null
       });
+      // Warm the idle clip now so an in-flight gesture's return-to-idle is an
+      // instant crossfade rather than pausing to fetch this idle for the first
+      // time (e.g. a mood idle set while a wave is still playing).
+      preloadBaseAnimation(selectedIdleAnimation);
       applySelectedIdleAnimation(options?.source ?? "manual");
     },
 
