@@ -74,6 +74,37 @@ class TurnsAnimationTests(unittest.TestCase):
     def test_choice_none_when_no_cue_or_keyword(self) -> None:
         self.assertIsNone(turns_animation._resolve_assistant_animation_choice(_assistant("zzz qqq")))
 
+    def test_user_request_drives_gesture_when_reply_and_cue_are_silent(self) -> None:
+        # LLM returned no cue and the reply has no gesture word, but the user
+        # explicitly asked to wave — honor the request as a fallback.
+        assistant = _assistant("Understood, here you go.")
+        self.assertIsNone(turns_animation._resolve_assistant_animation_choice(assistant))
+        choice = turns_animation._resolve_assistant_animation_choice(
+            assistant, user_text="Hey, can you wave to me?"
+        )
+        self.assertIsNotNone(choice)
+        semantic_id, _layer, _intensity, _duration, source = choice
+        self.assertEqual(semantic_id, "greet.wave.once")
+        self.assertEqual(source, "user_request")
+
+    def test_assistant_reply_gesture_wins_over_user_request(self) -> None:
+        # The assistant's own reply implies a small wave; the user's generic
+        # "wave" must not override that more specific intent.
+        assistant = _assistant("I'll give you a small wave.")
+        choice = turns_animation._resolve_assistant_animation_choice(assistant, user_text="wave")
+        semantic_id, _layer, _intensity, _duration, source = choice
+        self.assertEqual(semantic_id, "greet.wave.small.once")
+        self.assertEqual(source, "keyword_priority")
+
+    def test_explicit_llm_cue_still_wins_over_user_text(self) -> None:
+        choice = turns_animation._resolve_assistant_animation_choice(
+            _assistant("Sure.", cue="dance.hiphop.loop"),
+            user_text="please wave",
+        )
+        semantic_id, _layer, _intensity, _duration, source = choice
+        self.assertEqual(semantic_id, "dance.hiphop.loop")
+        self.assertEqual(source, "explicit_semantic")
+
 
 if __name__ == "__main__":
     unittest.main()

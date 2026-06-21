@@ -404,6 +404,7 @@ def run_user_text_turn(
                 snapshot=snapshot,
                 character_id=active_character.character_id,
                 animation_service=services.animation_service,
+                user_text=turn_input_text,
             )
             if animation_snapshot is not None:
                 services.session_animation_live_delivery.publish_snapshot(animation_snapshot)

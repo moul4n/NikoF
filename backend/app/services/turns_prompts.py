@@ -27,8 +27,12 @@ def _build_lean_reply_prompt(
         "You are a companion. Return exactly one JSON object and nothing else.",
         'Schema: {"reply_text":"string","feeling":{"name":"string","intensity":0.0},"animation_cues":[{"cue":"string"}]}',
         "reply_text: concise and natural aloud, one to three short sentences.",
-        "feeling.name: one mood word. animation_cues[].cue: one id like idle.neutral, idle.happy, "
-        "greet.wave.once, emote.excited.once (omit the array if none fits).",
+        "feeling.name: one mood word.",
+        "animation_cues[].cue: a single animation id from this set — idle.neutral, idle.happy, "
+        "idle.sad, idle.confident, greet.wave.once, gesture.clap.once, dance.hiphop.loop, "
+        "emote.happy.once, emote.excited.once, emote.surprised.once, emote.angry.once.",
+        "If the user asks you to perform a gesture (wave, clap, dance, etc.), you MUST include the "
+        "matching cue; otherwise pick one that fits the mood, or omit the array if none fits.",
     ]
     if memory_context is not None:
         persona = memory_context.persona

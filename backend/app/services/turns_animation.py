@@ -159,15 +159,7 @@ def _normalize_animation_semantic_id(cue: AssistantAnimationCueContract) -> str:
     return _ANIMATION_CUE_ALIAS_TO_SEMANTIC_ID.get(cue_name, cue_name)
 
 
-def _resolve_animation_keyword_rule(assistant: AssistantMessageContract) -> _AnimationCueKeywordRule | None:
-    cue_text = assistant.animation_cues[0].cue if assistant.animation_cues else ""
-    feeling_name = assistant.feeling.name if assistant.feeling is not None else ""
-    haystack = " ".join(
-        segment.strip().lower()
-        for segment in (cue_text, assistant.thinking_summary or "", assistant.text, feeling_name)
-        if segment and segment.strip()
-    )
-
+def _match_keyword_rule(haystack: str) -> _AnimationCueKeywordRule | None:
     best_rule: _AnimationCueKeywordRule | None = None
     best_score = -1
 
@@ -186,22 +178,42 @@ def _resolve_animation_keyword_rule(assistant: AssistantMessageContract) -> _Ani
     return best_rule
 
 
+def _resolve_animation_keyword_rule(assistant: AssistantMessageContract) -> _AnimationCueKeywordRule | None:
+    cue_text = assistant.animation_cues[0].cue if assistant.animation_cues else ""
+    feeling_name = assistant.feeling.name if assistant.feeling is not None else ""
+    haystack = " ".join(
+        segment.strip().lower()
+        for segment in (cue_text, assistant.thinking_summary or "", assistant.text, feeling_name)
+        if segment and segment.strip()
+    )
+    return _match_keyword_rule(haystack)
+
+
 def _resolve_assistant_animation_choice(
     assistant: AssistantMessageContract,
+    *,
+    user_text: str | None = None,
 ) -> tuple[str, str, float | None, int | None, str] | None:
     cue = assistant.animation_cues[0] if assistant.animation_cues else None
 
     if cue is not None and "." in cue.cue.strip().lower():
         return cue.cue.strip().lower(), cue.layer, cue.intensity, cue.duration_ms, "explicit_semantic"
 
+    # Prefer a gesture inferred from the assistant's own reply/cue/feeling; only
+    # fall back to the user's request when the reply itself implies no gesture,
+    # so the assistant's more specific intent (e.g. a small wave) still wins.
     keyword_rule = _resolve_animation_keyword_rule(assistant)
+    cue_source = "keyword_priority"
+    if keyword_rule is None and user_text:
+        keyword_rule = _match_keyword_rule(user_text.strip().lower())
+        cue_source = "user_request"
     if keyword_rule is not None:
         return (
             keyword_rule.semantic_id,
             keyword_rule.layer,
             cue.intensity if cue is not None else assistant.feeling.intensity if assistant.feeling is not None else None,
             cue.duration_ms if cue is not None and cue.duration_ms is not None else keyword_rule.default_duration_ms,
-            "keyword_priority",
+            cue_source,
         )
 
     if cue is None:
@@ -216,11 +228,12 @@ def _build_assistant_animation_snapshot(
     snapshot: Any,
     character_id: str,
     animation_service: AnimationService,
+    user_text: str | None = None,
 ) -> SessionAnimationSnapshot | None:
     if assistant.status != "ready":
         return None
 
-    resolved_animation_choice = _resolve_assistant_animation_choice(assistant)
+    resolved_animation_choice = _resolve_assistant_animation_choice(assistant, user_text=user_text)
     if resolved_animation_choice is None:
         return None
 
