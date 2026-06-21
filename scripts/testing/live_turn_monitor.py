@@ -109,6 +109,13 @@ class TurnTracker:
             self.assistant_ts = ts
             rel = self._rel(ts)
             print(f"{GREEN}  → reply    [{_fmt_delta(rel)}] {text!r}{RESET}")
+            feeling = assistant.get("feeling") or {}
+            feeling_name = feeling.get("name") if isinstance(feeling, dict) else None
+            cues = assistant.get("animation_cues")
+            cue_list = [str(c.get("cue")) for c in cues if isinstance(c, dict) and c.get("cue")] if isinstance(cues, list) else []
+            cue_text = ", ".join(cue_list) if cue_list else "(none returned by LLM)"
+            color = CYAN if cue_list else YELLOW
+            print(f"{color}     feeling={feeling_name or '—'}  animation_cues=[{cue_text}]{RESET}")
 
         elif event_type == "speech.synthesis":
             synthesis = event.get("synthesis") or {}
@@ -223,6 +230,7 @@ def main() -> None:
     except urllib.error.URLError as exc:
         raise SystemExit(f"Backend not reachable: {exc}")
 
+    last_animation: str | None = None
     try:
         while True:
             query = f"{base_url}/session/speech-lifecycle"
@@ -240,6 +248,21 @@ def main() -> None:
                     continue
                 seen.add(event_id)
                 tracker.handle(envelope.get("event", {}))
+
+            # Best-effort: surface the resolved animation command pushed to the
+            # avatar (idle -> wave -> idle), so we can see if a cue actually
+            # reached the rig vs. only the LLM returning it.
+            try:
+                animation = _http_json(f"{base_url}/session/animation")
+                command = animation.get("command") or {}
+                semantic_id = command.get("semantic_id")
+                if semantic_id and semantic_id != last_animation:
+                    last_animation = semantic_id
+                    fallback = ((command.get("resolution") or {}).get("fallback_applied"))
+                    note = "  (fallback!)" if fallback else ""
+                    print(f"\033[95m  ▣ avatar plays  {semantic_id}{note}\033[0m")
+            except urllib.error.URLError:
+                pass
 
             cursor = snapshot.get("next_cursor") or cursor
             time.sleep(poll_seconds)
