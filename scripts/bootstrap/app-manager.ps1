@@ -242,6 +242,28 @@ function Start-Backend {
         return [pscustomobject]@{ ok = $false; message = "Backend Python not found at $backendPython" }
     }
 
+    # Performance runtime profile (see docs/TTS_ENGINE_BENCHMARK.md). These bring
+    # short-turn first-audio down to ~1.6s. Each is applied only if not already
+    # set in the environment, so any can be overridden. REQUIRES the models to be
+    # installed: qwen3:4b in Ollama, and the Kokoro model under
+    # <NIKOF_TTS_MODELS_ROOT>/kokoro (pip install -e backend[kokoro]). To run the
+    # legacy config, set these to the empty string / gpt-sovits before launching.
+    $perfDefaults = [ordered]@{
+        NIKOF_TTS_ENGINE        = 'kokoro'      # fast TTS, frees VRAM (preset voice)
+        NIKOF_LLM_MODEL         = 'qwen3:4b'    # ~2x faster than llama3.2:3b
+        NIKOF_LLM_THINK         = 'false'       # qwen3 reasoning off -> fast clean JSON
+        NIKOF_LLM_LEAN_PLANNER  = '1'           # slim planner -> ~3x faster generation
+        NIKOF_LLM_ASYNC_MEMORY  = '1'           # recover durable memory off the latency path
+        NIKOF_TTS_SEGMENTATION  = '1'           # sentence-level TTS overlap
+        NIKOF_LLM_STREAMING     = '1'           # stream the reply into TTS
+        NIKOF_WARM_TTS_ON_START = '0'           # GPT-SoVITS isn't the engine; don't load it
+    }
+    foreach ($name in $perfDefaults.Keys) {
+        if (-not (Test-Path "Env:$name")) {
+            Set-Item -Path "Env:$name" -Value $perfDefaults[$name]
+        }
+    }
+
     $command = "Set-Location '$backendRoot'; & '$backendPython' -m app.dev_server"
     Start-Process -FilePath $shellExe -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-Command', $command) -WorkingDirectory $backendRoot | Out-Null
 
