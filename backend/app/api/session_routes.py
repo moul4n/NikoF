@@ -91,7 +91,7 @@ def register_session_transport_routes(
     services: SessionTransportRouteServices,
     serialize_dataclass_payload: SerializePayload,
 ) -> None:
-    from fastapi import HTTPException, Request, status
+    from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect, status
     from fastapi.responses import FileResponse, StreamingResponse
 
     @router.get(
@@ -252,6 +252,54 @@ def register_session_transport_routes(
             character_id=active_character.character_id,
             cursor=cursor,
         )
+
+    @router.websocket("/session/stream")
+    async def session_stream(websocket: WebSocket) -> None:
+        # Phase 2 increment 1: unified streaming transport. Carries the SAME
+        # speech.lifecycle envelopes as the SSE read seam (control frames); binary
+        # audio frames are a later increment. SSE + file fetch remain the default
+        # fallback. Each frame is {event, kind, cursor, data} so web and Unity
+        # parse one shape.
+        await websocket.accept()
+        cursor = websocket.query_params.get("cursor")
+        snapshot = services.session_service.get_snapshot()
+        active_character = services.character_service.get_character_summary(snapshot.active_character_id)
+        transport_snapshot = services.speech_lifecycle_service.get_snapshot(
+            snapshot,
+            character_id=active_character.character_id,
+            cursor=cursor,
+        )
+        try:
+            await websocket.send_json(
+                {
+                    "event": SPEECH_LIFECYCLE_STREAM,
+                    "kind": "snapshot",
+                    "cursor": None,
+                    "data": serialize_dataclass_payload(transport_snapshot),
+                }
+            )
+            async for envelope in _iterate_blocking_iterator(
+                services.speech_lifecycle_live_delivery.iter_live_events(
+                    snapshot,
+                    character_id=active_character.character_id,
+                    cursor=cursor,
+                )
+            ):
+                await websocket.send_json(
+                    {
+                        "event": SPEECH_LIFECYCLE_STREAM,
+                        "kind": "event",
+                        "cursor": envelope.cursor,
+                        "data": serialize_dataclass_payload(envelope),
+                    }
+                )
+        except WebSocketDisconnect:
+            return
+        except Exception:  # pragma: no cover - best-effort close on unexpected errors
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
 
 _STREAM_ITERATION_COMPLETE = object()
