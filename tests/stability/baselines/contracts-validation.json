@@ -16,7 +16,7 @@
                          "Contract validation summary:",
                          "- Schemas checked: 5",
                          "- Character packages checked: 3",
-                         "- Fixture payloads checked: 3",
+                         "- Fixture payloads checked: 4",
                          "Contract validation passed."
                      ]
 }

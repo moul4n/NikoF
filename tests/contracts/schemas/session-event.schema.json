@@ -26,6 +26,7 @@
         "session.started",
         "session.stopped",
         "transcription.status",
+        "transcript.partial",
         "text.reply",
         "speech.synthesis",
         "animation.play"
@@ -81,6 +82,20 @@
         "properties": {
           "event_type": {
             "const": "transcription.status"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "transcription"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "transcript.partial"
           }
         }
       },
@@ -268,6 +283,9 @@
         },
         "timing": {
           "$ref": "#/$defs/timingMetadata"
+        },
+        "is_final": {
+          "type": ["boolean", "null"]
         }
       }
     },

@@ -116,6 +116,11 @@ class SpeechTranscriptionContract:
     transcript: str | None = None
     confidence: float | None = None
     timing: SpeechTimingMetadata | None = None
+    # Phase 3 streaming STT. None ⇒ a confirmed, final transcript (legacy
+    # behavior; serialization is unchanged because strip_none drops None).
+    # Interim/partial transcripts (the `transcript.partial` event) set this
+    # to False; the LLM turn still fires only on the confirmed final.
+    is_final: bool | None = None
 
 
 @dataclass(slots=True, frozen=True)

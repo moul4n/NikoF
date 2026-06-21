@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "event_type": "transcript.partial",
+  "session_id": "session-demo-01",
+  "character_id": "test-vrm-01",
+  "status": "partial",
+  "timestamp": "2026-06-21T08:57:41Z",
+  "transcription": {
+    "profile_id": "stt.faster-whisper.medium-2026",
+    "status": "partial",
+    "locale": "en-US",
+    "transcript": "Hey Niko, can you",
+    "confidence": 0.61,
+    "is_final": false
+  }
+}
