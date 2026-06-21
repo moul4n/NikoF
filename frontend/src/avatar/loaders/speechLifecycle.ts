@@ -33,6 +33,44 @@ export interface ConsumedSpeechLifecycleSnapshot {
   canonicalAssistantMessageEvent: BackendSessionEventDocument | null;
   canonicalTranscriptionEvent: BackendSessionEventDocument | null;
   canonicalSpeechSynthesisEvent: BackendSessionEventDocument | null;
+  // Ordered segments of the latest utterance (Phase 1a). For a non-segmented
+  // reply this is the single canonical synthesis event; for a segmented reply
+  // it is every speech.synthesis event sharing the latest utterance_id, ordered
+  // by segment_index.
+  canonicalSpeechSynthesisSegments: BackendSessionEventDocument[];
+}
+
+/**
+ * Select the ordered segments belonging to the most recent utterance.
+ *
+ * Pure so it can be reasoned about (and unit-tested) in isolation. When the
+ * latest synthesis event has no utterance_id (non-segmented reply), the result
+ * is just that single event. Otherwise it is every synthesis event sharing that
+ * utterance_id, de-duplicated by segment_index (latest wins) and ordered.
+ */
+export function selectCurrentUtteranceSegments(
+  speechSynthesisEvents: BackendSessionEventDocument[]
+): BackendSessionEventDocument[] {
+  if (speechSynthesisEvents.length === 0) {
+    return [];
+  }
+
+  const latest = speechSynthesisEvents[speechSynthesisEvents.length - 1];
+  const utteranceId = latest.synthesis?.utterance_id ?? null;
+  if (!utteranceId) {
+    return [latest];
+  }
+
+  const byIndex = new Map<number, BackendSessionEventDocument>();
+  for (const event of speechSynthesisEvents) {
+    if ((event.synthesis?.utterance_id ?? null) !== utteranceId) {
+      continue;
+    }
+    const index = event.synthesis?.segment_index ?? 0;
+    byIndex.set(index, event);
+  }
+
+  return [...byIndex.entries()].sort(([left], [right]) => left - right).map(([, event]) => event);
 }
 
 export function consumeSpeechLifecycleSnapshot(
@@ -69,7 +107,12 @@ export function consumeSpeechLifecycleSnapshot(
     canonicalTranscriptionEvent:
       latestEvents.find((envelope) => envelope.event.event_type === "transcription.status")?.event ?? null,
     canonicalSpeechSynthesisEvent:
-      latestEvents.find((envelope) => envelope.event.event_type === "speech.synthesis")?.event ?? null
+      latestEvents.find((envelope) => envelope.event.event_type === "speech.synthesis")?.event ?? null,
+    canonicalSpeechSynthesisSegments: selectCurrentUtteranceSegments(
+      events
+        .filter((envelope) => envelope.event.event_type === "speech.synthesis")
+        .map((envelope) => envelope.event)
+    )
   };
 }
 

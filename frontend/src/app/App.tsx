@@ -83,7 +83,8 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   const speechPlaybackStatus = useSpeechPlaybackBridge({
     runtime,
     canonicalSynthesisEvent: preferredSpeechSynthesisEvent,
-    latestAvailableSynthesisEvent: speechLifecycleState.snapshot?.canonicalSpeechSynthesisEvent ?? null
+    latestAvailableSynthesisEvent: speechLifecycleState.snapshot?.canonicalSpeechSynthesisEvent ?? null,
+    canonicalSynthesisSegments: speechLifecycleState.snapshot?.canonicalSpeechSynthesisSegments ?? []
   });
   const avatarRuntimeSnapshot = useAvatarRuntimeSnapshot({ runtime });
   const {
