@@ -49,6 +49,17 @@ class EngineSelectionTests(unittest.TestCase):
         self.assertIsInstance(build_alternate_synthesis_service("xtts"), XttsSynthesisAdapter)
         self.assertIsInstance(build_alternate_synthesis_service("xtts-v2"), XttsSynthesisAdapter)
 
+    def test_alternate_service_is_cached_singleton(self) -> None:
+        # Lifespan warmup and the request path must share the same (warmed) instance.
+        self.assertIs(
+            build_alternate_synthesis_service("kokoro"),
+            build_alternate_synthesis_service("kokoro"),
+        )
+
+    def test_adapters_expose_request_warmup(self) -> None:
+        self.assertTrue(callable(getattr(build_alternate_synthesis_service("kokoro"), "request_warmup")))
+        self.assertTrue(callable(getattr(build_alternate_synthesis_service("xtts"), "request_warmup")))
+
 
 class EngineUnavailableTests(unittest.TestCase):
     def test_kokoro_unavailable_without_model(self) -> None:

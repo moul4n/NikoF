@@ -134,6 +134,10 @@ class KokoroSynthesisAdapter:
                 return None
             return self._engine
 
+    def request_warmup(self) -> None:
+        """Load the model in a background thread so the first turn is fast."""
+        threading.Thread(target=self._ensure_engine, name="kokoro-warmup", daemon=True).start()
+
     def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
         engine = self._ensure_engine()
         if engine is None:
@@ -202,6 +206,12 @@ class XttsSynthesisAdapter:
                 return None
             return self._engine
 
+    def request_warmup(self) -> None:
+        """Load the model in a background thread (only if a reference exists)."""
+        if self._reference_wav() is None:
+            return
+        threading.Thread(target=self._ensure_engine, name="xtts-warmup", daemon=True).start()
+
     def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
         # Check the reference first so we never load the ~1.8GB model when there
         # is nothing to clone (keeps the unavailable path cheap).
@@ -236,13 +246,24 @@ def resolve_tts_engine_name() -> str:
     return (os.environ.get("NIKOF_TTS_ENGINE") or "gpt-sovits").strip().lower()
 
 
+_alternate_services: dict[str, Any] = {}
+_alternate_lock = threading.Lock()
+
+
 def build_alternate_synthesis_service(
     engine_name: str, *, app_paths: AppPaths | None = None
 ) -> Any | None:
     """Return a non-GPT-SoVITS synthesis service for the engine, or None to keep
-    the default GPT-SoVITS worker path."""
-    if engine_name == "kokoro":
-        return KokoroSynthesisAdapter(app_paths=app_paths)
-    if engine_name in ("xtts", "xtts-v2"):
-        return XttsSynthesisAdapter(app_paths=app_paths)
-    return None
+    the default GPT-SoVITS worker path. Cached per engine so the lifespan warmup
+    and the request path share the same (warmed) instance."""
+    if engine_name not in ("kokoro", "xtts", "xtts-v2"):
+        return None
+    with _alternate_lock:
+        service = _alternate_services.get(engine_name)
+        if service is None:
+            if engine_name == "kokoro":
+                service = KokoroSynthesisAdapter(app_paths=app_paths)
+            else:
+                service = XttsSynthesisAdapter(app_paths=app_paths)
+            _alternate_services[engine_name] = service
+        return service

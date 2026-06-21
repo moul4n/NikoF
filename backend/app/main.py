@@ -48,8 +48,18 @@ async def _lifespan(app: Any) -> AsyncIterator[None]:
     # first user turn. TTS warmup is already non-blocking; the LLM warmup sends a
     # tiny generation, so run it off the event loop and never block startup on it.
     warm_llm_task: asyncio.Task[None] | None = None
-    if tuning.warm_tts_on_start and tts_worker.request_warmup():
-        logger.info("TTS warmup scheduled")
+    if tuning.warm_tts_on_start:
+        from app.services.tts_engines import build_alternate_synthesis_service, resolve_tts_engine_name
+
+        engine_name = resolve_tts_engine_name()
+        alternate_tts = build_alternate_synthesis_service(engine_name)
+        if alternate_tts is not None:
+            # Selected engine is an in-process adapter (kokoro/xtts) — warm it
+            # (GPT-SoVITS stays unloaded since the worker isn't the synth path).
+            alternate_tts.request_warmup()
+            logger.info("TTS warmup scheduled (%s)", engine_name)
+        elif tts_worker.request_warmup():
+            logger.info("TTS warmup scheduled (gpt-sovits)")
     if tuning.warm_llm_on_start and llm_started:
         async def _warm_llm() -> None:
             try:

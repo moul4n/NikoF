@@ -256,7 +256,8 @@ function Start-Backend {
         NIKOF_LLM_ASYNC_MEMORY  = '1'           # recover durable memory off the latency path
         NIKOF_TTS_SEGMENTATION  = '1'           # sentence-level TTS overlap
         NIKOF_LLM_STREAMING     = '1'           # stream the reply into TTS
-        NIKOF_WARM_TTS_ON_START = '0'           # GPT-SoVITS isn't the engine; don't load it
+        # NIKOF_WARM_TTS_ON_START defaults on; startup warms the SELECTED engine
+        # (Kokoro here) and leaves GPT-SoVITS unloaded since it isn't the synth path.
     }
     foreach ($name in $perfDefaults.Keys) {
         if (-not (Test-Path "Env:$name")) {
