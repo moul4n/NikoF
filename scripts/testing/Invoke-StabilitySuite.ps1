@@ -1724,11 +1724,17 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import sys
 import types
 from pathlib import Path
 from unittest.mock import patch
 
+# Snapshot must be pure JSON on stdout. The turn pipeline (and LLM sidecar
+# manager) log to stderr — and the runner merges stderr into the captured
+# output before parsing it as JSON — so silence logging to keep output clean
+# and environment-independent (e.g. a local Ollama listener reclaim notice).
+logging.disable(logging.CRITICAL)
 
 repo_root = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(repo_root / "backend"))
@@ -1761,6 +1767,13 @@ class FakeStreamingResponse:
     def __init__(self, body_iterator, media_type: str) -> None:
         self.body_iterator = body_iterator
         self.media_type = media_type
+
+
+class FakeFileResponse:
+    def __init__(self, path, *args, **kwargs) -> None:
+        del args, kwargs
+        self.path = path
+        self.status_code = 200
 
 
 class FakeRoute:
@@ -1803,6 +1816,7 @@ def build_router():
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+    fake_fastapi_responses.FileResponse = FakeFileResponse
 
     with patch.dict(
         sys.modules,
