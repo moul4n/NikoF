@@ -1,22 +1,43 @@
 import React, { useEffect, useRef, useState } from "react";
 import { describeSttStateLine, useSttState } from "./useSttState";
+import {
+  PUSH_TO_TALK_STORAGE_KEY,
+  formatPushToTalkBindingLabel,
+  isEditableKeyboardTarget,
+  matchesPushToTalkBinding,
+  readPersistedPushToTalkBinding
+} from "./pushToTalkBinding";
 
 /**
  * Hold-to-talk control for the display (avatar) surface, so the whole voice
- * loop can run from a single tab — press and hold the button (or hold Space) to
- * listen, release to send. Mirrors the control surface's push-to-talk semantics
- * (start listening on engage if not already listening; stop on release only if
- * this control started it) via the shared useSttState seam.
+ * loop can run from a single tab — press and hold the button (or hold the
+ * configured push-to-talk key) to listen, release to send. Uses the SAME
+ * persisted key binding as the control settings panel, and the shared
+ * useSttState seam for start/stop semantics.
  */
 export function DisplayPushToTalkControl(): JSX.Element {
   const { state: sttState, setListening } = useSttState();
   const [active, setActive] = useState(false);
+  const [binding, setBinding] = useState(() => readPersistedPushToTalkBinding());
   const heldRef = useRef(false);
   const startedListeningRef = useRef(false);
 
   const snapshot = sttState.snapshot;
   const disabled = sttState.action === "device" || sttState.status === "loading" || !snapshot?.available;
   const statusLine = describeSttStateLine(sttState);
+  const keyLabel = formatPushToTalkBindingLabel(binding);
+
+  // Keep in sync if the binding is changed on the control settings page
+  // (localStorage 'storage' events fire in other tabs/surfaces).
+  useEffect(() => {
+    function handleStorage(event: StorageEvent): void {
+      if (event.key === PUSH_TO_TALK_STORAGE_KEY) {
+        setBinding(readPersistedPushToTalkBinding());
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   type PointerLikeEvent = {
     preventDefault(): void;
@@ -52,18 +73,17 @@ export function DisplayPushToTalkControl(): JSX.Element {
     }
   }
 
-  // Space-bar hold mirrors the button, ignoring keypresses while typing.
+  // Push-to-talk key hold (the configured binding), ignoring keypresses while
+  // typing in a field.
   useEffect(() => {
-    function isTypingTarget(target: EventTarget | null): boolean {
-      const element = target as HTMLElement | null;
-      if (!element || typeof element.tagName !== "string") {
-        return false;
-      }
-      return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable === true;
-    }
-
     function handleKeyDown(event: KeyboardEvent): void {
-      if (event.code !== "Space" || event.repeat || heldRef.current || disabled || isTypingTarget(event.target)) {
+      if (
+        event.repeat
+        || heldRef.current
+        || disabled
+        || isEditableKeyboardTarget(event.target)
+        || !matchesPushToTalkBinding(event, binding)
+      ) {
         return;
       }
       event.preventDefault();
@@ -71,7 +91,7 @@ export function DisplayPushToTalkControl(): JSX.Element {
     }
 
     function handleKeyUp(event: KeyboardEvent): void {
-      if (event.code === "Space") {
+      if (matchesPushToTalkBinding(event, binding)) {
         release();
       }
     }
@@ -89,9 +109,9 @@ export function DisplayPushToTalkControl(): JSX.Element {
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleRelease);
     };
-    // Re-bind when availability or listening state changes so engage/release see
-    // current values (they close over `disabled` and `snapshot.listening`).
-  }, [disabled, snapshot?.listening, setListening]);
+    // Re-bind when the binding/availability/listening change so the handlers see
+    // current values (they close over `binding`, `disabled`, snapshot.listening).
+  }, [binding, disabled, snapshot?.listening, setListening]);
 
   return (
     <section className="surface-panel surface-panel--ptt" aria-labelledby="display-ptt-title">
@@ -119,7 +139,7 @@ export function DisplayPushToTalkControl(): JSX.Element {
         onPointerUp={release}
         onPointerCancel={release}
       >
-        {active ? "Listening… release to send" : "Hold to talk (or hold Space)"}
+        {active ? "Listening… release to send" : `Hold to talk (or hold ${keyLabel})`}
       </button>
       <p className="ptt-status">{statusLine}</p>
     </section>
