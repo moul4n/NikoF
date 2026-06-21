@@ -404,7 +404,7 @@ class GptSovitsSynthesisAdapterTests(unittest.TestCase):
                     SpeechSynthesisRequest(text=text, locale="en-US")
                 )
 
-            with patch("app.services.speech._run_json_entrypoint", side_effect=fake_run_json_entrypoint):
+            with patch("app.services.speech_adapters._run_json_entrypoint", side_effect=fake_run_json_entrypoint):
                 first_thread = threading.Thread(target=run_request, args=("First preview.",))
                 second_thread = threading.Thread(target=run_request, args=("Second preview.",))
 
