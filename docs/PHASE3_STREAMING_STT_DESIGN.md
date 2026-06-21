@@ -81,14 +81,23 @@ Increments 1 + 2 (engine seam, deps, wiring) are committed:
 - Parakeet wired into the sidecar hot-mic loop and the one-shot path (`faster_whisper_runtime.py`,
   inlined to keep the sidecar free of `app.*` imports) and into the worker's profile-id stamping.
 
-**Remaining (needs the GPU free):**
+**Done (2026-06-21, GPU):**
 
-1. **Model acquisition.** Place the Parakeet TDT 0.6B v2 ONNX export at
-   `<NIKOF_STT_MODELS_ROOT>/parakeet-tdt-0.6b-v2` (default `%LOCALAPPDATA%\NikoF\models\stt\…`).
-   `onnx-asr` resolves `nemo-parakeet-tdt-0.6b-v2` from that local dir; fetch the pre-exported ONNX
-   from Hugging Face (e.g. `huggingface-cli download istupakov/parakeet-tdt-0.6b-v2-onnx --local-dir
-   <…>/parakeet-tdt-0.6b-v2`). Never committed.
-2. **Smoke + WER A/B** with `NIKOF_STT_ENGINE=parakeet` and `NIKOF_STT_ALLOW_GPU=1`.
+1. **Model acquired** at `<NIKOF_STT_MODELS_ROOT>/parakeet-tdt-0.6b-v2` (fp32 + int8 ONNX from
+   `istupakov/parakeet-tdt-0.6b-v2-onnx`, not committed).
+2. **GPU enablement.** onnxruntime-gpu 1.27 needs CUDA 13 (absent); pinned to the CUDA-12 build
+   (`<1.23`, installed 1.22.0). The CUDA runtime DLLs (`cublasLt64_12`, `cudnn64_9`) come from the
+   torch cu12 build already present; the engine adds that lib dir to the DLL search path
+   (`_ensure_onnx_cuda_dll_path`) before loading. CPU fallback works without it.
+3. **Smoke + WER A/B passed** (`scripts/testing/stt_wer_bench.py`, GPU). Parakeet vs
+   Faster-Whisper-medium on the `.local/stt-tests` clips: **0.0 divergence (identical transcripts)**
+   and faster — Parakeet ~123 ms mean (~55–61 ms steady) vs Whisper ~237 ms. RTF ~0.03.
+4. **Default switched** via the ops-dashboard perf profile (`NIKOF_STT_ENGINE=parakeet`);
+   `allow_gpu` is auto-decided by the VRAM monitor and passed to the sidecar. The code default stays
+   `faster-whisper` (no model/dep required), which remains the fallback.
+
+Remaining: validate on **real microphone audio** (the bench clips are clean TTS speech) and the
+streaming-partials increment below.
 
 ## Risk & rollout
 

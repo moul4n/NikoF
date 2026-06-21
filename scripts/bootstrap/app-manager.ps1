@@ -250,6 +250,7 @@ function Start-Backend {
     # legacy config, set these to the empty string / gpt-sovits before launching.
     $perfDefaults = [ordered]@{
         NIKOF_TTS_ENGINE        = 'kokoro'      # fast TTS, frees VRAM (preset voice)
+        NIKOF_STT_ENGINE        = 'parakeet'    # Parakeet TDT v2: 0 WER vs Whisper-medium, ~2x faster (GPU)
         NIKOF_LLM_MODEL         = 'qwen3:4b'    # ~2x faster than llama3.2:3b
         NIKOF_LLM_THINK         = 'false'       # qwen3 reasoning off -> fast clean JSON
         NIKOF_LLM_LEAN_PLANNER  = '1'           # slim planner -> ~3x faster generation

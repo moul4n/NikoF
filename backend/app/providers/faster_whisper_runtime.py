@@ -174,6 +174,30 @@ def _parakeet_model_root(whisper_model_root: Path) -> Path:
     return whisper_model_root.parent / PARAKEET_MODEL_DIRNAME
 
 
+def _ensure_onnx_cuda_dll_path() -> None:
+    """Expose CUDA 12 / cuDNN 9 runtime DLLs (from torch's cu12 build or the
+    nvidia-*-cu12 wheels) to onnxruntime's CUDA EP on Windows. find_spec locates
+    them without importing torch. Best-effort no-op when absent."""
+    if os.name != "nt":
+        return
+    import importlib.util
+
+    candidates: list[Path] = []
+    torch_spec = importlib.util.find_spec("torch")
+    if torch_spec and torch_spec.submodule_search_locations:
+        candidates.append(Path(list(torch_spec.submodule_search_locations)[0]) / "lib")
+    nvidia_spec = importlib.util.find_spec("nvidia")
+    if nvidia_spec and nvidia_spec.submodule_search_locations:
+        base = Path(list(nvidia_spec.submodule_search_locations)[0])
+        candidates.extend(base.glob("*/bin"))
+    for directory in candidates:
+        try:
+            if directory.is_dir():
+                os.add_dll_directory(str(directory))
+        except OSError:
+            pass
+
+
 def _load_parakeet_model(model_root: Path) -> tuple[Any, str, str]:
     try:
         import onnx_asr
@@ -184,6 +208,7 @@ def _load_parakeet_model(model_root: Path) -> tuple[Any, str, str]:
         raise RuntimeError(f"Parakeet model directory not found: {model_root}")
 
     if _prefer_gpu():
+        _ensure_onnx_cuda_dll_path()
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         device = "cuda"
     else:

@@ -38,9 +38,16 @@ xtts = [
 # wheel (it still ships CPUExecutionProvider, so Kokoro keeps working). Model
 # files live at <stt_models_root>/parakeet-tdt-0.6b-v2 (acquired locally, not
 # committed).
+#
+# onnxruntime-gpu is pinned to the CUDA-12 / cuDNN-9 build line (<1.23); 1.23+
+# moved to CUDA 13, which this box (CUDA 12.8 via torch cu128) lacks. The CUDA
+# runtime DLLs (cublasLt64_12, cudnn64_9) are not bundled — they come from the
+# torch cu12 build already present, or the nvidia-*-cu12 wheels; the engine adds
+# their lib dir to the DLL search path at load. Verified on GPU: ~70 ms / 2.3 s
+# clip (RTF ~0.03) vs ~600 ms on CPU fallback.
 parakeet = [
 	"onnx-asr>=0.11,<1.0",
-	"onnxruntime-gpu>=1.20,<2.0",
+	"onnxruntime-gpu>=1.20,<1.23",
 ]
 
 [tool.setuptools.packages.find]

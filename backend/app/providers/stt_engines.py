@@ -98,6 +98,34 @@ def _onnx_providers() -> list[str]:
     return ["CPUExecutionProvider"]
 
 
+def _ensure_onnx_cuda_dll_path() -> None:
+    """Expose CUDA 12 / cuDNN 9 runtime DLLs to onnxruntime's CUDA EP on Windows.
+
+    onnxruntime-gpu does not bundle the CUDA runtime; it must find cublasLt64_12
+    + cudnn64_9 on the DLL search path. They ship with torch (cu12 build) and the
+    nvidia-*-cu12 pip wheels. find_spec locates those packages without importing
+    them (no heavy torch import). Best-effort: a no-op when none are present.
+    """
+    if os.name != "nt":
+        return
+    import importlib.util  # noqa: PLC0415
+
+    candidates: list[Path] = []
+    torch_spec = importlib.util.find_spec("torch")
+    if torch_spec and torch_spec.submodule_search_locations:
+        candidates.append(Path(list(torch_spec.submodule_search_locations)[0]) / "lib")
+    nvidia_spec = importlib.util.find_spec("nvidia")
+    if nvidia_spec and nvidia_spec.submodule_search_locations:
+        base = Path(list(nvidia_spec.submodule_search_locations)[0])
+        candidates.extend(base.glob("*/bin"))
+    for directory in candidates:
+        try:
+            if directory.is_dir():
+                os.add_dll_directory(str(directory))
+        except OSError:
+            pass
+
+
 class ParakeetTranscriptionEngine:
     """Parakeet TDT 0.6B v2 via onnx-asr. The model loads lazily on first use
     and is reused for every utterance (RNN-T/TDT greedy decode)."""
@@ -119,6 +147,8 @@ class ParakeetTranscriptionEngine:
         if not self._model_root.exists():
             raise RuntimeError(f"Parakeet model directory not found: {self._model_root}")
 
+        if _prefer_gpu():
+            _ensure_onnx_cuda_dll_path()
         return onnx_asr.load_model(
             PARAKEET_ONNX_MODEL_ID,
             str(self._model_root),
