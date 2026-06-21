@@ -29,6 +29,17 @@ class RuntimeTuningTests(unittest.TestCase):
         self.assertEqual(tuning.speech_lifecycle_poll_interval_seconds, 0.10)
         self.assertTrue(tuning.warm_llm_on_start)
         self.assertTrue(tuning.warm_tts_on_start)
+        self.assertEqual(tuning.stt_engine, "faster-whisper")
+
+    def test_stt_engine_selects_parakeet_and_rejects_unknown(self) -> None:
+        parakeet = self._resolve({"NIKOF_STT_ENGINE": "parakeet"})
+        self.assertEqual(parakeet.stt_engine, "parakeet")
+        # Case-insensitive.
+        upper = self._resolve({"NIKOF_STT_ENGINE": "Parakeet"})
+        self.assertEqual(upper.stt_engine, "parakeet")
+        # Unknown engine falls back to the default rather than erroring.
+        unknown = self._resolve({"NIKOF_STT_ENGINE": "whisper.cpp"})
+        self.assertEqual(unknown.stt_engine, "faster-whisper")
 
     def test_env_overrides_intervals(self) -> None:
         tuning = self._resolve(

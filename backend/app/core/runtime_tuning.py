@@ -25,6 +25,11 @@ _DEFAULT_SPEECH_LIFECYCLE_POLL_INTERVAL_SECONDS = 0.10
 _DEFAULT_WARM_LLM_ON_START = True
 _DEFAULT_WARM_TTS_ON_START = True
 
+# Phase 3: selectable STT recognizer. "faster-whisper" (default) keeps the
+# current sidecar engine; "parakeet" selects the NVIDIA Parakeet TDT 0.6B v2
+# ONNX engine. Faster-Whisper stays the default until the WER A/B gate passes.
+_DEFAULT_STT_ENGINE = "faster-whisper"
+
 # Floor for any poll interval so a misconfigured env var cannot spin a loop.
 _MIN_POLL_INTERVAL_SECONDS = 0.01
 
@@ -53,6 +58,16 @@ def _bool_env(name: str, default: bool) -> bool:
     if normalized in _FALSY:
         return False
     return default
+
+
+def _str_env(name: str, default: str, *, choices: frozenset[str] | None = None) -> str:
+    raw_value = os.environ.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    value = raw_value.strip().lower()
+    if choices is not None and value not in choices:
+        return default
+    return value
 
 
 def _int_env(name: str, default: int, *, minimum: int) -> int:
@@ -96,6 +111,7 @@ class RuntimeTuning:
     """Resolved runtime tuning values for the current process."""
 
     stt_poll_interval_seconds: float
+    stt_engine: str
     speech_lifecycle_poll_interval_seconds: float
     warm_llm_on_start: bool
     warm_tts_on_start: bool
@@ -115,6 +131,11 @@ def get_runtime_tuning() -> RuntimeTuning:
             "NIKOF_STT_POLL_INTERVAL_SECONDS",
             _DEFAULT_STT_POLL_INTERVAL_SECONDS,
             minimum=_MIN_POLL_INTERVAL_SECONDS,
+        ),
+        stt_engine=_str_env(
+            "NIKOF_STT_ENGINE",
+            _DEFAULT_STT_ENGINE,
+            choices=frozenset({"faster-whisper", "parakeet"}),
         ),
         speech_lifecycle_poll_interval_seconds=_float_env(
             "NIKOF_SPEECH_LIFECYCLE_POLL_INTERVAL_SECONDS",
