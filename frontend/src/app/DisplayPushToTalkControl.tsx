@@ -18,6 +18,15 @@ export function DisplayPushToTalkControl(): JSX.Element {
   const disabled = sttState.action === "device" || sttState.status === "loading" || !snapshot?.available;
   const statusLine = describeSttStateLine(sttState);
 
+  type PointerLikeEvent = {
+    preventDefault(): void;
+    pointerId?: number;
+    currentTarget?: {
+      setPointerCapture?(pointerId: number): void;
+      releasePointerCapture?(pointerId: number): void;
+    };
+  };
+
   function engage(): void {
     if (heldRef.current || disabled) {
       return;
@@ -98,12 +107,16 @@ export function DisplayPushToTalkControl(): JSX.Element {
         disabled={disabled}
         aria-pressed={active}
         data-testid="display-push-to-talk"
-        onPointerDown={(event: { preventDefault(): void }) => {
+        onPointerDown={(event: PointerLikeEvent) => {
           event.preventDefault();
+          // Capture the pointer so release fires even if the button resizes
+          // (its label changes while active) and the pointer drifts off it.
+          if (typeof event.pointerId === "number") {
+            event.currentTarget?.setPointerCapture?.(event.pointerId);
+          }
           engage();
         }}
         onPointerUp={release}
-        onPointerLeave={release}
         onPointerCancel={release}
       >
         {active ? "Listening… release to send" : "Hold to talk (or hold Space)"}
