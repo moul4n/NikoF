@@ -11,12 +11,13 @@ import time
 from pathlib import Path
 import re
 import threading
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlparse
 
 from app.core.settings import AppPaths, get_app_paths
+from app.services.streaming_reply import ReplyTextStreamExtractor
 from app.schemas.session import (
     AssistantAnimationCueContract,
     AssistantFeelingContract,
@@ -288,6 +289,33 @@ def _read_json_response(url: str, payload: dict[str, Any], *, timeout_seconds: i
     return decoded
 
 
+def _read_ndjson_stream(
+    url: str, payload: dict[str, Any], *, timeout_seconds: int = DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS
+) -> Iterator[dict[str, Any]]:
+    """Yield each NDJSON object from a streaming Ollama /api/generate response."""
+    request = urllib_request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib_request.urlopen(request, timeout=max(1, timeout_seconds)) as response:
+            for raw_line in response:
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                try:
+                    decoded = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(decoded, dict):
+                    yield decoded
+    except (urllib_error.URLError, TimeoutError) as exc:
+        raise TextGenerationInvocationError("connection-failed") from exc
+
+
 def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
     stripped = raw_text.strip()
     if not stripped:
@@ -429,6 +457,15 @@ def _normalize_structured_contract(
     )
 
 
+@dataclass(slots=True, frozen=True)
+class TextGenerationStreamEvent:
+    """One streamed step (Phase 1b). ``text_delta`` carries decoded reply_text
+    characters; the final event also carries the authoritative ``contract``."""
+
+    text_delta: str = ""
+    contract: AssistantMessageContract | None = None
+
+
 @dataclass(slots=True)
 class StubTextGenerationService:
     """Deterministic fallback while no local LLM runtime is configured."""
@@ -442,6 +479,11 @@ class StubTextGenerationService:
             text=self.unavailable_text,
             locale=request.locale,
         )
+
+    def generate_stream(self, request: TextGenerationRequest) -> Iterator[TextGenerationStreamEvent]:
+        """Non-streaming fallback: produce the whole reply as one final event."""
+        contract = self.generate(request)
+        yield TextGenerationStreamEvent(text_delta=contract.text, contract=contract)
 
 
 @dataclass(slots=True)
@@ -578,6 +620,68 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             text=reply_text,
         )
 
+    def _finalize_completion(self, request: TextGenerationRequest, completion_text: str) -> AssistantMessageContract:
+        reply_text = completion_text.strip()
+        if not reply_text:
+            return self._build_contract(request, status="error", text="Local text generation returned no reply.")
+        if request.expect_structured_output:
+            structured_payload = _extract_json_object(reply_text)
+            if structured_payload is not None:
+                try:
+                    return _normalize_structured_contract(request, structured_payload)
+                except TextGenerationInvocationError:
+                    pass
+        return self._build_contract(
+            request,
+            status=_normalize_contract_status(None, has_reply_text=True),
+            text=reply_text,
+        )
+
+    def generate_stream(self, request: TextGenerationRequest) -> Iterator[TextGenerationStreamEvent]:
+        binding = self.binding_for(request)
+        tracker = get_resource_monitor().tracker("llm")
+
+        if not binding.configured:
+            yield TextGenerationStreamEvent(
+                contract=self._build_contract(request, status="unavailable", text=self.unavailable_text)
+            )
+            return
+
+        payload: dict[str, Any] = {
+            "model": binding.model_name,
+            "prompt": request.prompt,
+            "stream": True,
+            **({"format": "json"} if request.expect_structured_output else {}),
+        }
+        extractor = ReplyTextStreamExtractor()
+        completion_parts: list[str] = []
+        start_time = time.time()
+
+        try:
+            for line in _read_ndjson_stream(binding.endpoint, payload, timeout_seconds=binding.timeout_seconds):
+                fragment = str(line.get("response") or "")
+                if fragment:
+                    completion_parts.append(fragment)
+                    delta = extractor.feed(fragment)
+                    if delta:
+                        yield TextGenerationStreamEvent(text_delta=delta)
+                if line.get("done"):
+                    break
+        except TextGenerationInvocationError as error:
+            status = "unavailable" if str(error) == "connection-failed" else "error"
+            text = self.unavailable_text if status == "unavailable" else "Local text generation failed."
+            yield TextGenerationStreamEvent(contract=self._build_contract(request, status=status, text=text))
+            return
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        if not tracker.loaded:
+            tracker.mark_loaded(f"ollama/{binding.model_name}", vram_mb=5500, ram_mb=1024)
+        tracker.record_request(elapsed_ms)
+
+        yield TextGenerationStreamEvent(
+            contract=self._finalize_completion(request, "".join(completion_parts))
+        )
+
 
 @dataclass(slots=True)
 class TextGenerationServiceRegistry:
@@ -623,6 +727,30 @@ class ManagedTextGenerationService:
         contract = self._delegate.generate(request)
         self._manager.observe_result(request=request, binding=binding, contract=contract)
         return contract
+
+    def generate_stream(self, request: TextGenerationRequest) -> Iterator[TextGenerationStreamEvent]:
+        binding = self._manager.binding_for(self._delegate, request)
+        preflight_contract = self._manager.prepare_request(request=request, binding=binding)
+        if preflight_contract is not None:
+            if binding is not None:
+                self._manager.observe_result(request=request, binding=binding, contract=preflight_contract)
+            yield TextGenerationStreamEvent(text_delta=preflight_contract.text, contract=preflight_contract)
+            return
+
+        delegate_stream = getattr(self._delegate, "generate_stream", None)
+        if delegate_stream is None:
+            contract = self._delegate.generate(request)
+            self._manager.observe_result(request=request, binding=binding, contract=contract)
+            yield TextGenerationStreamEvent(text_delta=contract.text, contract=contract)
+            return
+
+        final_contract: AssistantMessageContract | None = None
+        for event in delegate_stream(request):
+            if event.contract is not None:
+                final_contract = event.contract
+            yield event
+        if final_contract is not None:
+            self._manager.observe_result(request=request, binding=binding, contract=final_contract)
 
 
 class TextGenerationSidecarManager:
