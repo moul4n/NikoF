@@ -222,10 +222,36 @@ select {
   cursor: not-allowed;
 }
 
+.ptt-device {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.ptt-device__label {
+  display: block;
+  font-size: 0.8rem;
+  color: #aeb6c8;
+  margin-bottom: 0.3rem;
+}
+
+.ptt-device__select {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(120, 160, 255, 0.35);
+  background: rgba(20, 30, 55, 0.6);
+  color: #eef2ff;
+  font-size: 0.95rem;
+}
+
 .ptt-status {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
   color: #aeb6c8;
+}
+
+.ptt-status--warn {
+  color: #ffcf8b;
 }
 
 .app-shell__live-caption {

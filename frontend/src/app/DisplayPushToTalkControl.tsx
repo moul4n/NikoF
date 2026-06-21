@@ -15,17 +15,46 @@ import {
  * persisted key binding as the control settings panel, and the shared
  * useSttState seam for start/stop semantics.
  */
+const STT_DEVICE_STORAGE_KEY = "nikof.stt.selectedDevice";
+
 export function DisplayPushToTalkControl(): JSX.Element {
-  const { state: sttState, setListening } = useSttState();
+  const { state: sttState, setListening, setSelectedDevice } = useSttState();
   const [active, setActive] = useState(false);
   const [binding, setBinding] = useState(() => readPersistedPushToTalkBinding());
   const heldRef = useRef(false);
   const startedListeningRef = useRef(false);
+  const reappliedDeviceRef = useRef(false);
 
   const snapshot = sttState.snapshot;
-  const disabled = sttState.action === "device" || sttState.status === "loading" || !snapshot?.available;
+  const devices = sttState.devices;
+  const selectedDeviceId = snapshot?.selected_device_id ?? "";
+  // No input device picked yet (this box reports no OS "default" input), so the
+  // mic captures nothing until one is chosen — surface that as a clear blocker.
+  const noDeviceSelected = sttState.status === "ready" && !!snapshot?.available && !selectedDeviceId;
+  const disabled =
+    sttState.action === "device" || sttState.status === "loading" || !snapshot?.available || noDeviceSelected;
   const statusLine = describeSttStateLine(sttState);
   const keyLabel = formatPushToTalkBindingLabel(binding);
+
+  // Re-apply the previously chosen device after a reload/backend restart (which
+  // resets the sidecar's selection to none), so single-tab use just works.
+  useEffect(() => {
+    if (reappliedDeviceRef.current || sttState.status !== "ready" || selectedDeviceId || devices.length === 0) {
+      return;
+    }
+    const persisted = typeof window !== "undefined" ? window.localStorage.getItem(STT_DEVICE_STORAGE_KEY) : null;
+    if (persisted && devices.some((device) => device.device_id === persisted)) {
+      reappliedDeviceRef.current = true;
+      void setSelectedDevice(persisted);
+    }
+  }, [devices, selectedDeviceId, sttState.status, setSelectedDevice]);
+
+  function handleSelectDevice(deviceId: string): void {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STT_DEVICE_STORAGE_KEY, deviceId);
+    }
+    void setSelectedDevice(deviceId || null);
+  }
 
   // Keep in sync if the binding is changed on the control settings page
   // (localStorage 'storage' events fire in other tabs/surfaces).
@@ -121,6 +150,25 @@ export function DisplayPushToTalkControl(): JSX.Element {
           <h2 id="display-ptt-title">Push to talk</h2>
         </div>
       </div>
+      <label className="ptt-device">
+        <span className="ptt-device__label">Microphone</span>
+        <select
+          className="ptt-device__select"
+          value={selectedDeviceId}
+          disabled={sttState.action === "device" || devices.length === 0}
+          onChange={(event: { currentTarget: { value: string } }) => handleSelectDevice(event.currentTarget.value)}
+        >
+          <option value="">Select a microphone…</option>
+          {devices.map((device) => (
+            <option key={device.device_id} value={device.device_id}>
+              {device.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {noDeviceSelected ? (
+        <p className="ptt-status ptt-status--warn">Pick your microphone above to enable voice.</p>
+      ) : null}
       <button
         type="button"
         className={active ? "ptt-button ptt-button--active" : "ptt-button"}
