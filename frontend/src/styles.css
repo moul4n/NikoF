@@ -181,6 +181,34 @@ select {
   align-content: start;
 }
 
+/* Avatar grid cell + overlay anchor for live captions. min-width:0 lets the
+   1fr column shrink like the bare AvatarStage did. */
+.app-shell__display-stage {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell__live-caption {
+  position: absolute;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  max-width: min(90%, 720px);
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(8, 12, 24, 0.72);
+  color: #f4f6fb;
+  font-size: 1.1rem;
+  line-height: 1.35;
+  text-align: center;
+  text-wrap: balance;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
 .surface-switcher {
   display: flex;
   flex-wrap: wrap;

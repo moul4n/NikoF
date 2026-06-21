@@ -38,6 +38,11 @@ export interface ConsumedSpeechLifecycleSnapshot {
   // it is every speech.synthesis event sharing the latest utterance_id, ordered
   // by segment_index.
   canonicalSpeechSynthesisSegments: BackendSessionEventDocument[];
+  // Phase 3 Increment 4: text of the most recent interim transcript.partial,
+  // for live captions — but only while it is the newest transcription-type
+  // event. Once a confirmed transcription.status lands after it, this is null
+  // (the partial has been superseded by the final).
+  livePartialTranscript: string | null;
 }
 
 /**
@@ -112,8 +117,29 @@ export function consumeSpeechLifecycleSnapshot(
       events
         .filter((envelope) => envelope.event.event_type === "speech.synthesis")
         .map((envelope) => envelope.event)
-    )
+    ),
+    livePartialTranscript: resolveLivePartialTranscript(latestEvents)
   };
+}
+
+/**
+ * Live-caption text: the most recent transcript.partial, unless a confirmed
+ * transcription.status came after it (then the final supersedes the partial and
+ * this returns null). `latestEvents` is most-recent-first.
+ */
+function resolveLivePartialTranscript(
+  latestEvents: Array<{ event: BackendSessionEventDocument }>
+): string | null {
+  for (const { event } of latestEvents) {
+    if (event.event_type === "transcript.partial") {
+      const text = event.transcription?.transcript?.trim();
+      return text ? text : null;
+    }
+    if (event.event_type === "transcription.status") {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function startSpeechLifecycleLiveConsumption(

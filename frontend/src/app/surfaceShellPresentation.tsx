@@ -240,12 +240,24 @@ export function DisplaySurfaceShell({
       </header>
 
       <main className="app-shell__display">
-        <AvatarStage
-          runtime={runtime}
-          selectedCharacter={selectedCharacter}
-          variant="display"
-          onSelectDisplayAnimationOverride={onSelectDevDisplayAnimation}
-        />
+        <div className="app-shell__display-stage">
+          <AvatarStage
+            runtime={runtime}
+            selectedCharacter={selectedCharacter}
+            variant="display"
+            onSelectDisplayAnimationOverride={onSelectDevDisplayAnimation}
+          />
+          {speechLifecycleSnapshot?.livePartialTranscript ? (
+            <p
+              className="app-shell__live-caption"
+              role="status"
+              aria-live="polite"
+              data-testid="live-caption"
+            >
+              {speechLifecycleSnapshot.livePartialTranscript}
+            </p>
+          ) : null}
+        </div>
         <aside className="app-shell__display-rail">
           {isDevAnimationSwitcherEnabled ? (
             <>

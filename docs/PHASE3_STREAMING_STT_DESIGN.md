@@ -65,10 +65,13 @@ Faster-Whisper), never committed.
 3. **WER A/B bench.** `scripts/testing/stt_wer_bench.py` transcribes the `.local/stt-tests` clips
    with both engines and reports WER + per-clip latency. Switch the default to Parakeet only if WER
    is within threshold of Faster-Whisper medium.
-4. **Streaming partials + live captions.** Sidecar emits throttled `transcript.partial` while
-   speaking (Parakeet streaming or periodic re-decode); worker forwards them display-only (LLM still
-   fires on confirmed); frontend shows live captions on the avatar surface. Endpointing tightened so
-   the final lands ~0.2–0.4 s after speech end.
+4. **Streaming partials + live captions** — IMPLEMENTED (gated `NIKOF_STT_PARTIALS=1`, default off).
+   Sidecar re-decodes the utterance-so-far every ~5 blocks while speaking and emits
+   `transcript.partial`; worker forwards them to the `speech.lifecycle` stream display-only (the LLM
+   still fires only on the confirmed final); frontend consumes the latest partial
+   (`livePartialTranscript`) and overlays a live caption on the avatar (display) surface, cleared once
+   the confirmed final supersedes it. Best-effort throughout (partials never raise, drop-on-busy).
+   Pending: validation on real microphone audio. Endpointing tightening remains a separate lever.
 
 ## Status (2026-06-21)
 

@@ -1,6 +1,43 @@
 import { describe, expect, it } from "vitest";
 import type { BackendSessionEventDocument } from "../../shared/types/character";
-import { selectCurrentUtteranceSegments } from "./speechLifecycle";
+import { consumeSpeechLifecycleSnapshot, selectCurrentUtteranceSegments } from "./speechLifecycle";
+
+function transcriptionEvent(
+  eventType: "transcript.partial" | "transcription.status",
+  transcript: string,
+  isFinal: boolean | undefined,
+  index: number
+): BackendSessionEventDocument {
+  return {
+    schema_version: 2,
+    event_type: eventType,
+    session_id: "session-1",
+    character_id: "niko",
+    status: isFinal === false ? "partial" : "final",
+    timestamp: `2026-06-21T00:00:0${index}Z`,
+    transcription: {
+      profile_id: "stt.parakeet-tdt.0.6b-v2-2026",
+      status: isFinal === false ? "partial" : "final",
+      locale: "en-US",
+      transcript,
+      ...(isFinal === undefined ? {} : { is_final: isFinal })
+    }
+  } as BackendSessionEventDocument;
+}
+
+function snapshotOf(events: BackendSessionEventDocument[]) {
+  return {
+    stream: "speech.lifecycle",
+    delivery: "snapshot",
+    session_id: "session-1",
+    next_cursor: `speech.lifecycle:session-1:${events.length + 1}`,
+    events: events.map((event, index) => ({
+      cursor: `speech.lifecycle:session-1:${index + 1}`,
+      sequence: index + 1,
+      event
+    }))
+  } as Parameters<typeof consumeSpeechLifecycleSnapshot>[0];
+}
 
 function synthesisEvent(
   overrides: Partial<BackendSessionEventDocument["synthesis"]> & { text: string }
@@ -65,5 +102,32 @@ describe("selectCurrentUtteranceSegments", () => {
     const result = selectCurrentUtteranceSegments(events);
     expect(result).toHaveLength(1);
     expect(result[0].synthesis?.text).toBe("Re-emitted.");
+  });
+});
+
+describe("consumeSpeechLifecycleSnapshot live captions", () => {
+  it("surfaces the most recent transcript.partial text", () => {
+    const snapshot = consumeSpeechLifecycleSnapshot(
+      snapshotOf([
+        transcriptionEvent("transcript.partial", "hello", false, 1),
+        transcriptionEvent("transcript.partial", "hello there", false, 2)
+      ])
+    );
+    expect(snapshot.livePartialTranscript).toBe("hello there");
+  });
+
+  it("clears the caption once a confirmed final supersedes the partial", () => {
+    const snapshot = consumeSpeechLifecycleSnapshot(
+      snapshotOf([
+        transcriptionEvent("transcript.partial", "hello the", false, 1),
+        transcriptionEvent("transcription.status", "hello there friend", true, 2)
+      ])
+    );
+    expect(snapshot.livePartialTranscript).toBeNull();
+  });
+
+  it("is null when there are no transcription events", () => {
+    const snapshot = consumeSpeechLifecycleSnapshot(snapshotOf([synthesisEvent({ text: "Reply." })]));
+    expect(snapshot.livePartialTranscript).toBeNull();
   });
 });
