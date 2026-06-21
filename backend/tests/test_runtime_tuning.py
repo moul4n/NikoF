@@ -30,6 +30,11 @@ class RuntimeTuningTests(unittest.TestCase):
         self.assertTrue(tuning.warm_llm_on_start)
         self.assertTrue(tuning.warm_tts_on_start)
         self.assertEqual(tuning.stt_engine, "faster-whisper")
+        self.assertFalse(tuning.stt_partials_enabled)
+
+    def test_stt_partials_flag(self) -> None:
+        self.assertTrue(self._resolve({"NIKOF_STT_PARTIALS": "1"}).stt_partials_enabled)
+        self.assertFalse(self._resolve({}).stt_partials_enabled)
 
     def test_stt_engine_selects_parakeet_and_rejects_unknown(self) -> None:
         parakeet = self._resolve({"NIKOF_STT_ENGINE": "parakeet"})

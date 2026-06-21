@@ -16,6 +16,7 @@ from app.core.settings import AppPaths, get_app_paths
 from app.schemas.session import AudioFormatMetadata, SpeechTimingMetadata, SpeechTranscriptionContract
 from app.providers.stt_engines import resolve_stt_engine_name, stt_profile_id_for
 from app.services.resource_monitor import SubsystemTracker, get_resource_monitor
+from app.services.speech import SPEECH_LIFECYCLE_STREAM
 from app.services.stt_server import FasterWhisperServerError, FasterWhisperServerManager, get_server_manager
 from app.services.turns import UserTurnRequest, UserTurnServices, run_user_text_turn
 
@@ -114,6 +115,7 @@ class STTWorker:
         self._turn_services: UserTurnServices | None = None
         self._dispatch_executor: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
         self._poll_interval_seconds = get_runtime_tuning().stt_poll_interval_seconds
+        self._partials_enabled = get_runtime_tuning().stt_partials_enabled
         self._lock = threading.Lock()
 
     def _ensure_dispatch_executor(self) -> None:
@@ -299,10 +301,68 @@ class STTWorker:
                         dispatch_target=None,
                         dispatch_detail="Transcript kept for debugging but not forwarded because it did not meet the STT submission threshold.",
                     )
+            elif event_type == "transcript.partial":
+                if not self._partials_enabled:
+                    continue
+                transcript = str(event.get("transcript") or "").strip()
+                if not transcript:
+                    continue
+                confidence = float(event.get("confidence")) if event.get("confidence") is not None else None
+                self._publish_partial_transcript(
+                    transcript=transcript,
+                    locale=str(event.get("locale") or "en-US"),
+                    confidence=confidence,
+                    duration_ms=int(event.get("duration_ms") or 0),
+                )
             elif event_type == "transcript.error":
                 self._last_error = str(event.get("message") or "STT transcription failed")
 
         await self._refresh_state()
+
+    def _publish_partial_transcript(
+        self,
+        *,
+        transcript: str,
+        locale: str,
+        confidence: float | None,
+        duration_ms: int,
+    ) -> None:
+        """Append an interim transcript.partial lifecycle event for live captions.
+        Display-only — does NOT run a turn or touch confirmed dispatch state.
+        Best-effort: a failure here never breaks the poll loop."""
+        services = self._turn_services
+        if services is None:
+            return
+        try:
+            snapshot = services.session_service.get_snapshot()
+            active = services.character_service.get_character_summary(snapshot.active_character_id)
+            transcription = SpeechTranscriptionContract(
+                profile_id=stt_profile_id_for(resolve_stt_engine_name()),
+                status="partial",
+                locale=locale,
+                transcript=transcript,
+                confidence=confidence,
+                is_final=False,
+                timing=SpeechTimingMetadata(
+                    utterance_duration_ms=duration_ms,
+                    audio_format=AudioFormatMetadata(
+                        container="wav",
+                        encoding="pcm_f32le",
+                        sample_rate_hz=16000,
+                        channels=1,
+                    ),
+                ),
+            )
+            event = services.session_event_factory.build_event(
+                snapshot,
+                character_id=active.character_id,
+                event_type="transcript.partial",
+                status="partial",
+                transcription=transcription,
+            )
+            services.session_service.event_store.append(SPEECH_LIFECYCLE_STREAM, event)
+        except Exception as error:  # pragma: no cover - best-effort caption path
+            self._last_error = f"Partial transcript publish failed: {error}"
 
     async def _submit_transcript(
         self,

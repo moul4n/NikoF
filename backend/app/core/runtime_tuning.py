@@ -30,6 +30,12 @@ _DEFAULT_WARM_TTS_ON_START = True
 # ONNX engine. Faster-Whisper stays the default until the WER A/B gate passes.
 _DEFAULT_STT_ENGINE = "faster-whisper"
 
+# Phase 3 Increment 4: emit interim transcript.partial events while the user is
+# still speaking so the frontend can show live captions. Display-only — the LLM
+# turn still fires on the confirmed final. Off by default (adds repeated decode
+# work during speech); enable with NIKOF_STT_PARTIALS=1.
+_DEFAULT_STT_PARTIALS_ENABLED = False
+
 # Floor for any poll interval so a misconfigured env var cannot spin a loop.
 _MIN_POLL_INTERVAL_SECONDS = 0.01
 
@@ -112,6 +118,7 @@ class RuntimeTuning:
 
     stt_poll_interval_seconds: float
     stt_engine: str
+    stt_partials_enabled: bool
     speech_lifecycle_poll_interval_seconds: float
     warm_llm_on_start: bool
     warm_tts_on_start: bool
@@ -137,6 +144,7 @@ def get_runtime_tuning() -> RuntimeTuning:
             _DEFAULT_STT_ENGINE,
             choices=frozenset({"faster-whisper", "parakeet"}),
         ),
+        stt_partials_enabled=_bool_env("NIKOF_STT_PARTIALS", _DEFAULT_STT_PARTIALS_ENABLED),
         speech_lifecycle_poll_interval_seconds=_float_env(
             "NIKOF_SPEECH_LIFECYCLE_POLL_INTERVAL_SECONDS",
             _DEFAULT_SPEECH_LIFECYCLE_POLL_INTERVAL_SECONDS,

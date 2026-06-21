@@ -163,6 +163,23 @@ def _resolve_engine_name() -> str:
     return raw if raw in {"faster-whisper", "parakeet"} else "faster-whisper"
 
 
+def _partials_enabled_from_env() -> bool:
+    return os.environ.get("NIKOF_STT_PARTIALS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _partial_interval_blocks_from_env() -> int:
+    """How many ~100ms speech blocks between interim transcripts (default 5 ≈
+    500ms). Lower = more frequent captions + more decode work."""
+    raw = os.environ.get("NIKOF_STT_PARTIAL_INTERVAL_BLOCKS", "").strip()
+    if not raw:
+        return 5
+    try:
+        value = int(raw)
+    except ValueError:
+        return 5
+    return value if value >= 1 else 1
+
+
 def _prefer_gpu() -> bool:
     if os.environ.get("NIKOF_STT_DEVICE_POLICY", "auto").strip().lower() == "cpu":
         return False
@@ -406,7 +423,12 @@ class HotMicRuntime:
         self._total_submitted = 0
         self._event_sequence = 0
         self._events: deque[RuntimeEvent] = deque(maxlen=256)
-        self._segment_queue: queue.Queue[tuple[Any, int]] = queue.Queue(maxsize=8)
+        # (audio, duration_ms, is_partial). Partials are interim captions emitted
+        # while speaking; the confirmed final has is_partial=False.
+        self._segment_queue: queue.Queue[tuple[Any, int, bool]] = queue.Queue(maxsize=8)
+        self._partials_enabled = _partials_enabled_from_env()
+        self._partial_interval_blocks = _partial_interval_blocks_from_env()
+        self._blocks_since_partial = 0
         self._processor_stop = threading.Event()
         self._processor_thread = threading.Thread(target=self._process_loop, name="stt-sidecar-process", daemon=True)
         self._stream_lock = threading.Lock()
@@ -623,11 +645,26 @@ class HotMicRuntime:
             return
 
         try:
-            self._segment_queue.put_nowait((segment, duration_ms))
+            self._segment_queue.put_nowait((segment, duration_ms, False))
             self._set_state("processing")
         except queue.Full:
             self._last_error = "STT processing queue is full"
             self._append_event("segment.dropped", {"reason": self._last_error})
+
+    def _enqueue_partial_snapshot(self) -> None:
+        """Snapshot the in-progress utterance for an interim decode. Caller holds
+        _audio_lock. Best-effort: dropped if the processing queue is busy, and it
+        never changes the runtime state (the confirmed final owns that)."""
+        if np is None or not self._current_chunks:
+            return
+        snapshot = np.concatenate(self._current_chunks).astype(np.float32)
+        duration_ms = int(round(snapshot.shape[0] * 1000 / SERVER_SAMPLE_RATE_HZ))
+        if duration_ms < int(MIN_UTTERANCE_SECONDS * 1000):
+            return
+        try:
+            self._segment_queue.put_nowait((snapshot, duration_ms, True))
+        except queue.Full:
+            pass
 
     def events_after(self, after_sequence: int) -> dict[str, Any]:
         return {
@@ -648,7 +685,7 @@ class HotMicRuntime:
         self.stop_listening()
         self._processor_stop.set()
         try:
-            self._segment_queue.put_nowait((None, 0))
+            self._segment_queue.put_nowait((None, 0, False))
         except Exception:
             pass
         return {"status": "shutdown"}
@@ -689,6 +726,7 @@ class HotMicRuntime:
                     self._current_chunks = list(self._pre_roll)
                     self._silence_blocks = 0
                     self._speech_blocks = 0
+                    self._blocks_since_partial = 0
                 return
 
             self._current_chunks.append(chunk)
@@ -700,6 +738,13 @@ class HotMicRuntime:
             total_samples = sum(item.shape[0] for item in self._current_chunks)
             total_seconds = total_samples / SERVER_SAMPLE_RATE_HZ
             if self._silence_blocks < SPEECH_END_BLOCKS and total_seconds < MAX_UTTERANCE_SECONDS:
+                # Interim caption: every N blocks while still speaking, enqueue a
+                # snapshot of the utterance-so-far for a best-effort partial decode.
+                if self._partials_enabled:
+                    self._blocks_since_partial += 1
+                    if self._blocks_since_partial >= self._partial_interval_blocks:
+                        self._blocks_since_partial = 0
+                        self._enqueue_partial_snapshot()
                 return
 
             segment = np.concatenate(self._current_chunks).astype(np.float32)
@@ -707,6 +752,7 @@ class HotMicRuntime:
             self._pre_roll.clear()
             self._speaking = False
             self._silence_blocks = 0
+            self._blocks_since_partial = 0
 
         duration_ms = int(round(segment.shape[0] * 1000 / SERVER_SAMPLE_RATE_HZ))
         if duration_ms < int(MIN_UTTERANCE_SECONDS * 1000):
@@ -715,7 +761,7 @@ class HotMicRuntime:
             return
 
         try:
-            self._segment_queue.put_nowait((segment, duration_ms))
+            self._segment_queue.put_nowait((segment, duration_ms, False))
             self._set_state("processing")
         except queue.Full:
             self._last_error = "STT processing queue is full"
@@ -762,15 +808,43 @@ class HotMicRuntime:
         confidence = sum(confidences) / len(confidences) if confidences else None
         return transcript, segment_ranges, confidence
 
+    def _emit_partial(self, audio: Any, duration_ms: int) -> None:
+        """Decode an interim utterance snapshot and emit transcript.partial.
+        Best-effort: never raises, never touches confirmed state/counters or the
+        error state machine — the confirmed final remains authoritative."""
+        started_at = time.time()
+        try:
+            transcript, _segment_ranges, confidence = self._transcribe_segment(audio)
+        except Exception:
+            return
+        if not transcript:
+            return
+        self._append_event(
+            "transcript.partial",
+            {
+                "state": "processing",
+                "transcript": transcript,
+                "locale": self._locale,
+                "confidence": confidence,
+                "duration_ms": duration_ms,
+                "is_partial": True,
+                "latency_ms": int(round((time.time() - started_at) * 1000)),
+            },
+        )
+
     def _process_loop(self) -> None:
         while not self._processor_stop.is_set():
             try:
-                audio, duration_ms = self._segment_queue.get(timeout=0.2)
+                audio, duration_ms, is_partial = self._segment_queue.get(timeout=0.2)
             except queue.Empty:
                 continue
 
             if audio is None:
                 break
+
+            if is_partial:
+                self._emit_partial(audio, duration_ms)
+                continue
 
             started_at = time.time()
             try:

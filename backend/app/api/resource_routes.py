@@ -172,6 +172,7 @@ def _serialize_runtime_tuning() -> dict[str, Any]:
     return {
         "stt_poll_interval_seconds": tuning.stt_poll_interval_seconds,
         "stt_engine": tuning.stt_engine,
+        "stt_partials_enabled": tuning.stt_partials_enabled,
         "speech_lifecycle_poll_interval_seconds": tuning.speech_lifecycle_poll_interval_seconds,
         "warm_llm_on_start": tuning.warm_llm_on_start,
         "warm_tts_on_start": tuning.warm_tts_on_start,
