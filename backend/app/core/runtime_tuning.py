@@ -55,6 +55,27 @@ def _bool_env(name: str, default: bool) -> bool:
     return default
 
 
+def _int_env(name: str, default: int, *, minimum: int) -> int:
+    raw_value = os.environ.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+    return value if value >= minimum else minimum
+
+
+# Phase 1a TTS sentence-segmentation defaults. Segmentation is OFF by default
+# so the backend change can land and be tested before the frontend learns to
+# play ordered multi-segment utterances; enable with NIKOF_TTS_SEGMENTATION=1.
+# A segment is flushed at a sentence boundary once it reaches min chars, or
+# force-flushed at max chars to bound first-segment latency.
+_DEFAULT_TTS_SEGMENTATION_ENABLED = False
+_DEFAULT_TTS_SEGMENT_MIN_CHARS = 12
+_DEFAULT_TTS_SEGMENT_MAX_CHARS = 240
+
+
 @dataclass(slots=True, frozen=True)
 class RuntimeTuning:
     """Resolved runtime tuning values for the current process."""
@@ -63,6 +84,9 @@ class RuntimeTuning:
     speech_lifecycle_poll_interval_seconds: float
     warm_llm_on_start: bool
     warm_tts_on_start: bool
+    tts_segmentation_enabled: bool
+    tts_segment_min_chars: int
+    tts_segment_max_chars: int
 
 
 @lru_cache(maxsize=1)
@@ -81,4 +105,13 @@ def get_runtime_tuning() -> RuntimeTuning:
         ),
         warm_llm_on_start=_bool_env("NIKOF_WARM_LLM_ON_START", _DEFAULT_WARM_LLM_ON_START),
         warm_tts_on_start=_bool_env("NIKOF_WARM_TTS_ON_START", _DEFAULT_WARM_TTS_ON_START),
+        tts_segmentation_enabled=_bool_env(
+            "NIKOF_TTS_SEGMENTATION", _DEFAULT_TTS_SEGMENTATION_ENABLED
+        ),
+        tts_segment_min_chars=_int_env(
+            "NIKOF_TTS_SEGMENT_MIN_CHARS", _DEFAULT_TTS_SEGMENT_MIN_CHARS, minimum=1
+        ),
+        tts_segment_max_chars=_int_env(
+            "NIKOF_TTS_SEGMENT_MAX_CHARS", _DEFAULT_TTS_SEGMENT_MAX_CHARS, minimum=1
+        ),
     )

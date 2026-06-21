@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 import threading
 import time
 from typing import Any
 
 from app.api.response_builders import derive_operator_command_status
+from app.core.runtime_tuning import get_runtime_tuning
 from app.schemas.animation import AnimationIntent, SessionAnimationSnapshot
 from app.schemas.session import (
     AssistantAnimationCueContract,
@@ -30,6 +31,7 @@ from app.services.speech import (
     project_public_session_event,
     project_public_speech_lifecycle_envelope,
 )
+from app.services.text_segmentation import iter_sentence_segments
 from app.services.turn_telemetry import get_turn_telemetry
 
 
@@ -430,6 +432,7 @@ def _build_turn_synthesis_request(
     locale: str,
     voice_profile: Any,
     lip_sync_preferences: Any,
+    text_override: str | None = None,
 ) -> SpeechSynthesisRequest:
     voice_profile_payload = {
         "profile_id": voice_profile.profile_id,
@@ -446,7 +449,7 @@ def _build_turn_synthesis_request(
         }
 
     return SpeechSynthesisRequest(
-        text=assistant.text,
+        text=text_override if text_override is not None else assistant.text,
         locale=locale,
         profile_id=TTS_BASELINE_PROFILE_IDS[0],
         voice_profile_id=voice_profile.profile_id or TTS_BASELINE_PROFILE_IDS[0],
@@ -510,6 +513,59 @@ def _dispatch_deferred_synthesis(
     threading.Thread(
         target=_worker,
         name=f"user-turn-synthesis:{snapshot.session_id}:{character_id}",
+        daemon=True,
+    ).start()
+
+
+def _stamp_segment_fields(
+    synthesis: SpeechSynthesisContract,
+    *,
+    utterance_id: str,
+    segment_index: int,
+    segment_count: int,
+) -> SpeechSynthesisContract:
+    """Attach multi-segment metadata to a synthesized contract (Phase 1a)."""
+    return replace(
+        synthesis,
+        utterance_id=utterance_id,
+        segment_index=segment_index,
+        segment_count=segment_count,
+        is_final=segment_index == segment_count - 1,
+    )
+
+
+def _dispatch_segmented_synthesis(
+    segment_requests: list[SpeechSynthesisRequest],
+    *,
+    services: UserTurnServices,
+    snapshot: Any,
+    character_id: str,
+    utterance_id: str,
+    segment_count: int,
+    start_index: int,
+) -> None:
+    """Synthesize the given segments in a single background thread, preserving
+    order so speech-lifecycle events are appended by ascending segment_index."""
+
+    def _worker() -> None:
+        for offset, segment_request in enumerate(segment_requests):
+            segment_index = start_index + offset
+            synthesis = _stamp_segment_fields(
+                _run_synthesis_request(segment_request, services=services),
+                utterance_id=utterance_id,
+                segment_index=segment_index,
+                segment_count=segment_count,
+            )
+            _append_synthesis_event(
+                synthesis,
+                services=services,
+                snapshot=snapshot,
+                character_id=character_id,
+            )
+
+    threading.Thread(
+        target=_worker,
+        name=f"user-turn-synthesis:{snapshot.session_id}:{character_id}:{utterance_id}",
         daemon=True,
     ).start()
 
@@ -651,6 +707,13 @@ def run_user_text_turn(
     speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(assistant_envelope))
 
     synthesis_envelope: SpeechLifecycleEventEnvelope | None = None
+    # Phase 1a: when segmentation is enabled and the reply has >1 sentence
+    # segments, synthesize per-segment so the first sentence plays while later
+    # ones synthesize. Flag OFF (or a single segment) -> original behavior.
+    tuning = get_runtime_tuning()
+    utterance_id = assistant_envelope.event_id
+    segment_requests: list[SpeechSynthesisRequest] = []
+    use_segmentation = False
     if assistant.status == "ready":
         synthesis_request = _build_turn_synthesis_request(
             assistant,
@@ -658,7 +721,67 @@ def run_user_text_turn(
             voice_profile=voice_profile,
             lip_sync_preferences=lip_sync_preferences,
         )
-        if request.defer_synthesis:
+        segment_texts: list[str] = []
+        if tuning.tts_segmentation_enabled:
+            segment_texts = iter_sentence_segments(
+                assistant.text,
+                min_chars=tuning.tts_segment_min_chars,
+                max_chars=tuning.tts_segment_max_chars,
+            )
+        use_segmentation = len(segment_texts) > 1
+        if use_segmentation:
+            segment_requests = [
+                _build_turn_synthesis_request(
+                    assistant,
+                    locale=request.locale,
+                    voice_profile=voice_profile,
+                    lip_sync_preferences=lip_sync_preferences,
+                    text_override=segment_text,
+                )
+                for segment_text in segment_texts
+            ]
+            segment_count = len(segment_requests)
+            if request.defer_synthesis:
+                # Session-event placeholder; segments dispatched after the
+                # session event is appended (see below).
+                synthesis = _stamp_segment_fields(
+                    _build_queued_synthesis_contract(
+                        assistant,
+                        locale=request.locale,
+                        voice_profile_id=voice_profile.profile_id,
+                    ),
+                    utterance_id=utterance_id,
+                    segment_index=0,
+                    segment_count=segment_count,
+                )
+            else:
+                # Synthesize segment 0 inline so the command response carries
+                # first audio; defer the rest in order.
+                tts_started = time.perf_counter()
+                synthesis = _stamp_segment_fields(
+                    _run_synthesis_request(segment_requests[0], services=services),
+                    utterance_id=utterance_id,
+                    segment_index=0,
+                    segment_count=segment_count,
+                )
+                tts_ms = (time.perf_counter() - tts_started) * 1000.0
+                synthesis_envelope = _append_synthesis_event(
+                    synthesis,
+                    services=services,
+                    snapshot=snapshot,
+                    character_id=active_character.character_id,
+                )
+                speech_lifecycle_events.append(project_public_speech_lifecycle_envelope(synthesis_envelope))
+                _dispatch_segmented_synthesis(
+                    segment_requests[1:],
+                    services=services,
+                    snapshot=snapshot,
+                    character_id=active_character.character_id,
+                    utterance_id=utterance_id,
+                    segment_count=segment_count,
+                    start_index=1,
+                )
+        elif request.defer_synthesis:
             synthesis = _build_queued_synthesis_contract(
                 assistant,
                 locale=request.locale,
@@ -711,12 +834,23 @@ def run_user_text_turn(
     )
 
     if assistant.status == "ready" and request.defer_synthesis:
-        _dispatch_deferred_synthesis(
-            synthesis_request,
-            services=services,
-            snapshot=snapshot,
-            character_id=active_character.character_id,
-        )
+        if use_segmentation:
+            _dispatch_segmented_synthesis(
+                segment_requests,
+                services=services,
+                snapshot=snapshot,
+                character_id=active_character.character_id,
+                utterance_id=utterance_id,
+                segment_count=len(segment_requests),
+                start_index=0,
+            )
+        else:
+            _dispatch_deferred_synthesis(
+                synthesis_request,
+                services=services,
+                snapshot=snapshot,
+                character_id=active_character.character_id,
+            )
 
     if services.animation_service is not None and services.session_animation_live_delivery is not None:
         try:
