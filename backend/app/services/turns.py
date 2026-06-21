@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import logging
+import queue
 import threading
 import time
 from typing import Any
@@ -31,7 +32,7 @@ from app.services.speech import (
     project_public_session_event,
     project_public_speech_lifecycle_envelope,
 )
-from app.services.text_segmentation import iter_sentence_segments
+from app.services.text_segmentation import StreamingSentenceSegmenter, iter_sentence_segments
 from app.services.turn_telemetry import get_turn_telemetry
 
 
@@ -522,15 +523,21 @@ def _stamp_segment_fields(
     *,
     utterance_id: str,
     segment_index: int,
-    segment_count: int,
+    segment_count: int | None,
+    is_final: bool | None = None,
 ) -> SpeechSynthesisContract:
-    """Attach multi-segment metadata to a synthesized contract (Phase 1a)."""
+    """Attach multi-segment metadata to a synthesized contract.
+
+    ``is_final`` may be given explicitly (Phase 1b streaming, where the total
+    count is unknown until generation ends) or derived from ``segment_count``
+    (Phase 1a, where the count is known up front)."""
+    resolved_final = is_final if is_final is not None else (segment_index == (segment_count or 1) - 1)
     return replace(
         synthesis,
         utterance_id=utterance_id,
         segment_index=segment_index,
         segment_count=segment_count,
-        is_final=segment_index == segment_count - 1,
+        is_final=resolved_final,
     )
 
 
@@ -568,6 +575,157 @@ def _dispatch_segmented_synthesis(
         name=f"user-turn-synthesis:{snapshot.session_id}:{character_id}:{utterance_id}",
         daemon=True,
     ).start()
+
+
+def _build_segment_request(
+    text: str,
+    *,
+    locale: str,
+    voice_profile: Any,
+    lip_sync_preferences: Any,
+) -> SpeechSynthesisRequest:
+    """Per-segment synthesis request for the streaming path (Phase 1b).
+
+    Unlike the batch path this omits the LLM voice-tone hint, which is only known
+    once the full reply has been parsed — segments are dispatched before then."""
+    voice_profile_payload = {
+        "profile_id": voice_profile.profile_id,
+        "provider": voice_profile.provider,
+        "style": voice_profile.style,
+        "notes": voice_profile.notes,
+        **voice_profile.settings,
+    }
+    return SpeechSynthesisRequest(
+        text=text,
+        locale=locale,
+        profile_id=TTS_BASELINE_PROFILE_IDS[0],
+        voice_profile_id=voice_profile.profile_id or TTS_BASELINE_PROFILE_IDS[0],
+        voice_profile=voice_profile_payload,
+        preferred_lip_sync_track_id=lip_sync_preferences.preferred_track_id,
+    )
+
+
+def _new_utterance_id(snapshot: Any, character_id: str) -> str:
+    return f"utterance:{snapshot.session_id}:{character_id}:{time.time_ns()}"
+
+
+class _StreamingSegmentSink:
+    """Synthesizes streamed segments in order on a single background thread, so
+    audio for sentence N is produced while the LLM is still generating N+1."""
+
+    def __init__(
+        self,
+        *,
+        services: "UserTurnServices",
+        snapshot: Any,
+        character_id: str,
+        utterance_id: str,
+        build_request: Any,
+    ) -> None:
+        self._services = services
+        self._snapshot = snapshot
+        self._character_id = character_id
+        self._utterance_id = utterance_id
+        self._build_request = build_request
+        self._queue: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(
+            target=self._worker,
+            name=f"user-turn-stream-synth:{snapshot.session_id}:{character_id}",
+            daemon=True,
+        )
+        self._started = False
+        self._index = 0
+
+    @property
+    def dispatched(self) -> bool:
+        return self._started
+
+    def push(self, text: str, *, is_final: bool) -> None:
+        if not self._started:
+            self._started = True
+            self._thread.start()
+        self._queue.put((self._index, text, is_final))
+        self._index += 1
+
+    def finish(self) -> None:
+        if self._started:
+            self._queue.put(None)
+
+    def _worker(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                break
+            index, text, is_final = item
+            try:
+                synthesis = _stamp_segment_fields(
+                    _run_synthesis_request(self._build_request(text), services=self._services),
+                    utterance_id=self._utterance_id,
+                    segment_index=index,
+                    segment_count=None,
+                    is_final=is_final,
+                )
+                _append_synthesis_event(
+                    synthesis,
+                    services=self._services,
+                    snapshot=self._snapshot,
+                    character_id=self._character_id,
+                )
+            except Exception:
+                logger.exception("Streamed segment synthesis failed")
+
+
+def _run_streamed_generation(
+    request: TextGenerationRequest,
+    *,
+    services: "UserTurnServices",
+    snapshot: Any,
+    character_id: str,
+    voice_profile: Any,
+    lip_sync_preferences: Any,
+    utterance_id: str,
+    tuning: Any,
+) -> tuple[AssistantMessageContract, bool]:
+    """Consume the streamed reply, dispatching sentence segments to TTS as they
+    complete. Returns the final contract and whether any segment was dispatched."""
+    segmenter = StreamingSentenceSegmenter(
+        min_chars=tuning.tts_segment_min_chars,
+        max_chars=tuning.tts_segment_max_chars,
+    )
+    sink = _StreamingSegmentSink(
+        services=services,
+        snapshot=snapshot,
+        character_id=character_id,
+        utterance_id=utterance_id,
+        build_request=lambda text: _build_segment_request(
+            text,
+            locale=request.locale,
+            voice_profile=voice_profile,
+            lip_sync_preferences=lip_sync_preferences,
+        ),
+    )
+
+    final_contract: AssistantMessageContract | None = None
+    for event in services.text_generation_service.generate_stream(request):
+        if event.text_delta:
+            for segment_text in segmenter.feed(event.text_delta):
+                sink.push(segment_text, is_final=False)
+        if event.contract is not None:
+            final_contract = event.contract
+
+    tail = segmenter.flush()
+    for offset, segment_text in enumerate(tail):
+        sink.push(segment_text, is_final=offset == len(tail) - 1)
+    sink.finish()
+
+    if final_contract is None:
+        final_contract = AssistantMessageContract(
+            profile_id=request.profile_id,
+            status="error",
+            text="Local text generation returned no reply.",
+            locale=request.locale,
+        )
+    return final_contract, sink.dispatched
 
 
 @dataclass(slots=True)
@@ -669,30 +827,63 @@ def run_user_text_turn(
         except Exception:
             logger.exception("User turn thinking animation publication failed")
 
+    tuning = get_runtime_tuning()
+    generation_request = TextGenerationRequest(
+        prompt=_build_spoken_reply_prompt(
+            turn_input_text,
+            character_id=active_character.character_id,
+            voice_profile=voice_profile,
+            memory_context=memory_context,
+            input_source="stt" if request.transcription is not None else "manual_text",
+        ),
+        locale=request.locale,
+        profile_id=LLM_BASELINE_PROFILE_IDS[0],
+        expect_structured_output=True,
+    )
+    # Phase 1b: stream the reply and dispatch sentence segments to TTS while the
+    # LLM is still generating. Falls back to the buffered generate() path when
+    # streaming is off, segmentation is off, or the service can't stream.
+    streaming_active = (
+        tuning.llm_streaming_enabled
+        and tuning.tts_segmentation_enabled
+        and hasattr(services.text_generation_service, "generate_stream")
+    )
+    streamed_segments_dispatched = False
+    streamed_utterance_id: str | None = None
+
     llm_started = time.perf_counter()
-    try:
-        assistant = services.text_generation_service.generate(
-            TextGenerationRequest(
-                prompt=_build_spoken_reply_prompt(
-                    turn_input_text,
-                    character_id=active_character.character_id,
-                    voice_profile=voice_profile,
-                    memory_context=memory_context,
-                    input_source="stt" if request.transcription is not None else "manual_text",
-                ),
-                locale=request.locale,
-                profile_id=LLM_BASELINE_PROFILE_IDS[0],
-                expect_structured_output=True,
+    if streaming_active:
+        streamed_utterance_id = _new_utterance_id(snapshot, active_character.character_id)
+        try:
+            assistant, streamed_segments_dispatched = _run_streamed_generation(
+                generation_request,
+                services=services,
+                snapshot=snapshot,
+                character_id=active_character.character_id,
+                voice_profile=voice_profile,
+                lip_sync_preferences=lip_sync_preferences,
+                utterance_id=streamed_utterance_id,
+                tuning=tuning,
             )
-        )
-    except Exception:
-        logger.exception("User turn text generation failed")
-        assistant = AssistantMessageContract(
-            profile_id=LLM_BASELINE_PROFILE_IDS[0],
-            status="error",
-            text="Local text generation failed.",
-            locale=request.locale,
-        )
+        except Exception:
+            logger.exception("User turn streamed text generation failed")
+            assistant = AssistantMessageContract(
+                profile_id=LLM_BASELINE_PROFILE_IDS[0],
+                status="error",
+                text="Local text generation failed.",
+                locale=request.locale,
+            )
+    else:
+        try:
+            assistant = services.text_generation_service.generate(generation_request)
+        except Exception:
+            logger.exception("User turn text generation failed")
+            assistant = AssistantMessageContract(
+                profile_id=LLM_BASELINE_PROFILE_IDS[0],
+                status="error",
+                text="Local text generation failed.",
+                locale=request.locale,
+            )
     llm_ms = (time.perf_counter() - llm_started) * 1000.0
     assistant_envelope = services.session_service.event_store.append(
         SPEECH_LIFECYCLE_STREAM,
@@ -710,11 +901,25 @@ def run_user_text_turn(
     # Phase 1a: when segmentation is enabled and the reply has >1 sentence
     # segments, synthesize per-segment so the first sentence plays while later
     # ones synthesize. Flag OFF (or a single segment) -> original behavior.
-    tuning = get_runtime_tuning()
     utterance_id = assistant_envelope.event_id
     segment_requests: list[SpeechSynthesisRequest] = []
     use_segmentation = False
-    if assistant.status == "ready":
+    if streamed_segments_dispatched:
+        # Phase 1b: segments were already synthesized and published to the
+        # lifecycle during streaming; record a queued placeholder for the
+        # session event (the lifecycle stream carries the actual audio).
+        synthesis = _stamp_segment_fields(
+            _build_queued_synthesis_contract(
+                assistant,
+                locale=request.locale,
+                voice_profile_id=voice_profile.profile_id,
+            ),
+            utterance_id=streamed_utterance_id or utterance_id,
+            segment_index=0,
+            segment_count=None,
+            is_final=False,
+        )
+    elif assistant.status == "ready":
         synthesis_request = _build_turn_synthesis_request(
             assistant,
             locale=request.locale,
@@ -833,7 +1038,7 @@ def run_user_text_turn(
         session_id=snapshot.session_id,
     )
 
-    if assistant.status == "ready" and request.defer_synthesis:
+    if assistant.status == "ready" and request.defer_synthesis and not streamed_segments_dispatched:
         if use_segmentation:
             _dispatch_segmented_synthesis(
                 segment_requests,

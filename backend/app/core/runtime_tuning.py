@@ -75,6 +75,11 @@ _DEFAULT_TTS_SEGMENTATION_ENABLED = False
 _DEFAULT_TTS_SEGMENT_MIN_CHARS = 12
 _DEFAULT_TTS_SEGMENT_MAX_CHARS = 240
 
+# Phase 1b: stream the LLM reply so the first sentence dispatches to TTS before
+# generation finishes. OFF by default and only effective when segmentation is
+# also enabled. Requires a text-generation service that supports generate_stream.
+_DEFAULT_LLM_STREAMING_ENABLED = False
+
 
 @dataclass(slots=True, frozen=True)
 class RuntimeTuning:
@@ -87,6 +92,7 @@ class RuntimeTuning:
     tts_segmentation_enabled: bool
     tts_segment_min_chars: int
     tts_segment_max_chars: int
+    llm_streaming_enabled: bool
 
 
 @lru_cache(maxsize=1)
@@ -114,4 +120,5 @@ def get_runtime_tuning() -> RuntimeTuning:
         tts_segment_max_chars=_int_env(
             "NIKOF_TTS_SEGMENT_MAX_CHARS", _DEFAULT_TTS_SEGMENT_MAX_CHARS, minimum=1
         ),
+        llm_streaming_enabled=_bool_env("NIKOF_LLM_STREAMING", _DEFAULT_LLM_STREAMING_ENABLED),
     )
