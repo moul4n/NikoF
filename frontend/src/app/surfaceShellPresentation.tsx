@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { AvatarStage } from "../avatar/components/AvatarStage";
+import { DisplayPushToTalkControl } from "./DisplayPushToTalkControl";
 import {
   SurfaceModeSwitch,
   buildSurfaceHref,
@@ -259,6 +260,7 @@ export function DisplaySurfaceShell({
           ) : null}
         </div>
         <aside className="app-shell__display-rail">
+          <DisplayPushToTalkControl />
           {isDevAnimationSwitcherEnabled ? (
             <>
               <DevDisplayProfilePanel
