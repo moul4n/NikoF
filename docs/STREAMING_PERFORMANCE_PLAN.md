@@ -253,8 +253,13 @@ signed off; VRAM budget re-confirmed.
 
 ---
 
-## Phase 5 — Optional pluggable LLM backend (Claude Haiku) 
+## Phase 5 — Optional pluggable LLM backend (Claude Haiku) — DEFERRED (possible future feature)
+
 **Win: ~2–2.5× faster generation + better JSON-plan reliability + frees ~5.5 GB VRAM · Change: medium · Risk: low technical / high policy · Dependencies: Phase 1 streaming**
+
+> **Status (2026-06-21): not being pursued at this stage.** Decision: keep NikoF local-only; no
+> cloud LLM in the core loop for now. Recorded here as a *possible future feature* behind the
+> existing `text_generation_service` seam so it can be revisited as a product/privacy call.
 
 Technically attractive (Haiku 4.5 ≈ 90–110 tok/s vs ~42 local; better instruction-following →
 fewer malformed plans; frees the GPU for STT/TTS). **The blocker is policy, not code:** it
