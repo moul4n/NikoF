@@ -195,12 +195,14 @@ class XttsSynthesisAdapter:
             return self._engine
 
     def synthesize(self, request: SpeechSynthesisRequest) -> SpeechSynthesisContract:
-        engine = self._ensure_engine()
-        if engine is None:
-            return _unavailable(self.profile_id, request, self._load_error or "unavailable")
+        # Check the reference first so we never load the ~1.8GB model when there
+        # is nothing to clone (keeps the unavailable path cheap).
         reference = self._reference_wav()
         if reference is None:
             return _unavailable(self.profile_id, request, "no reference WAV under tts/xtts/")
+        engine = self._ensure_engine()
+        if engine is None:
+            return _unavailable(self.profile_id, request, self._load_error or "unavailable")
         try:
             import numpy as np
 

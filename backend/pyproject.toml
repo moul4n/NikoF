@@ -18,5 +18,20 @@ dependencies = [
 	"sounddevice>=0.4.6,<1.0",
 ]
 
+[project.optional-dependencies]
+# Pluggable TTS engines (Phase 3/4), selected via NIKOF_TTS_ENGINE.
+# Kokoro: fast, CPU-friendly, 24kHz, preset voice (no cloning).
+kokoro = ["kokoro-onnx>=0.5,<1.0"]
+# XTTS-v2 (voice cloning). coqui-tts treats torch as a user prerequisite and,
+# on torch>=2.9, additionally requires torchcodec (needs system FFmpeg) — so pin
+# torch<2.9. coqui-tts 0.27 needs transformers 4.57.x. Runtime also needs
+# COQUI_TOS_AGREED=1 and a reference WAV at <tts_models_root>/xtts/reference.wav.
+xtts = [
+	"coqui-tts>=0.27,<0.28",
+	"torch>=2.6,<2.9",
+	"torchaudio>=2.6,<2.9",
+	"transformers>=4.57,<4.58",
+]
+
 [tool.setuptools.packages.find]
 include = ["app*"]
