@@ -5,8 +5,8 @@
   "source_vrm": {
     "file_name": "model.vrm",
     "embedded_name": null,
-    "embedded_identifier": "import_file_name:Kohaku_1.10_VRM.vrm"
+    "embedded_identifier": "import_file_name:Kohaku_1.10_VRM.vrm; source_spec:vrm0; exporter:UniVRM-0.88.0"
   },
   "review_required": true,
-  "notes": "User-imported optional character package created from the NFD Kohaku Full Set V1.21 base VRM (non-dress variant)."
+  "notes": "User-imported optional character package created from the NFD Kohaku Full Set V1.21 base VRM (non-dress variant). Source is VRM 0.x (UniVRM-0.88.0), consumed as VRM 1.0 after three-vrm normalization. MMD-style rig (eyebrows under 'blow.*'). Full native emotion + viseme coverage; 'surprised' synthesized at runtime."
 }

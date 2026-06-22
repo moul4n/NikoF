@@ -5,8 +5,8 @@
   "source_vrm": {
     "file_name": "model.vrm",
     "embedded_name": null,
-    "embedded_identifier": "import_file_name:Kokoa_VRM.vrm"
+    "embedded_identifier": "import_file_name:Kokoa_VRM.vrm; source_spec:vrm0; exporter:UniVRM-0.66.0"
   },
   "review_required": true,
-  "notes": "User-imported optional character package created from the Kokoa 1.03 VRM drop."
+  "notes": "User-imported optional character package created from the Kokoa 1.03 VRM drop. Source is VRM 0.x (UniVRM-0.66.0), a VRChat-oriented dress-up rig with NO blendShape preset groups: emotions and viseme lip-sync are unavailable (visual-only). See expressions/mapping.json."
 }

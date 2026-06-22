@@ -1,5 +1,7 @@
 {
-  "preset": "vrm-expression-baseline",
+  "preset": "vrm0-normalized",
+  "source_spec": "VRM 0.x (UniVRM-0.109.0)",
+  "notes": "Flare is a VRM 0.x model. @pixiv/three-vrm normalizes its VRM0 presets to the canonical VRM 1.0 expression names at load (joy->happy, sorrow->sad, fun->relaxed, angry->angry, a/i/u/e/o->aa/ih/ou/ee/oh). 'surprised' has no VRM0 source and is added at runtime by surprisedSynthesis.ts.",
   "required": {
     "neutral": "neutral",
     "happy": "happy",
@@ -9,15 +11,25 @@
   },
   "fallback": {
     "blink": "blink",
-    "aa": null,
-    "ih": null,
-    "ou": null,
-    "ee": null,
-    "oh": null
+    "aa": "aa",
+    "ih": "ih",
+    "ou": "ou",
+    "ee": "ee",
+    "oh": "oh"
+  },
+  "emotions": {
+    "native": ["neutral", "happy", "sad", "angry", "relaxed"],
+    "synthesized": {
+      "surprised": {
+        "source": "surprisedSynthesis.ts",
+        "morphs": ["Eye_Surprised", "Brow_Surprised", "JawOpen", "MouthFunnel"]
+      }
+    }
   },
   "lip_sync": {
     "preferred_track_id": "advanced",
     "source_model": "assets/characters/flare/model.vrm",
-    "notes": "Baseline VRM expression mapping. The runtime registers the model's actual VRM expression/viseme set on load; revise after asset review if Flare exposes non-standard mouth targets."
+    "runtime_registered_visemes": ["aa", "ih", "ou", "ee", "oh"],
+    "notes": "Standard VRM A/I/U/E/O viseme set, exposed by three-vrm as aa/ih/ou/ee/oh."
   }
 }

@@ -1,23 +1,31 @@
 {
-  "preset": "vrm-expression-baseline",
+  "preset": "none",
+  "source_spec": "VRM 0.x (UniVRM-0.66.0)",
+  "notes": "Kokoa is a VRChat-oriented dress-up rig exported to VRM 0.x with NO blendShape preset groups. @pixiv/three-vrm therefore exposes no standard VRM expressions: emotions (happy/sad/angry/relaxed/surprised) and viseme lip-sync are all unavailable. The model only carries raw 'vrc.v_*' viseme morph targets and 'vrc.blink_*' morphs, which are not wired to VRM expressions. surprisedSynthesis.ts no-ops on this model (no usable morphs). Treat Kokoa as visual-only until an emotion/viseme morph set is authored.",
   "required": {
-    "neutral": "neutral",
-    "happy": "happy",
-    "sad": "sad",
-    "angry": "angry",
-    "relaxed": "relaxed"
+    "neutral": null,
+    "happy": null,
+    "sad": null,
+    "angry": null,
+    "relaxed": null
   },
   "fallback": {
-    "blink": "blink",
+    "blink": null,
     "aa": null,
     "ih": null,
     "ou": null,
     "ee": null,
     "oh": null
   },
+  "emotions": {
+    "native": [],
+    "synthesized": {}
+  },
   "lip_sync": {
     "preferred_track_id": "advanced",
     "source_model": "assets/characters/kokoa/model.vrm",
-    "notes": "Baseline VRM expression mapping. The runtime registers the model's actual VRM expression/viseme set on load; revise after asset review if Kokoa exposes non-standard mouth targets."
+    "runtime_registered_visemes": [],
+    "raw_unmapped_visemes": ["vrc.v_aa", "vrc.v_ih", "vrc.v_ou", "vrc.v_e", "vrc.v_oh"],
+    "notes": "No VRM expression-backed visemes. Standard lip-sync is inactive on this model."
   }
 }

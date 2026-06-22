@@ -5,8 +5,8 @@
   "source_vrm": {
     "file_name": "model.vrm",
     "embedded_name": null,
-    "embedded_identifier": "import_file_name:Flare_VRM.vrm"
+    "embedded_identifier": "import_file_name:Flare_VRM.vrm; source_spec:vrm0; exporter:UniVRM-0.109.0"
   },
   "review_required": true,
-  "notes": "User-imported optional character package created from the Flare v2.2.0 VRM drop."
+  "notes": "User-imported optional character package created from the Flare v2.2.0 VRM drop. Source is VRM 0.x (UniVRM-0.109.0), consumed as VRM 1.0 after three-vrm normalization. Full native emotion + viseme coverage; 'surprised' synthesized at runtime."
 }
