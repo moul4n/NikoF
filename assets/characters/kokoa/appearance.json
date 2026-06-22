@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "characterId": "kokoa",
+  "groups": [
+    {
+      "id": "outfit",
+      "label": "Outfit",
+      "controls": [
+        { "type": "toggle", "id": "clothes", "label": "Clothes", "meshMatch": ["clothes"], "default": true },
+        { "type": "toggle", "id": "costume", "label": "Costume", "meshMatch": ["costume"], "default": true },
+        { "type": "toggle", "id": "sleeve", "label": "Sleeves", "meshMatch": ["Sleeve"], "default": true },
+        { "type": "toggle", "id": "stockings", "label": "Stockings", "morphs": ["Stockings_OFF"], "invert": true, "default": true },
+        { "type": "toggle", "id": "shoes", "label": "Shoes", "morphs": ["Shoes_OFF"], "invert": true, "default": true },
+        { "type": "slider", "id": "skirt_long", "label": "Skirt length", "morphs": ["Skirt_Long"], "min": 0, "max": 1, "step": 0.01, "default": 0 }
+      ]
+    },
+    {
+      "id": "features",
+      "label": "Features",
+      "controls": [
+        { "type": "toggle", "id": "kemono", "label": "Animal layer", "meshMatch": ["Kemono"], "default": true },
+        { "type": "toggle", "id": "ears", "label": "Animal ears", "morphs": ["Ear_OFF"], "invert": true, "default": true },
+        { "type": "slider", "id": "ear_size", "label": "Ear size", "morphs": ["Ear_Big"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
+        { "type": "toggle", "id": "tail", "label": "Tail", "morphs": ["Tail_OFF"], "invert": true, "default": true },
+        { "type": "toggle", "id": "ahoge", "label": "Ahoge", "morphs": ["Ahoge_OFF"], "invert": true, "default": true },
+        { "type": "toggle", "id": "accessories", "label": "Accessories", "morphs": ["Aaccessory_OFF", "Aaccessory1_OFF", "Accessory2_OFF"], "invert": true, "default": true }
+      ]
+    },
+    {
+      "id": "body",
+      "label": "Body",
+      "controls": [
+        { "type": "slider", "id": "big_breasts", "label": "Breast size", "morphs": ["Big breasts"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
+        { "type": "slider", "id": "waist", "label": "Waist size", "morphs": ["Waist Size"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
+        { "type": "toggle", "id": "nipples", "label": "Nipples", "morphs": ["Nipple_ON"], "default": false },
+        { "type": "slider", "id": "areola", "label": "Areola size", "morphs": ["Nipple_areola Big"], "min": 0, "max": 1, "step": 0.01, "default": 0 }
+      ]
+    },
+    {
+      "id": "hair",
+      "label": "Hair",
+      "controls": [
+        { "type": "toggle", "id": "long_hair", "label": "Long hair", "morphs": ["Long hair"], "default": false },
+        { "type": "toggle", "id": "long_nails", "label": "Long nails", "morphs": ["Long nail"], "default": false }
+      ]
+    }
+  ]
+}

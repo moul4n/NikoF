@@ -2,6 +2,8 @@ import * as THREE from "three";
 import type { VRM } from "@pixiv/three-vrm";
 import flareAppearance from "../../../../assets/characters/flare/appearance.json";
 import kohakuAppearance from "../../../../assets/characters/kohaku/appearance.json";
+import mariaAppearance from "../../../../assets/characters/maria/appearance.json";
+import kokoaAppearance from "../../../../assets/characters/kokoa/appearance.json";
 
 /**
  * Runtime "wardrobe" / appearance controller.
@@ -29,7 +31,16 @@ interface AppearanceToggleSpec {
   type: "toggle";
   id: string;
   label: string;
-  meshMatch: string[];
+  /** Show/hide every mesh whose name contains one of these tokens. */
+  meshMatch?: string[];
+  /** Drive these morph targets instead of (or as well as) meshes. */
+  morphs?: string[];
+  /**
+   * For "hide" morphs (e.g. Costume_*_x, *_OFF) where value 1 hides the piece:
+   * when true, an ON ("visible") toggle drives the morph to 0 and OFF to 1.
+   */
+  invert?: boolean;
+  /** Default visible state (true = on/visible). */
   default: boolean;
 }
 
@@ -80,12 +91,16 @@ export interface AppearanceController {
 
 const APPEARANCE_SPECS: Partial<Record<string, AppearanceSpec>> = {
   flare: flareAppearance as AppearanceSpec,
-  kohaku: kohakuAppearance as AppearanceSpec
+  kohaku: kohakuAppearance as AppearanceSpec,
+  maria: mariaAppearance as AppearanceSpec,
+  kokoa: kokoaAppearance as AppearanceSpec
 };
 
 interface ResolvedToggle {
   kind: "toggle";
   meshes: THREE.Mesh[];
+  morphTargets: Array<{ mesh: THREE.Mesh; index: number }>;
+  invert: boolean;
 }
 
 interface ResolvedSlider {
@@ -144,14 +159,15 @@ export function createAppearanceController(vrm: VRM, characterId: string): Appea
     for (const group of spec.groups) {
       for (const control of group.controls) {
         if (control.type === "toggle") {
-          const meshes = findMeshesByToken(vrm, control.meshMatch);
-          if (meshes.length === 0) {
+          const meshes = control.meshMatch ? findMeshesByToken(vrm, control.meshMatch) : [];
+          const morphTargets = (control.morphs ?? []).flatMap((morph) => findMorphTargets(vrm, morph));
+          if (meshes.length === 0 && morphTargets.length === 0) {
             continue;
           }
           const value = control.default ? 1 : 0;
           resolved.push({
             defaultValue: value,
-            target: { kind: "toggle", meshes },
+            target: { kind: "toggle", meshes, morphTargets, invert: control.invert ?? false },
             state: {
               id: control.id,
               groupId: group.id,
@@ -196,6 +212,14 @@ export function createAppearanceController(vrm: VRM, characterId: string): Appea
       const visible = control.state.value >= 0.5;
       for (const mesh of control.target.meshes) {
         mesh.visible = visible;
+      }
+      // For morph-driven toggles: invert=true means a hide-morph (visible -> 0,
+      // hidden -> 1); invert=false means the morph IS the "on" state.
+      const weight = control.target.invert ? (visible ? 0 : 1) : visible ? 1 : 0;
+      for (const target of control.target.morphTargets) {
+        if (target.mesh.morphTargetInfluences) {
+          target.mesh.morphTargetInfluences[target.index] = weight;
+        }
       }
     } else {
       const weight = THREE.MathUtils.clamp(control.state.value, 0, 1);

@@ -7,9 +7,20 @@
       "label": "Outfit",
       "controls": [
         { "type": "toggle", "id": "dress", "label": "Dress", "meshMatch": ["Costume_Dress"], "default": true },
-        { "type": "toggle", "id": "footwear", "label": "Shoes", "meshMatch": ["Costume_Footwear"], "default": true },
-        { "type": "toggle", "id": "underwear", "label": "Underwear", "meshMatch": ["Costume_Underwear"], "default": true },
-        { "type": "slider", "id": "nobra", "label": "No bra", "morphs": ["Breast_NoBra"], "min": 0, "max": 1, "step": 1, "default": 0 }
+        { "type": "toggle", "id": "gloves", "label": "Gloves", "morphs": ["Costume_Glove_x"], "invert": true, "default": true },
+        { "type": "toggle", "id": "sleeves", "label": "Sleeves", "morphs": ["Costume_Sleeve_x"], "invert": true, "default": true },
+        { "type": "toggle", "id": "choker", "label": "Choker", "morphs": ["Costume_Choker_x"], "invert": true, "default": true },
+        { "type": "toggle", "id": "shoes", "label": "Shoes", "meshMatch": ["Costume_Footwear"], "default": true },
+        { "type": "toggle", "id": "socks", "label": "Socks", "morphs": ["Costume_Socks_x"], "invert": true, "default": true }
+      ]
+    },
+    {
+      "id": "underwear",
+      "label": "Underwear",
+      "controls": [
+        { "type": "toggle", "id": "bra", "label": "Bra", "morphs": ["Costume_Bra_x"], "invert": true, "default": true },
+        { "type": "toggle", "id": "shorts", "label": "Shorts", "morphs": ["Costume_Shorts_x"], "invert": true, "default": true },
+        { "type": "toggle", "id": "drawers", "label": "Drawers", "morphs": ["Costume_Drawers_x"], "invert": true, "default": true }
       ]
     },
     {
@@ -17,8 +28,11 @@
       "label": "Body",
       "controls": [
         { "type": "slider", "id": "breast_size", "label": "Breast size", "morphs": ["Breast_Size"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
+        { "type": "toggle", "id": "nipples", "label": "Nipples", "morphs": ["Breast_Nipple_ON"], "default": false },
+        { "type": "toggle", "id": "nobra_shape", "label": "Braless shape", "morphs": ["Breast_NoBra"], "default": false },
         { "type": "slider", "id": "thigh", "label": "Thigh softness", "morphs": ["UpperLeg_Puni_L", "UpperLeg_Puni_R"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
-        { "type": "slider", "id": "heel", "label": "Heel pose", "morphs": ["Heel"], "min": 0, "max": 1, "step": 1, "default": 0 }
+        { "type": "slider", "id": "slim", "label": "Slim figure", "morphs": ["Shrink_Chest", "Shrink_Spine", "Shrink_Hips", "Shrink_UpperLeg_L", "Shrink_UpperLeg_R", "Shrink_UpperArm_L", "Shrink_UpperArm_R", "Shrink_LowerLeg_L", "Shrink_LowerLeg_R"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
+        { "type": "toggle", "id": "heel", "label": "Heel pose", "morphs": ["Heel"], "default": false }
       ]
     },
     {
@@ -26,6 +40,8 @@
       "label": "Hair",
       "controls": [
         { "type": "toggle", "id": "twintails", "label": "Twintails", "meshMatch": ["Hair_Twin"], "default": true },
+        { "type": "toggle", "id": "side_hair", "label": "Side hair", "morphs": ["Hair_Side_x"], "invert": true, "default": true },
+        { "type": "toggle", "id": "back_hair", "label": "Back hair", "morphs": ["Hair_Back_x"], "invert": true, "default": true },
         { "type": "slider", "id": "bangs_long", "label": "Bangs length", "morphs": ["Hair_Bangs_Long"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
         { "type": "slider", "id": "ahoge_big", "label": "Ahoge size", "morphs": ["Hair_Ahoge_Big"], "min": 0, "max": 1, "step": 0.01, "default": 0 }
       ]

@@ -6,11 +6,12 @@
       "id": "outfit",
       "label": "Outfit",
       "controls": [
+        { "type": "toggle", "id": "wear", "label": "Kimono", "meshMatch": ["Kohaku_Wear"], "default": true },
         { "type": "toggle", "id": "sleeves", "label": "Sleeves", "meshMatch": ["Sode"], "default": true },
         { "type": "toggle", "id": "ribbon", "label": "Ribbon", "meshMatch": ["Ribbon"], "default": true },
         { "type": "toggle", "id": "socks", "label": "Socks", "meshMatch": ["Socks"], "default": true },
         { "type": "toggle", "id": "sandals", "label": "Sandals", "meshMatch": ["Zori"], "default": true },
-        { "type": "toggle", "id": "wear", "label": "Kimono", "meshMatch": ["Kohaku_Wear"], "default": true }
+        { "type": "toggle", "id": "pants", "label": "Underwear", "meshMatch": ["Kohaku_Pants"], "default": true }
       ]
     },
     {
@@ -25,7 +26,8 @@
       "id": "body",
       "label": "Body",
       "controls": [
-        { "type": "slider", "id": "bust_smaller", "label": "Bust (smaller)", "morphs": ["bustsmall.Bodybase_bust_small", "Wear_bust_small1.Wear_bust_small"], "min": 0, "max": 1, "step": 0.01, "default": 0 }
+        { "type": "slider", "id": "bust_smaller", "label": "Bust (smaller)", "morphs": ["bustsmall.Bodybase_bust_small", "Wear_bust_small1.Wear_bust_small"], "min": 0, "max": 1, "step": 0.01, "default": 0 },
+        { "type": "slider", "id": "slim", "label": "Slim figure", "morphs": ["Reduce.body001", "Reduce.body002", "Reduce.body003", "Reduce.body004", "Reduce.leg001", "Reduce.leg002", "Reduce.leg003", "Reduce.arm001", "Reduce.arm002"], "min": 0, "max": 1, "step": 0.01, "default": 0 }
       ]
     }
   ]
