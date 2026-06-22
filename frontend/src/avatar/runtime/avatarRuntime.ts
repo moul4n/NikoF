@@ -2547,7 +2547,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       animationFrameId = window.requestAnimationFrame(renderFrame);
       renderFrameCount += 1;
 
-      const deltaSeconds = clock.getDelta();
+      // Clamp the frame delta. A backgrounded tab or GC stall can produce a
+      // very large raw delta; feeding that into the animation mixer and the
+      // VRM spring-bone Verlet integrator (vrm.update) destabilises both
+      // (animation jumps, spring bones can explode to NaN). ~50ms == a 20fps
+      // floor before motion slows, which is an acceptable trade for stability.
+      const deltaSeconds = Math.min(clock.getDelta(), 0.05);
 
       updateBaseAnimation(deltaSeconds);
 

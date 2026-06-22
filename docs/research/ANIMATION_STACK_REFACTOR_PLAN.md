@@ -135,8 +135,13 @@ Each phase: run unittest + contract gate + stability suite (+ `npm run build`) b
 
 ---
 
-## Decisions needed before coding
+## Decisions (LOCKED 2026-06-22)
 
-1. **Scope of "other per-character settings" to remove.** The only per-character *override* scaffolding found is the animation override system (`overrides/animations.json`, `manifest.animation_overrides`, the resolution tier, `shared_set`/`custom_only`). Core per-character identity — `model.vrm`, `expressions/mapping.json`, `voice/profile.json`, `metadata/identity.json` — is **not** override scaffolding and removing it would break rendering/voice/expressions. Plan assumes: **remove animation-override scaffolding only; keep core identity.** Confirm, or name any additional per-character setting to strip.
-2. **`source` field on `SemanticAnimationCommand`.** After overrides go, `source` is always `"shared"`. Drop the field, or keep it pinned to `"shared"` for contract stability? (Plan leans: drop it.)
-3. **Ollama structured output (Phase 1.4).** Move `format:"json"` → JSON-schema format now, or defer as a follow-up? (Plan leans: do it now — biggest robustness win.)
+1. **Removal scope: animation-override scaffolding only.** Remove `overrides/animations.json`, `manifest.animation_overrides`, the override resolution tier, `shared_set`/`custom_only`. **Keep** all core per-character identity (`model.vrm`, `expressions/mapping.json`, `voice/profile.json`, `metadata/identity.json`).
+2. **Drop the `source` field** from `SemanticAnimationCommand` and its usages (it would always be `"shared"` after removal).
+3. **Defer** the Ollama JSON-schema format change. Phase 1 hardens parsing/logging/clamping only; schema-constrained output is a later follow-up.
+4. **Implement phase by phase**, committing each.
+
+## Environment note (validation gates available here)
+
+This Linux container has **no installed deps** and the contract gate / stability suite are **PowerShell (Windows-only)**, so they cannot run here. Achievable validation: backend `unittest` (after a venv install) and the frontend `npm run build` typecheck (after `npm ci`). **Stability-baseline regeneration in Phase 2 requires the Windows harness** — baselines touched by Phase 2 are listed explicitly so they can be refreshed on the user's machine (or via the Windows CI) with `Invoke-StabilitySuite.ps1 -RefreshBaselines`.
