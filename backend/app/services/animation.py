@@ -26,7 +26,18 @@ DEFAULT_SHARED_ANIMATION_IDS = frozenset(
         "emote.happy.once",
         "emote.reject.once",
         "emote.surprised.once",
+        "emote.laugh.once",
         "gesture.crazy.once",
+        "gesture.nod.once",
+        "gesture.nod.thoughtful.once",
+        "gesture.shake.once",
+        "gesture.shake.thoughtful.once",
+        "gesture.shrug.once",
+        "greet.bow.once",
+        "greet.bow.casual.once",
+        "idle.bored.loop",
+        "idle.talking.loop",
+        "idle.talking.alt.loop",
         "greet.wave.small.once",
         "think.considering.once",
         "idle.confident",
@@ -102,6 +113,72 @@ DEFAULT_PLAYBACK_LIBRARY = {
         blend_hint="upper_body_additive",
         expected_duration_ms=5000,
         loop=False,
+    ),
+    "gesture.nod.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=2583,
+        loop=False,
+    ),
+    "gesture.nod.thoughtful.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=2916,
+        loop=False,
+    ),
+    "gesture.shake.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=1791,
+        loop=False,
+    ),
+    "gesture.shake.thoughtful.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=3041,
+        loop=False,
+    ),
+    "gesture.shrug.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=2000,
+        loop=False,
+    ),
+    "emote.laugh.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=9750,
+        loop=False,
+    ),
+    "greet.bow.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="base_full_body",
+        expected_duration_ms=2708,
+        loop=False,
+    ),
+    "greet.bow.casual.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="base_full_body",
+        expected_duration_ms=2708,
+        loop=False,
+    ),
+    "idle.bored.loop": AnimationPlayback(
+        mode="loop",
+        blend_hint="base_full_body",
+        expected_duration_ms=10666,
+        loop=True,
+    ),
+    "idle.talking.loop": AnimationPlayback(
+        mode="loop",
+        blend_hint="base_full_body",
+        expected_duration_ms=3916,
+        loop=True,
+    ),
+    "idle.talking.alt.loop": AnimationPlayback(
+        mode="loop",
+        blend_hint="base_full_body",
+        expected_duration_ms=3750,
+        loop=True,
     ),
 }
 
@@ -194,6 +271,12 @@ class AnimationService(Protocol):
     def resolve_session_command(self, snapshot: SessionSnapshot) -> AnimationCommand:
         raise NotImplementedError
 
+    def is_known_semantic_id(self, semantic_id: str) -> bool:
+        raise NotImplementedError
+
+    def resolve_gesture_command(self, snapshot: SessionSnapshot, semantic_id: str) -> AnimationCommand:
+        raise NotImplementedError
+
 
 class SessionAnimationLiveDeliveryService(Protocol):
     """Boundary for streaming backend-owned session animation snapshots."""
@@ -225,6 +308,9 @@ class DefaultAnimationService:
 
     shared_animation_ids: frozenset[str] = field(default_factory=lambda: DEFAULT_SHARED_ANIMATION_IDS)
     playback_library: dict[str, AnimationPlayback] = field(default_factory=lambda: dict(DEFAULT_PLAYBACK_LIBRARY))
+    # Monotonic counter so back-to-back gesture triggers get distinct intent ids
+    # even when the clock resolution collapses them into the same tick.
+    _gesture_sequence: int = 0
 
     def resolve_intent(self, intent: AnimationIntent) -> AnimationCommand:
         resolution, semantic_id = self._resolve_semantic(intent)
@@ -260,6 +346,39 @@ class DefaultAnimationService:
                 requested_state="replace",
                 parameters={"session_state": snapshot.lifecycle_state},
                 reason="Backend resolved the current session base animation.",
+            )
+        )
+        return replace(command, resolved_state="selected")
+
+    def is_known_semantic_id(self, semantic_id: str) -> bool:
+        return semantic_id in self.shared_animation_ids
+
+    def resolve_gesture_command(self, snapshot: SessionSnapshot, semantic_id: str) -> AnimationCommand:
+        # An operator-triggered animation broadcast. Handles all three kinds the
+        # control surface can send:
+        #   - one-shot gestures (".once")  -> enqueue, plays once, returns to idle;
+        #   - looping motions (".loop")    -> replace the base layer;
+        #   - idle states ("idle.*")       -> replace the base layer.
+        # The time-based nonce + monotonic counter make each trigger a distinct
+        # command so repeated clicks re-broadcast (and replay) rather than being
+        # deduplicated by the live-delivery service.
+        is_base_layer = semantic_id.startswith("idle.") or semantic_id.endswith(".loop")
+        self._gesture_sequence += 1
+        command = self.resolve_intent(
+            AnimationIntent(
+                intent_id=(
+                    f"operator-animation:{snapshot.session_id}:"
+                    f"{snapshot.active_character_id}:{semantic_id}:"
+                    f"{time.time_ns()}-{self._gesture_sequence}"
+                ),
+                session_id=snapshot.session_id,
+                character_id=snapshot.active_character_id,
+                intent_type="state" if is_base_layer else "gesture",
+                semantic_id=semantic_id,
+                source="operator_command",
+                requested_state="replace" if is_base_layer else "enqueue",
+                parameters={"trigger": "operator_animation"},
+                reason="Operator triggered an animation broadcast.",
             )
         )
         return replace(command, resolved_state="selected")

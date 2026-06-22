@@ -1,0 +1,18 @@
+{
+    "schema_version": "1.0.0",
+    "kind": "normalized_humanoid_animation_clip",
+    "stage": "promoted_vrma",
+    "promotion_status": "promoted",
+    "semantic_id": "emote.laugh.once",
+    "scope": "shared",
+    "source": {
+        "kind": "mixamo_fbx",
+        "path": "assets/animations/raw/EmoteLaugh.fbx"
+    },
+    "playback": {
+        "mode": "oneshot",
+        "loop": false,
+        "duration_ms": 9750,
+        "root_motion": "in_place"
+    }
+}

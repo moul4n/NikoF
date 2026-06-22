@@ -18,6 +18,16 @@ from app.services.animation import AnimationService
 
 
 _ANIMATION_CUE_ALIAS_TO_SEMANTIC_ID = {
+    "agree": "gesture.nod.once",
+    "nod": "gesture.nod.once",
+    "disagree": "gesture.shake.once",
+    "shake": "gesture.shake.once",
+    "shrug": "gesture.shrug.once",
+    "bow": "greet.bow.once",
+    "laugh": "emote.laugh.once",
+    "laughing": "emote.laugh.once",
+    "talking": "idle.talking.loop",
+    "bored": "idle.bored.loop",
     "angry": "emote.angry.once",
     "confident": "idle.confident",
     "dance": "dance.hiphop.loop",
@@ -67,6 +77,41 @@ _ANIMATION_CUE_KEYWORD_RULES: tuple[_AnimationCueKeywordRule, ...] = (
         layer="upper",
         priority=110,
         default_duration_ms=533,
+    ),
+    _AnimationCueKeywordRule(
+        semantic_id="greet.bow.once",
+        keywords=("bow", "bowing", "take a bow"),
+        layer="base",
+        priority=106,
+        default_duration_ms=2708,
+    ),
+    _AnimationCueKeywordRule(
+        semantic_id="gesture.nod.once",
+        keywords=("nod", "nodding", "agree", "agreement", "yes"),
+        layer="upper",
+        priority=95,
+        default_duration_ms=2583,
+    ),
+    _AnimationCueKeywordRule(
+        semantic_id="gesture.shake.once",
+        keywords=("shake head", "head shake", "disagree", "shaking head"),
+        layer="upper",
+        priority=94,
+        default_duration_ms=1791,
+    ),
+    _AnimationCueKeywordRule(
+        semantic_id="emote.laugh.once",
+        keywords=("laugh", "laughing", "lol", "haha", "hilarious"),
+        layer="upper",
+        priority=91,
+        default_duration_ms=9750,
+    ),
+    _AnimationCueKeywordRule(
+        semantic_id="gesture.shrug.once",
+        keywords=("shrug", "shrugging", "dunno", "not sure", "who knows"),
+        layer="upper",
+        priority=88,
+        default_duration_ms=2000,
     ),
     _AnimationCueKeywordRule(
         semantic_id="dance.hiphop.loop",

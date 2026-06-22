@@ -91,6 +91,61 @@
       "path": "assets/animations/dsl/shared/think.considering.once.json",
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
+    },
+    "idle.bored.loop": {
+      "path": "assets/animations/library/shared/idle.bored.loop.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "idle.talking.loop": {
+      "path": "assets/animations/library/shared/idle.talking.loop.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "idle.talking.alt.loop": {
+      "path": "assets/animations/library/shared/idle.talking.alt.loop.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "gesture.nod.once": {
+      "path": "assets/animations/library/shared/gesture.nod.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "gesture.nod.thoughtful.once": {
+      "path": "assets/animations/library/shared/gesture.nod.thoughtful.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "gesture.shake.once": {
+      "path": "assets/animations/library/shared/gesture.shake.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "gesture.shake.thoughtful.once": {
+      "path": "assets/animations/library/shared/gesture.shake.thoughtful.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "gesture.shrug.once": {
+      "path": "assets/animations/library/shared/gesture.shrug.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "emote.laugh.once": {
+      "path": "assets/animations/library/shared/emote.laugh.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "greet.bow.once": {
+      "path": "assets/animations/library/shared/greet.bow.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "greet.bow.casual.once": {
+      "path": "assets/animations/library/shared/greet.bow.casual.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
     }
   }
 }

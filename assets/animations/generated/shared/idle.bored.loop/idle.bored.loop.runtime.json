@@ -1,0 +1,18 @@
+{
+    "schema_version": "1.0.0",
+    "kind": "normalized_humanoid_animation_clip",
+    "stage": "promoted_vrma",
+    "promotion_status": "promoted",
+    "semantic_id": "idle.bored.loop",
+    "scope": "shared",
+    "source": {
+        "kind": "mixamo_fbx",
+        "path": "assets/animations/raw/IdleBored.fbx"
+    },
+    "playback": {
+        "mode": "loop",
+        "loop": true,
+        "duration_ms": 10666,
+        "root_motion": "in_place"
+    }
+}

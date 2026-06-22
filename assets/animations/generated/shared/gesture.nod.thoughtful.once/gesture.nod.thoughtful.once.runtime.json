@@ -1,0 +1,18 @@
+{
+    "schema_version": "1.0.0",
+    "kind": "normalized_humanoid_animation_clip",
+    "stage": "promoted_vrma",
+    "promotion_status": "promoted",
+    "semantic_id": "gesture.nod.thoughtful.once",
+    "scope": "shared",
+    "source": {
+        "kind": "mixamo_fbx",
+        "path": "assets/animations/raw/GestureNodThoughtful.fbx"
+    },
+    "playback": {
+        "mode": "oneshot",
+        "loop": false,
+        "duration_ms": 2916,
+        "root_motion": "in_place"
+    }
+}
