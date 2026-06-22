@@ -3,6 +3,7 @@ import type { CharacterCatalogEntry } from "../../shared/types/character";
 import { listSharedSemanticAnimationPayloads } from "../runtime/defaultBaseAnimation";
 import type { AvatarRuntimeBridge } from "../runtime/avatarRuntime";
 import { getAvatarRuntimeMountPoints } from "../runtime/mountPoints";
+import { WardrobePanel } from "./WardrobePanel.js";
 
 const DISPLAY_EMOTION_OPTIONS = [
   { value: null, label: "Neutral" },
@@ -284,6 +285,12 @@ export function AvatarStage({
                 </div>
               ) : null}
             </section>
+            <WardrobePanel
+              controls={snapshot.appearanceControls}
+              disabled={snapshot.loadState !== "ready"}
+              onChange={(id, value) => runtime.setAppearanceControl(id, value)}
+              onReset={() => runtime.resetAppearance()}
+            />
           </>
         ) : null}
         {variant === "display" ? null : (

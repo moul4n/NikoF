@@ -28,6 +28,7 @@ import {
   type AnimationPlaybackDebugSnapshot
 } from "./animationPlayback";
 import { probeVrmaAsset } from "./vrmaAssetResolution";
+import { RenderQualityController } from "./renderQuality";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
 import { createPassiveBlinkController, type PassiveBlinkController } from "./passiveBlink";
 import { createPassiveMouthController, type PassiveMouthController } from "./passiveMouth";
@@ -38,6 +39,11 @@ import {
   type PassiveEmotionName
 } from "./passiveEmotion";
 import { synthesizeSurprisedExpression } from "./surprisedSynthesis";
+import {
+  createAppearanceController,
+  type AppearanceController,
+  type AppearanceControlState
+} from "./appearanceController";
 
 type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
 type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
@@ -366,6 +372,7 @@ export interface AvatarRuntimeSnapshot {
   speechReactionMode: AvatarSpeechReactionMode;
   activeViseme: string | null;
   overlayChannels: AvatarOverlayChannelSnapshot[];
+  appearanceControls: AppearanceControlState[];
   error: string | null;
 }
 
@@ -386,6 +393,8 @@ export interface AvatarRuntimeBridge {
     options?: { source?: "manual" | "system" }
   ) => void;
   play: (command: SemanticAnimationCommand | null) => void;
+  setAppearanceControl: (id: string, value: number) => void;
+  resetAppearance: () => void;
   subscribe: (listener: AvatarRuntimeListener) => () => void;
   snapshot: () => AvatarRuntimeSnapshot;
 }
@@ -479,12 +488,14 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     speechReactionMode: "idle",
     activeViseme: null,
     overlayChannels: [createSpeechOverlayChannel()],
+    appearanceControls: [],
     error: null
   };
   let currentCharacter: CharacterManifestSummary | null = null;
   let renderer: THREE.WebGLRenderer | null = null;
   let scene: THREE.Scene | null = null;
   let camera: THREE.PerspectiveCamera | null = null;
+  let renderQuality: RenderQualityController | null = null;
   let orbitControls: OrbitControls | null = null;
   let viewportElement: HTMLElement | null = null;
   let animationFrameId: number | null = null;
@@ -501,6 +512,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let passiveMouth: PassiveMouthController | null = null;
   let passiveEyeDrift: PassiveEyeDriftController | null = null;
   let passiveEmotion: PassiveEmotionController | null = null;
+  let appearanceController: AppearanceController | null = null;
   let activeLoadRequestId = 0;
   let activeLoadTargetKey: string | null = null;
   let activeLoadPromise: Promise<void> | null = null;
@@ -2480,6 +2492,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
       if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
       if (passiveEmotion) { passiveEmotion.dispose(); passiveEmotion = null; }
+      if (appearanceController) { appearanceController.dispose(); appearanceController = null; }
       currentAvatar = null;
       return;
     }
@@ -2492,6 +2505,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
     if (passiveEyeDrift) { passiveEyeDrift.dispose(); passiveEyeDrift = null; }
     if (passiveEmotion) { passiveEmotion.dispose(); passiveEmotion = null; }
+    if (appearanceController) { appearanceController.dispose(); appearanceController = null; }
     scene.remove(currentAvatar.anchorRoot);
     currentAvatar.root.traverse((node: THREE.Object3D) => {
       const mesh = node as THREE.Mesh;
@@ -2518,7 +2532,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const width = Math.max(viewportElement.clientWidth, 1);
     const height = Math.max(viewportElement.clientHeight, 1);
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const pixelRatioCap = renderQuality?.maxPixelRatio ?? 2;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelRatioCap));
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
@@ -2625,6 +2640,16 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    // The dedicated display surface (and the Tauri desktop shell that hosts it)
+    // gets the higher-fidelity render stack — ground contact shadow, soft
+    // self-shadowing, higher pixel-ratio cap. The embedded/operator preview keeps
+    // the original lean pipeline, so this controller is display-only.
+    if (mountPoints?.viewerVariant === "display") {
+      renderQuality = new RenderQualityController({ renderer, scene, keyLight });
+      renderQuality.configure();
+    }
+
     renderer.domElement.className = "avatar-stage__canvas avatar-stage__canvas--interactive";
     renderer.domElement.style.touchAction = "none";
     orbitControls = new OrbitControls(camera, renderer.domElement);
@@ -2793,6 +2818,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       clearCurrentAvatar();
       activeScene.add(anchorRoot);
+      // Display surface only: let the avatar cast/receive the contact shadow.
+      renderQuality?.applyToAvatar(root);
       const frontProfileQuaternion = resolveFrontProfileQuaternion({
         anchorRoot,
         anchorBaselineQuaternion: anchorRoot.quaternion.clone(),
@@ -2871,6 +2898,17 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         passiveEmotion.setEmotion(snapshot.activeEmotion);
       }
 
+      // Resolve the curated wardrobe/appearance controls (clothing toggles +
+      // body/hair morph sliders) against this VRM. Isolated to
+      // ./appearanceController; no-ops on characters without a spec.
+      if (appearanceController) {
+        appearanceController.dispose();
+        appearanceController = null;
+      }
+      if (vrm) {
+        appearanceController = createAppearanceController(vrm, character.characterId);
+      }
+
       syncRigOverlayHelper();
       frameLoadedAvatar(currentAvatar);
 
@@ -2882,6 +2920,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       updateSnapshot({
         loadState: "ready",
+        appearanceControls: appearanceController?.getControls() ?? [],
         error: null
       });
     } catch (error: unknown) {
@@ -3090,6 +3129,22 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       }
 
       activateBaseAnimation(command);
+    },
+
+    setAppearanceControl(id, value) {
+      if (!appearanceController) {
+        return;
+      }
+      appearanceController.setControl(id, value);
+      updateSnapshot({ appearanceControls: appearanceController.getControls() });
+    },
+
+    resetAppearance() {
+      if (!appearanceController) {
+        return;
+      }
+      appearanceController.reset();
+      updateSnapshot({ appearanceControls: appearanceController.getControls() });
     },
 
     subscribe(listener) {

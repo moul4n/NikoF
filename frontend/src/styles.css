@@ -1528,6 +1528,133 @@ select {
   transform: none;
 }
 
+.avatar-stage__wardrobe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(140, 160, 191, 0.22);
+  border-radius: 14px;
+  background: rgba(8, 13, 22, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.avatar-stage__wardrobe-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.avatar-stage__wardrobe-summary {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: rgba(190, 204, 226, 0.72);
+}
+
+.avatar-stage__wardrobe-reset {
+  flex: none;
+  border: 1px solid rgba(140, 160, 191, 0.28);
+  border-radius: 999px;
+  background: rgba(20, 31, 48, 0.7);
+  color: #e6eefb;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.avatar-stage__wardrobe-reset:hover,
+.avatar-stage__wardrobe-reset:focus-visible {
+  border-color: rgba(123, 211, 193, 0.72);
+  background: rgba(30, 63, 71, 0.82);
+}
+
+.avatar-stage__wardrobe-reset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.avatar-stage__wardrobe-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.avatar-stage__wardrobe-group-title {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(190, 204, 226, 0.66);
+}
+
+.avatar-stage__wardrobe-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.avatar-stage__wardrobe-toggle {
+  border: 1px solid rgba(140, 160, 191, 0.22);
+  border-radius: 999px;
+  background: rgba(8, 13, 22, 0.82);
+  color: #e6eefb;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.avatar-stage__wardrobe-toggle:hover,
+.avatar-stage__wardrobe-toggle:focus-visible {
+  border-color: rgba(123, 211, 193, 0.72);
+  transform: translateY(-1px);
+}
+
+.avatar-stage__wardrobe-toggle--on {
+  border-color: rgba(123, 211, 193, 0.84);
+  background: rgba(30, 63, 71, 0.82);
+}
+
+.avatar-stage__wardrobe-toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.avatar-stage__wardrobe-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 11rem;
+  flex: 1 1 11rem;
+}
+
+.avatar-stage__wardrobe-slider-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: #e6eefb;
+}
+
+.avatar-stage__wardrobe-slider-value {
+  font-variant-numeric: tabular-nums;
+  color: rgba(190, 204, 226, 0.72);
+}
+
+.avatar-stage__wardrobe-slider input[type="range"] {
+  width: 100%;
+  accent-color: rgba(123, 211, 193, 0.9);
+  cursor: pointer;
+}
+
+.avatar-stage__wardrobe-slider input[type="range"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .avatar-stage__animation-button {
   display: inline-flex;
   align-items: center;
