@@ -27,6 +27,11 @@ DEFAULT_SHARED_ANIMATION_IDS = frozenset(
         "emote.reject.once",
         "emote.surprised.once",
         "emote.laugh.once",
+        "emote.showcase.once",
+        "emote.spin.once",
+        "emote.pose.once",
+        "greet.greeting.once",
+        "gesture.peace.once",
         "gesture.crazy.once",
         "gesture.nod.once",
         "gesture.nod.thoughtful.once",
@@ -179,6 +184,37 @@ DEFAULT_PLAYBACK_LIBRARY = {
         blend_hint="base_full_body",
         expected_duration_ms=3750,
         loop=True,
+    ),
+    # pixiv/VRoid VRMA Motion Pack clips (credit: pixiv Inc. VRoid Project).
+    "emote.showcase.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="base_full_body",
+        expected_duration_ms=11800,
+        loop=False,
+    ),
+    "emote.spin.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="base_full_body",
+        expected_duration_ms=9320,
+        loop=False,
+    ),
+    "emote.pose.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="base_full_body",
+        expected_duration_ms=7520,
+        loop=False,
+    ),
+    "greet.greeting.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="base_full_body",
+        expected_duration_ms=7270,
+        loop=False,
+    ),
+    "gesture.peace.once": AnimationPlayback(
+        mode="oneshot",
+        blend_hint="upper_body_additive",
+        expected_duration_ms=11680,
+        loop=False,
     ),
 }
 

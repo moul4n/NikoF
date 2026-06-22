@@ -1,5 +1,10 @@
 export const semanticAnimationIds = [
   "dance.hiphop.loop",
+  "emote.showcase.once",
+  "emote.spin.once",
+  "emote.pose.once",
+  "greet.greeting.once",
+  "gesture.peace.once",
   "emote.laugh.once",
   "gesture.nod.once",
   "gesture.nod.thoughtful.once",

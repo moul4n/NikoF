@@ -146,6 +146,31 @@
       "path": "assets/animations/library/shared/greet.bow.casual.once.vrma",
       "stage": "promoted_vrma",
       "approved_for_shared_library": true
+    },
+    "emote.showcase.once": {
+      "path": "assets/animations/library/shared/emote.showcase.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "greet.greeting.once": {
+      "path": "assets/animations/library/shared/greet.greeting.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "gesture.peace.once": {
+      "path": "assets/animations/library/shared/gesture.peace.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "emote.spin.once": {
+      "path": "assets/animations/library/shared/emote.spin.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
+    },
+    "emote.pose.once": {
+      "path": "assets/animations/library/shared/emote.pose.once.vrma",
+      "stage": "promoted_vrma",
+      "approved_for_shared_library": true
     }
   }
 }

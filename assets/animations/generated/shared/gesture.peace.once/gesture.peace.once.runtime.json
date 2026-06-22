@@ -1,0 +1,20 @@
+{
+    "schema_version": "1.0.0",
+    "kind": "vrm_animation_clip",
+    "stage": "promoted_vrma",
+    "promotion_status": "promoted",
+    "semantic_id": "gesture.peace.once",
+    "scope": "shared",
+    "source": {
+        "kind": "vrma",
+        "path": "assets/animations/library/shared/gesture.peace.once.vrma",
+        "provenance": "pixiv VRoid VRMA Motion Pack"
+    },
+    "playback": {
+        "mode": "oneshot",
+        "loop": false,
+        "duration_ms": 11680,
+        "root_motion": "in_place"
+    },
+    "attribution": "Animation credits to pixiv Inc.'s VRoid Project"
+}

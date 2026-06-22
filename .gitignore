@@ -43,12 +43,27 @@ frontend/test-results/
 .vite/
 
 # Machine-local scratch / temp working dirs
+# NOTE: Unity dir ignores are anchored to the repo root with a leading "/" so
+# they only match Unity's top-level cache — an unanchored "Library/" also
+# matched assets/animations/library/ on case-insensitive (Windows) filesystems,
+# silently excluding the shared VRMA library.
 .tmp/
 .tmp-unity-temp/
-Logs/
-Library/
-ProjectSettings/
-UserSettings/
+/Logs/
+/Library/
+/ProjectSettings/
+/UserSettings/
 
 # Raw animation sources are tracked for now; keep JSON/DSL outputs in git as the
 # semantic staging path for provenance and later promotion work.
+
+# pixiv/VRoid VRMA Motion Pack — license forbids redistributing the extractable
+# motion data, so the pack and its imported clips are kept local-only (NOT
+# committed). Credit: Animation credits to pixiv Inc.'s VRoid Project.
+/assets/animations/raw/inbox/VRMA_MotionPack.zip
+/assets/animations/raw/inbox/_vrma_pack_extract/
+/assets/animations/library/shared/emote.showcase.once.vrma
+/assets/animations/library/shared/emote.spin.once.vrma
+/assets/animations/library/shared/emote.pose.once.vrma
+/assets/animations/library/shared/greet.greeting.once.vrma
+/assets/animations/library/shared/gesture.peace.once.vrma
