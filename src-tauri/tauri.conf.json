@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.nikof.display",
   "build": {
-    "beforeDevCommand": { "cwd": "../frontend", "script": "npm run dev" },
-    "devUrl": "http://127.0.0.1:5173/stage/",
+    "beforeDevCommand": { "cwd": "../frontend", "script": "npm run dev:stage" },
+    "devUrl": "http://127.0.0.1:5174",
     "beforeBuildCommand": { "cwd": "../frontend", "script": "npm run build" },
     "frontendDist": "../frontend/dist"
   },

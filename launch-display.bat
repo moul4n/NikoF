@@ -41,13 +41,13 @@ if not exist "node_modules\@tauri-apps\cli" (
   )
 )
 
-REM The desktop shell starts its own Vite on the project's strict port 5173.
-REM If a dev server is already bound there (e.g. a browser-preview "npm run dev"),
-REM that collision aborts the launch, so free the port first.
+REM The desktop shell runs its OWN Vite on a dedicated port (5174) so it never
+REM collides with the control surface's dev server (5173). Free 5174 only — the
+REM control surface on 5173 is left untouched, so both can run side by side.
 set "PORTPID="
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr "LISTENING" ^| findstr ":5173 "') do set "PORTPID=%%p"
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr "LISTENING" ^| findstr ":5174 "') do set "PORTPID=%%p"
 if defined PORTPID (
-  echo [NikoF] Port 5173 is already in use by PID %PORTPID% ^(an existing dev server^).
+  echo [NikoF] Port 5174 is already in use by PID %PORTPID% ^(a stale stage dev server^).
   echo         Stopping it so the desktop window can use the port...
   taskkill /F /PID %PORTPID% >nul 2>nul
   REM brief pause to let the socket release
