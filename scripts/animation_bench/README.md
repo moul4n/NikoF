@@ -44,20 +44,42 @@ whether a native `.vrma` or only the FBX/generated path is present, plus orphans
 For a **local-only personal companion** all of the above are fine; just don't
 publish raw pixiv/Mixamo files or resell CMU data.
 
-## Converting to `.vrma`
+## Converting FBX → VRMA (installed converter)
 
-Pick a **vetted** converter (none are bundled here — they pull native binaries):
+This bench wires [tk256ailab/fbx2vrma-converter](https://github.com/tk256ailab/fbx2vrma-converter)
+(MIT) as a **local, git-ignored** dependency. It is NOT committed — `node_modules/`
+and the ~10 MB FBX2glTF binary stay local per machine. First-time setup:
 
-- **FBX → VRMA (recommended): [VRM Add-on for Blender](https://vrm-addon-for-blender.info/en-us/ui/export_scene.vrma/)** —
-  import the Mixamo FBX onto a VRM armature, `File → Export → VRM Animation (.vrma)`.
-  Also the place to **hand-fix** any clip before export.
-- **BVH → VRMA: [vrm-c/bvh2vrma](https://vrm-c.github.io/bvh2vrma/)** — official browser tool.
-- **FBX → VRMA (CLI, optional): [tk256ailab/fbx2vrma-converter](https://github.com/tk256ailab/fbx2vrma-converter)** (MIT).
-  > ⚠️ Installing this runs npm lifecycle scripts and auto-downloads FBX2glTF (a
-  > native binary). It is **not** installed by this repo — approve it explicitly
-  > before adding it as a bench dependency.
+```bash
+cd scripts/animation_bench
+npm install                         # installs the converter (from GitHub)
+node node_modules/fbx2vrma-converter/scripts/postinstall.js   # or: bash node_modules/fbx2vrma-converter/setup.sh
+#   downloads the FBX2glTF native binary (facebookincubator/FBX2glTF v0.9.7)
+```
 
-Name the output exactly `<semantic-id>.vrma`.
+Convert (run from the converter dir so it finds the binary), naming the output
+exactly `<semantic-id>.vrma`:
+
+```bash
+cd scripts/animation_bench/node_modules/fbx2vrma-converter
+node fbx2vrma-converter.js \
+  -i "../../../../assets/animations/raw/<Clip>.fbx" \
+  -o "../../../../assets/animations/library/shared/<semantic-id>.vrma"
+```
+
+Then **always validate**:
+
+```bash
+.venv/Scripts/python.exe scripts/animation_bench/validate-vrma.py assets/animations/library/shared/<semantic-id>.vrma
+```
+
+Alternatives (also vetted): [VRM Add-on for Blender](https://vrm-addon-for-blender.info/en-us/ui/export_scene.vrma/)
+(`Export → VRM Animation (.vrma)`, and the place to **hand-fix** a clip), and
+[vrm-c/bvh2vrma](https://vrm-c.github.io/bvh2vrma/) for BVH (CMU) sources.
+
+> ⚠️ The converter runs npm lifecycle scripts and downloads a native binary —
+> it's installed only because it was explicitly approved. Mixamo FBX still needs
+> your Adobe login to download; this bench converts what you fetch.
 
 ## Registering a new clip
 

@@ -1,0 +1,9 @@
+# Converter tooling is installed locally per-machine, not committed:
+# node_modules holds fbx2vrma-converter + the ~10MB FBX2glTF native binary.
+node_modules/
+
+# FBX2glTF binary if fetched into this dir
+FBX2glTF-*
+
+# Scratch conversion outputs
+_test_*.vrma

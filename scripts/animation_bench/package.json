@@ -1,0 +1,13 @@
+{
+  "name": "nikof-animation-bench",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Offline FBX -> VRMA conversion + validation bench for NikoF animations. Run from this directory.",
+  "type": "module",
+  "scripts": {
+    "convert": "fbx2vrma-converter"
+  },
+  "dependencies": {
+    "fbx2vrma-converter": "github:tk256ailab/fbx2vrma-converter"
+  }
+}
