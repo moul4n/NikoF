@@ -65,10 +65,23 @@ class SpeechTimingModuleTests(unittest.TestCase):
         self.assertIs(speech_timing._normalize_timing(None, fallback=fallback), fallback)
 
     def test_phoneme_cue_resolvers(self) -> None:
-        self.assertEqual(speech_timing._resolve_basic_cue_from_phoneme("M"), "sil")
-        self.assertEqual(speech_timing._resolve_advanced_cue_from_phoneme("M"), "bmp")
-        self.assertEqual(speech_timing._resolve_advanced_cue_from_phoneme("F"), "fv")
-        self.assertIsNone(speech_timing._resolve_basic_cue_from_phoneme(""))
+        self.assertEqual(speech_timing._resolve_mouth_cue_from_phoneme("M"), "bmp")
+        self.assertEqual(speech_timing._resolve_mouth_cue_from_phoneme("F"), "fv")
+        self.assertEqual(speech_timing._resolve_mouth_cue_from_phoneme("AA"), "aa")
+        self.assertIsNone(speech_timing._resolve_mouth_cue_from_phoneme(""))
+
+    def test_single_mouth_cue_track_emitted(self) -> None:
+        # The redundant lower-detail "basic" track was removed: exactly one
+        # track remains and it is the default.
+        timing = speech_timing._normalize_timing(
+            {"utterance_duration_ms": 900},
+            fallback=SpeechTimingMetadata(utterance_duration_ms=0),
+            source_text="Hello there",
+        )
+        self.assertIsNotNone(timing.lip_sync)
+        self.assertEqual(len(timing.lip_sync.mouth_cue_tracks), 1)
+        self.assertEqual(timing.lip_sync.mouth_cue_tracks[0].track_id, "advanced")
+        self.assertEqual(timing.lip_sync.default_track_id, "advanced")
 
 
 if __name__ == "__main__":

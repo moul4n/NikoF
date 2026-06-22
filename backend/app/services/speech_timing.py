@@ -27,10 +27,11 @@ from app.schemas.session import (
 )
 
 
-_BASIC_MOUTH_TRACK_ID = "basic"
-_ADVANCED_MOUTH_TRACK_ID = "advanced"
-_BASIC_CUE_NAMESPACE = "vrm-basic-v1"
-_ADVANCED_CUE_NAMESPACE = "vrm-advanced-v1"
+# Single mouth-cue track. (A redundant lower-detail "basic" track was removed:
+# the avatar rig only exposes the 5 VRM visemes aa/ih/ou/ee/oh, onto which the
+# richer cues already alias, so a second track rendered identically.)
+_MOUTH_TRACK_ID = "advanced"
+_MOUTH_CUE_NAMESPACE = "vrm-advanced-v1"
 _TEXT_FALLBACK_TIMING_SOURCE = "text_fallback_visemes"
 
 
@@ -54,40 +55,7 @@ def _append_timing_source(existing: str | None, marker: str) -> str:
     return f"{normalized_existing}+{marker}"
 
 
-def _resolve_basic_cue_from_viseme(viseme: str) -> str | None:
-    normalized = _normalize_symbol_token(viseme)
-    if not normalized:
-        return None
-
-    aliases = {
-        "a": "aa",
-        "aa": "aa",
-        "i": "ih",
-        "ih": "ih",
-        "u": "ou",
-        "ou": "ou",
-        "e": "ee",
-        "ee": "ee",
-        "o": "oh",
-        "oh": "oh",
-        "sil": "sil",
-        "x": "sil",
-        "rest": "sil",
-        "idle": "sil",
-        "pause": "sil",
-        "closed": "sil",
-        "neutral": "sil",
-        "bmp": "sil",
-        "smile": "ee",
-        "fv": "ee",
-        "th": "ih",
-        "l": "ee",
-        "wq": "ou",
-    }
-    return aliases.get(normalized)
-
-
-def _resolve_advanced_cue_from_viseme(viseme: str) -> str | None:
+def _resolve_mouth_cue_from_viseme(viseme: str) -> str | None:
     normalized = _normalize_symbol_token(viseme)
     if not normalized:
         return None
@@ -120,29 +88,7 @@ def _resolve_advanced_cue_from_viseme(viseme: str) -> str | None:
     return aliases.get(normalized)
 
 
-def _resolve_basic_cue_from_phoneme(phoneme: str) -> str | None:
-    token = _normalize_phoneme_token(phoneme)
-    if not token:
-        return None
-
-    if token in {"SIL", "SP", "PAU", "CL", "BCL", "DCL", "GCL", "KCL", "PCL", "TCL"}:
-        return "sil"
-    if token in {"M", "B", "P", "EM"}:
-        return "sil"
-    if token in {"AA", "AE", "AH", "AX", "AY"}:
-        return "aa"
-    if token in {"AO", "ER", "R", "OH"}:
-        return "oh"
-    if token in {"UW", "UH", "OW", "AW", "OY", "W"}:
-        return "ou"
-    if token in {"IY", "EY", "EH", "EL", "L", "F", "V"}:
-        return "ee"
-    if token in {"IH", "IX", "Y", "TH", "DH", "S", "Z", "SH", "ZH", "CH", "JH", "T", "D", "N", "K", "G", "NG", "HH"}:
-        return "ih"
-    return None
-
-
-def _resolve_advanced_cue_from_phoneme(phoneme: str) -> str | None:
+def _resolve_mouth_cue_from_phoneme(phoneme: str) -> str | None:
     token = _normalize_phoneme_token(phoneme)
     if not token:
         return None
@@ -369,7 +315,7 @@ def _normalize_mouth_cue_tracks(raw_value: Any) -> tuple[SpeechMouthCueTrack, ..
     return tuple(
         SpeechMouthCueTrack(
             track_id=str(item.get("track_id") or "").strip(),
-            cue_namespace=str(item.get("cue_namespace") or "").strip() or _BASIC_CUE_NAMESPACE,
+            cue_namespace=str(item.get("cue_namespace") or "").strip() or _MOUTH_CUE_NAMESPACE,
             cues=_normalize_mouth_cue_slots(item.get("cues")),
         )
         for item in raw_value
@@ -384,46 +330,28 @@ def _build_default_lip_sync_payload(
     preferred_track_id: str | None,
     timing_source: str | None,
 ) -> SpeechLipSyncPayload | None:
-    basic_cues = (
-        _build_mouth_cue_slots_from_visemes(viseme_slots, _resolve_basic_cue_from_viseme)
-        if viseme_slots
-        else _build_mouth_cue_slots_from_phonemes(phoneme_slots, _resolve_basic_cue_from_phoneme)
-    )
-    advanced_cues = (
-        _build_mouth_cue_slots_from_phonemes(phoneme_slots, _resolve_advanced_cue_from_phoneme)
+    mouth_cues = (
+        _build_mouth_cue_slots_from_phonemes(phoneme_slots, _resolve_mouth_cue_from_phoneme)
         if phoneme_slots
-        else _build_mouth_cue_slots_from_visemes(viseme_slots, _resolve_advanced_cue_from_viseme)
+        else _build_mouth_cue_slots_from_visemes(viseme_slots, _resolve_mouth_cue_from_viseme)
     )
 
-    tracks = tuple(
-        track
-        for track in (
-            SpeechMouthCueTrack(
-                track_id=_BASIC_MOUTH_TRACK_ID,
-                cue_namespace=_BASIC_CUE_NAMESPACE,
-                cues=basic_cues,
-            )
-            if basic_cues
-            else None,
-            SpeechMouthCueTrack(
-                track_id=_ADVANCED_MOUTH_TRACK_ID,
-                cue_namespace=_ADVANCED_CUE_NAMESPACE,
-                cues=advanced_cues,
-            )
-            if advanced_cues
-            else None,
-        )
-        if track is not None
-    )
-
-    if not tracks:
+    if not mouth_cues:
         return None
+
+    tracks = (
+        SpeechMouthCueTrack(
+            track_id=_MOUTH_TRACK_ID,
+            cue_namespace=_MOUTH_CUE_NAMESPACE,
+            cues=mouth_cues,
+        ),
+    )
 
     available_track_ids = tuple(track.track_id for track in tracks)
     default_track_id = (
         preferred_track_id.strip()
         if isinstance(preferred_track_id, str) and preferred_track_id.strip() in available_track_ids
-        else (_ADVANCED_MOUTH_TRACK_ID if _ADVANCED_MOUTH_TRACK_ID in available_track_ids else available_track_ids[0])
+        else _MOUTH_TRACK_ID
     )
     source_slot_type = "phoneme_slots" if phoneme_slots else "viseme_slots" if viseme_slots else None
     return SpeechLipSyncPayload(
@@ -471,7 +399,7 @@ def _normalize_lip_sync_payload(
         default_track_id = (
             default_payload.default_track_id
             if default_payload is not None and default_payload.default_track_id in available_track_ids
-            else (_ADVANCED_MOUTH_TRACK_ID if _ADVANCED_MOUTH_TRACK_ID in available_track_ids else available_track_ids[0])
+            else (_MOUTH_TRACK_ID if _MOUTH_TRACK_ID in available_track_ids else available_track_ids[0])
         )
 
     raw_debug = raw_value.get("debug") if isinstance(raw_value.get("debug"), dict) else {}
