@@ -23,7 +23,11 @@ from app.api.operator_routes import (
 from app.api.router_composition import build_default_api_runtime_services
 from app.core.settings import AppPaths
 from app.schemas.session import OperatorCommandRequest
-from app.services.llm import OllamaTextGenerationAdapter, TextGenerationRequest
+from app.services.llm import (
+    OllamaTextGenerationAdapter,
+    TextGenerationRequest,
+)
+from app.services.llm_parsing import MAX_ANIMATION_CUE_DURATION_MS
 from app.services.speech import (
     BackendTurnRequest,
     FasterWhisperTranscriptionAdapter,
@@ -196,6 +200,92 @@ class OllamaTextGenerationAdapterTests(unittest.TestCase):
         self.assertEqual("gentle", contract.voice_tone.style)
         self.assertEqual("wave", contract.animation_cues[0].cue)
         self.assertEqual("memory", contract.memory_writebacks[0].namespace)
+
+    def _run_structured_generate(
+        self,
+        response_value: object,
+        *,
+        expect_structured_output: bool = True,
+    ):
+        with TemporaryDirectory() as temp_dir:
+            app_paths = build_app_paths(Path(temp_dir))
+            provider_root = app_paths.providers_root / "llm" / "ollama"
+            model_root = app_paths.llm_models_root / "ollama-llama3.1-8b"
+            provider_root.mkdir(parents=True)
+            model_root.mkdir(parents=True)
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), _OllamaHandler)
+            _OllamaHandler.response_payload = {
+                "model": "llama3.1:8b",
+                "response": response_value,
+                "done": True,
+            }
+            server_thread = threading.Thread(target=server.serve_forever)
+            server_thread.start()
+            try:
+                (provider_root / "runtime.json").write_text(
+                    json.dumps(
+                        {
+                            "endpoint": f"http://127.0.0.1:{server.server_address[1]}",
+                            "model": "llama3.1:8b",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                adapter = OllamaTextGenerationAdapter(app_paths=app_paths)
+                return adapter.generate(
+                    TextGenerationRequest(
+                        prompt="Respond with structured JSON.",
+                        locale="en-US",
+                        expect_structured_output=expect_structured_output,
+                    )
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join()
+
+    def test_generate_suppresses_raw_json_when_structured_reply_lacks_reply_text(self) -> None:
+        # Valid JSON but no reply_text: must NOT speak the JSON blob aloud.
+        contract = self._run_structured_generate(
+            json.dumps({"feeling": {"name": "warm", "intensity": 0.4}})
+        )
+
+        self.assertEqual("error", contract.status)
+        self.assertNotIn("{", contract.text)
+        self.assertEqual((), contract.animation_cues)
+
+    def test_generate_suppresses_unparseable_json_like_reply(self) -> None:
+        # Truncated/garbled JSON-looking reply: suppress rather than read braces.
+        contract = self._run_structured_generate('{"reply_text": "hello", "feeling": {')
+
+        self.assertEqual("error", contract.status)
+        self.assertNotIn("{", contract.text)
+
+    def test_generate_falls_back_to_plaintext_for_prose_without_json(self) -> None:
+        # Genuine prose (no JSON) is an acceptable plain-text fallback.
+        contract = self._run_structured_generate("Just a plain sentence, no JSON here.")
+
+        self.assertEqual("ready", contract.status)
+        self.assertEqual("Just a plain sentence, no JSON here.", contract.text)
+
+    def test_generate_clamps_out_of_range_structured_fields(self) -> None:
+        contract = self._run_structured_generate(
+            json.dumps(
+                {
+                    "reply_text": "Clamped reply.",
+                    "feeling": {"name": "excited", "intensity": 5.0},
+                    "animation_cues": [
+                        {"cue": "wave", "layer": "upper", "intensity": -2.0, "duration_ms": 999_999_999}
+                    ],
+                }
+            )
+        )
+
+        self.assertEqual("ready", contract.status)
+        self.assertEqual(1.0, contract.feeling.intensity)
+        self.assertEqual(0.0, contract.animation_cues[0].intensity)
+        self.assertEqual(MAX_ANIMATION_CUE_DURATION_MS, contract.animation_cues[0].duration_ms)
 
 
 class GptSovitsSynthesisAdapterTests(unittest.TestCase):

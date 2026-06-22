@@ -32,8 +32,10 @@ from app.services.llm_contracts import (  # noqa: F401  (re-exported for callers
 # Structured-output parsing (extracted); used by the Ollama adapter below.
 from app.services.llm_parsing import (
     _extract_json_object,
+    _looks_like_json_object,
     _normalize_contract_status,
     _normalize_structured_contract,
+    _preview_payload,
 )
 # Ollama runtime config constants + HTTP/transport helpers (extracted). Used by
 # the binding/adapter/sidecar below; re-exported for callers/tests.
@@ -136,6 +138,9 @@ class StubTextGenerationService:
     """Deterministic fallback while no local LLM runtime is configured."""
 
     unavailable_text: str = "Local text generation is unavailable."
+    # Spoken aloud (via TTS) when the model returned an unusable structured
+    # reply — must be natural language, never raw JSON.
+    malformed_response_text: str = "Sorry, I lost my train of thought there. Could you say that again?"
 
     def generate(self, request: TextGenerationRequest) -> AssistantMessageContract:
         return AssistantMessageContract(
@@ -273,14 +278,9 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             )
 
         if request.expect_structured_output:
-            structured_payload = _extract_json_object(reply_text)
-            if structured_payload is not None:
-                try:
-                    contract = _normalize_structured_contract(request, structured_payload)
-                except TextGenerationInvocationError:
-                    pass
-                else:
-                    return contract
+            structured_contract = self._normalize_structured_or_safe_fallback(request, reply_text)
+            if structured_contract is not None:
+                return structured_contract
 
         return self._build_contract(
             request,
@@ -288,17 +288,47 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             text=reply_text,
         )
 
+    def _normalize_structured_or_safe_fallback(
+        self, request: TextGenerationRequest, reply_text: str
+    ) -> AssistantMessageContract | None:
+        """Parse a structured reply, or return a SAFE error contract.
+
+        Returns the normalized contract on success. If the reply is valid JSON
+        that fails the contract, or is JSON-like but unparseable, returns an
+        error contract with safe natural-language text (never the raw JSON
+        blob) and logs a diagnostic. Returns None when the reply is plain prose
+        with no JSON object, so the caller can use its plain-text fallback.
+        """
+        structured_payload = _extract_json_object(reply_text)
+        if structured_payload is not None:
+            try:
+                return _normalize_structured_contract(request, structured_payload)
+            except TextGenerationInvocationError as error:
+                logger.warning(
+                    "Structured LLM response failed normalization (%s); using error contract. preview=%s",
+                    error,
+                    _preview_payload(structured_payload),
+                )
+                return self._build_contract(request, status="error", text=self.malformed_response_text)
+
+        if _looks_like_json_object(reply_text):
+            logger.warning(
+                "Structured LLM response was JSON-like but unparseable; suppressing raw output. preview=%s",
+                reply_text[:200],
+            )
+            return self._build_contract(request, status="error", text=self.malformed_response_text)
+
+        logger.warning("Structured LLM response contained no JSON object; using plain-text fallback.")
+        return None
+
     def _finalize_completion(self, request: TextGenerationRequest, completion_text: str) -> AssistantMessageContract:
         reply_text = completion_text.strip()
         if not reply_text:
             return self._build_contract(request, status="error", text="Local text generation returned no reply.")
         if request.expect_structured_output:
-            structured_payload = _extract_json_object(reply_text)
-            if structured_payload is not None:
-                try:
-                    return _normalize_structured_contract(request, structured_payload)
-                except TextGenerationInvocationError:
-                    pass
+            structured_contract = self._normalize_structured_or_safe_fallback(request, reply_text)
+            if structured_contract is not None:
+                return structured_contract
         return self._build_contract(
             request,
             status=_normalize_contract_status(None, has_reply_text=True),

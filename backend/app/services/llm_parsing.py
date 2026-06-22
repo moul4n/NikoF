@@ -9,6 +9,7 @@ Ollama adapter.
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
@@ -93,9 +94,51 @@ def _coerce_optional_text(raw_value: Any) -> str | None:
 
 def _coerce_optional_float(raw_value: Any) -> float | None:
     try:
-        return float(raw_value)
+        value = float(raw_value)
     except (TypeError, ValueError):
         return None
+    return value if math.isfinite(value) else None
+
+
+# Upper bound for an assistant animation cue duration. Anything larger is a
+# malformed value (e.g. milliseconds vs seconds confusion) rather than intent.
+MAX_ANIMATION_CUE_DURATION_MS = 60_000
+
+
+def _coerce_unit_float(raw_value: Any) -> float | None:
+    """Coerce to a finite float clamped to the inclusive [0, 1] range."""
+    value = _coerce_optional_float(raw_value)
+    if value is None:
+        return None
+    return max(0.0, min(1.0, value))
+
+
+def _coerce_bounded_duration_ms(raw_value: Any) -> int | None:
+    """Coerce an animation-cue duration to a sane, non-negative millisecond int."""
+    if not isinstance(raw_value, (int, float)) or isinstance(raw_value, bool):
+        return None
+    if not math.isfinite(raw_value):
+        return None
+    return int(max(0, min(MAX_ANIMATION_CUE_DURATION_MS, raw_value)))
+
+
+def _looks_like_json_object(raw_text: str) -> bool:
+    """True when the text appears to be a JSON object (or fenced JSON block).
+
+    Used to avoid speaking raw JSON aloud when a structured response could not
+    be parsed: prose is an acceptable plain-text fallback, JSON braces are not.
+    """
+    stripped = raw_text.lstrip()
+    return stripped.startswith("{") or stripped.startswith("```")
+
+
+def _preview_payload(payload: Any, *, limit: int = 200) -> str:
+    """A short, log-safe preview of a payload for diagnostics."""
+    try:
+        rendered = json.dumps(payload, ensure_ascii=False)
+    except (TypeError, ValueError):
+        rendered = str(payload)
+    return rendered[:limit]
 
 
 def _normalize_structured_contract(
@@ -113,7 +156,7 @@ def _normalize_structured_contract(
         if feeling_name is not None:
             feeling = AssistantFeelingContract(
                 name=feeling_name,
-                intensity=_coerce_optional_float(feeling_payload.get("intensity")),
+                intensity=_coerce_unit_float(feeling_payload.get("intensity")),
             )
 
     voice_payload = payload.get("voice_tone") if isinstance(payload.get("voice_tone"), dict) else None
@@ -122,7 +165,7 @@ def _normalize_structured_contract(
         voice_tone = AssistantVoiceToneContract(
             style=_coerce_optional_text(voice_payload.get("style")),
             pace=_coerce_optional_text(voice_payload.get("pace")),
-            energy=_coerce_optional_float(voice_payload.get("energy")),
+            energy=_coerce_unit_float(voice_payload.get("energy")),
         )
 
     animation_cues: list[AssistantAnimationCueContract] = []
@@ -134,13 +177,12 @@ def _normalize_structured_contract(
             cue = _coerce_optional_text(raw_cue.get("cue") or raw_cue.get("name"))
             if cue is None:
                 continue
-            duration_ms = raw_cue.get("duration_ms")
             animation_cues.append(
                 AssistantAnimationCueContract(
                     cue=cue,
                     layer=_coerce_optional_text(raw_cue.get("layer")) or "face",
-                    intensity=_coerce_optional_float(raw_cue.get("intensity") or raw_cue.get("weight")),
-                    duration_ms=int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
+                    intensity=_coerce_unit_float(raw_cue.get("intensity") or raw_cue.get("weight")),
+                    duration_ms=_coerce_bounded_duration_ms(raw_cue.get("duration_ms")),
                 )
             )
 
