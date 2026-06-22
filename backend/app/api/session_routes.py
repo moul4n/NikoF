@@ -6,11 +6,13 @@ from typing import Any, Callable
 
 from app.schemas.animation import SessionAnimationSnapshot
 from app.schemas.session import (
+    DisplaySettingsUpdateRequest,
     SessionGestureRequest,
     SessionLifecycleUpdateRequest,
     SpeechLifecycleTransportSnapshot,
     StageBackgroundUpdateRequest,
 )
+from app.services.display_settings import get_display_settings_state
 from app.services.stage_view import get_stage_view_state, is_known_stage_background_id
 from app.services.animation import (
     AnimationService,
@@ -212,6 +214,22 @@ def register_session_transport_routes(
             )
         get_stage_view_state().set_background(background_id)
         return {"background_id": background_id}
+
+    @router.get("/session/display-settings")
+    def get_display_settings() -> dict:
+        # Presentation-only display/wardrobe settings for the stage/display
+        # window. Polled by the stage window (like stage-background) so a
+        # control-surface change reaches the separate always-on-top window.
+        # Global bone-overlay/captions + per-character wardrobe values.
+        return get_display_settings_state().snapshot()
+
+    @router.put("/session/display-settings")
+    def put_display_settings(update: DisplaySettingsUpdateRequest) -> dict:
+        return get_display_settings_state().update(
+            bone_overlay=update.bone_overlay,
+            captions=update.captions,
+            wardrobe=update.wardrobe,
+        )
 
     def _build_session_speech_artifact_audio_response(event_id: str) -> Any:
         snapshot = services.session_service.get_snapshot()

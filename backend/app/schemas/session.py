@@ -297,6 +297,18 @@ class StageBackgroundUpdateRequest:
     background_id: str
 
 
+@pydantic_dataclass(slots=True, frozen=True)
+class DisplaySettingsUpdateRequest:
+    """Partial update to the persisted display/wardrobe settings the stage
+    window polls. Global bone-overlay + captions toggles, plus per-character
+    wardrobe control values (keyed characterId -> controlId -> 0..1). A
+    presentation setting, not part of the session animation/speech contracts."""
+
+    bone_overlay: bool | None = None
+    captions: bool | None = None
+    wardrobe: dict[str, dict[str, float]] | None = None
+
+
 @dataclass(slots=True, frozen=True)
 class OperatorCommandResponse:
     schema_version: int

@@ -156,8 +156,6 @@ export function DisplaySurfaceStatusPanel({
   );
 }
 
-const CAPTIONS_STORAGE_KEY = "nikof.display.captionsEnabled";
-
 interface DisplaySurfaceShellProps {
   runtime: AvatarRuntimeBridge;
   selectedCharacter: CharacterCatalogEntry | null;
@@ -167,6 +165,10 @@ interface DisplaySurfaceShellProps {
   isDevAnimationSwitcherEnabled: boolean;
   devDisplayRigOverlayEnabled: boolean;
   onSetDevDisplayRigOverlayEnabled: (enabled: boolean) => void;
+  captionsEnabled: boolean;
+  onSetCaptionsEnabled: (enabled: boolean) => void;
+  onAppearanceControlChange: (id: string, value: number) => void;
+  onAppearanceReset: () => void;
   onSelectDevDisplayAnimation: (optionId: DevDisplayAnimationOptionId) => void;
   isDisplayRuntimeReady: boolean;
 }
@@ -180,6 +182,10 @@ export function DisplaySurfaceShell({
   isDevAnimationSwitcherEnabled,
   devDisplayRigOverlayEnabled,
   onSetDevDisplayRigOverlayEnabled,
+  captionsEnabled,
+  onSetCaptionsEnabled,
+  onAppearanceControlChange,
+  onAppearanceReset,
   onSelectDevDisplayAnimation,
   isDisplayRuntimeReady
 }: DisplaySurfaceShellProps): JSX.Element {
@@ -202,20 +208,9 @@ export function DisplaySurfaceShell({
     selectedDeviceLabel: attentionSnapshot?.selected_device_label ?? null,
   });
 
-  // Voice captions (subtitles for the live transcript + the assistant reply),
-  // with an on/off toggle persisted across reloads. Defaults on.
-  const [captionsEnabled, setCaptionsEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") {
-      return true;
-    }
-    return window.localStorage.getItem(CAPTIONS_STORAGE_KEY) !== "0";
-  });
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(CAPTIONS_STORAGE_KEY, captionsEnabled ? "1" : "0");
-    }
-  }, [captionsEnabled]);
-
+  // Voice captions (subtitles for the live transcript + the assistant reply).
+  // The on/off state is a backend-driven display setting (toggled here or from
+  // the control surface, persisted across restarts) — see useDisplaySettings.
   // Captions overlay rendered over the bottom of the avatar viewport (the
   // assistant's reply as the primary subtitle, the live transcript beneath it).
   const captionsNode = captionsEnabled ? (
@@ -292,6 +287,8 @@ export function DisplaySurfaceShell({
             variant="display"
             onSelectDisplayAnimationOverride={onSelectDevDisplayAnimation}
             captionsSlot={captionsNode}
+            onAppearanceControlChange={onAppearanceControlChange}
+            onAppearanceReset={onAppearanceReset}
           />
         </div>
         <aside className="app-shell__display-rail">
@@ -300,7 +297,7 @@ export function DisplaySurfaceShell({
             type="button"
             className="app-shell__caption-toggle"
             aria-pressed={captionsEnabled}
-            onClick={() => setCaptionsEnabled((value) => !value)}
+            onClick={() => onSetCaptionsEnabled(!captionsEnabled)}
           >
             {captionsEnabled ? "Captions: On" : "Captions: Off"}
           </button>

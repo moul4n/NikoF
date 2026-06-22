@@ -49,6 +49,10 @@ interface AvatarStageProps {
   // Optional overlay (voice captions) rendered over the bottom of the avatar
   // viewport on the display surface, in place of the static "ready" message.
   captionsSlot?: JSX.Element | null;
+  // When provided, wardrobe edits route through these (persisted via the
+  // backend display-settings seam) instead of straight to the local runtime.
+  onAppearanceControlChange?: (id: string, value: number) => void;
+  onAppearanceReset?: () => void;
 }
 
 function describeOverlayChannel(channel: ReturnType<AvatarRuntimeBridge["snapshot"]>["overlayChannels"][number]): string {
@@ -68,7 +72,9 @@ export function AvatarStage({
   selectedCharacter,
   variant = "embedded",
   onSelectDisplayAnimationOverride,
-  captionsSlot
+  captionsSlot,
+  onAppearanceControlChange,
+  onAppearanceReset
 }: AvatarStageProps): JSX.Element {
   const mountPoints = getAvatarRuntimeMountPoints(variant);
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
@@ -281,8 +287,10 @@ export function AvatarStage({
             <WardrobePanel
               controls={snapshot.appearanceControls}
               disabled={snapshot.loadState !== "ready"}
-              onChange={(id, value) => runtime.setAppearanceControl(id, value)}
-              onReset={() => runtime.resetAppearance()}
+              onChange={(id, value) =>
+                onAppearanceControlChange ? onAppearanceControlChange(id, value) : runtime.setAppearanceControl(id, value)
+              }
+              onReset={() => (onAppearanceReset ? onAppearanceReset() : runtime.resetAppearance())}
             />
           </>
         ) : null}

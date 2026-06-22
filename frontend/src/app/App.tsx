@@ -23,6 +23,7 @@ import {
   useAvatarRuntimeSnapshot
 } from "./useAvatarRuntimeShell";
 import { useRuntimePlaybackSelection } from "./useRuntimePlaybackSelection";
+import { useDisplaySettings } from "./useDisplaySettings";
 import { cloneDefaultBaseAnimationCommand } from "../avatar/runtime/defaultBaseAnimation";
 import {
   createAvatarRuntime,
@@ -107,13 +108,10 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   const {
     devDisplayProfileView,
     setDevDisplayProfileView,
-    devDisplayRigOverlayEnabled,
-    setDevDisplayRigOverlayEnabled,
     devDisplayAnimationOverride,
     handleSelectDevDisplayAnimation,
     isDisplayRuntimeReady,
     effectiveDisplayProfileView,
-    effectiveDisplayRigOverlayEnabled,
     desiredConversationAnimationLifecycleState,
     desiredConversationAnimationLifecycleReason,
     handleCommandPublished
@@ -133,12 +131,24 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     isDevAnimationSwitcherEnabled,
     refreshSpeechLifecycle
   });
+  // Single source of truth for persistent display + wardrobe settings (durable,
+  // backend-backed). Applies the active character's wardrobe to the runtime;
+  // bone overlay is applied via the runtime-configuration effect below.
+  const displaySettings = useDisplaySettings({
+    runtime,
+    activeCharacterId: selectedCharacter?.summary.characterId ?? null,
+    runtimeReadyToken: avatarRuntimeSnapshot.loadState
+  });
   useAvatarRuntimeConfiguration({
     runtime,
     catalogLoadStatus: loadState.status,
     selectedCharacter,
     effectiveDisplayProfileView,
-    effectiveDisplayRigOverlayEnabled
+    // Bone overlay is now a backend-driven display setting (toggled from the
+    // control surface, persisted). runtimeSurfaceMode maps the stage window to
+    // "display", so this applies to both the browser display and the Tauri stage.
+    effectiveDisplayRigOverlayEnabled:
+      runtimeSurfaceMode === "display" ? displaySettings.boneOverlayEnabled : false
   });
 
   const sessionAnimationState = useSessionAnimationState({
@@ -228,8 +238,12 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         speechLifecycleState={speechLifecycleState}
         speechPlaybackStatus={speechPlaybackStatus}
         isDevAnimationSwitcherEnabled={isDevAnimationSwitcherEnabled}
-        devDisplayRigOverlayEnabled={devDisplayRigOverlayEnabled}
-        onSetDevDisplayRigOverlayEnabled={setDevDisplayRigOverlayEnabled}
+        devDisplayRigOverlayEnabled={displaySettings.boneOverlayEnabled}
+        onSetDevDisplayRigOverlayEnabled={displaySettings.setBoneOverlay}
+        captionsEnabled={displaySettings.captionsEnabled}
+        onSetCaptionsEnabled={displaySettings.setCaptions}
+        onAppearanceControlChange={displaySettings.setWardrobeControl}
+        onAppearanceReset={displaySettings.resetWardrobe}
         onSelectDevDisplayAnimation={handleSelectDevDisplayAnimation}
         isDisplayRuntimeReady={isDisplayRuntimeReady}
       />
@@ -247,6 +261,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
       backendSyncState={backendSyncState}
       speechLifecycleState={speechLifecycleState}
       speechPlaybackStatus={speechPlaybackStatus}
+      displaySettings={displaySettings}
     />
   );
 }

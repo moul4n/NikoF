@@ -23,6 +23,8 @@ import type { SpeechPlaybackState } from "./useSpeechPlaybackBridge";
 import { ControlSurfaceOperatorCommandPanel } from "./ControlSurfaceOperatorCommandPanel.js";
 import { ControlSurfaceGesturePanel } from "./ControlSurfaceGesturePanel.js";
 import { ControlSurfaceBackgroundPanel } from "./ControlSurfaceBackgroundPanel.js";
+import { ControlSurfaceDisplayPanel } from "./ControlSurfaceDisplayPanel.js";
+import type { UseDisplaySettingsResult } from "./useDisplaySettings";
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
 
@@ -222,6 +224,7 @@ interface ControlSurfaceShellProps {
   backendSyncState: BackendSyncState;
   speechLifecycleState: SpeechLifecycleLoadState;
   speechPlaybackStatus: SpeechPlaybackState;
+  displaySettings: UseDisplaySettingsResult;
 }
 
 export function ControlSurfaceShell({
@@ -233,7 +236,8 @@ export function ControlSurfaceShell({
   backendStatusMessage,
   backendSyncState,
   speechLifecycleState,
-  speechPlaybackStatus
+  speechPlaybackStatus,
+  displaySettings
 }: ControlSurfaceShellProps): JSX.Element {
   const [activeSidebarTab, setActiveSidebarTab] = useState<"summary" | "profile" | "tts">("summary");
   const resourceState = useResourceMonitor();
@@ -278,6 +282,15 @@ export function ControlSurfaceShell({
               />
               <ControlSurfaceGesturePanel />
               <ControlSurfaceBackgroundPanel />
+              <ControlSurfaceDisplayPanel
+                activeCharacterId={selectedCharacter?.summary.characterId ?? null}
+                boneOverlayEnabled={displaySettings.boneOverlayEnabled}
+                captionsEnabled={displaySettings.captionsEnabled}
+                wardrobe={displaySettings.wardrobe}
+                onSetBoneOverlay={displaySettings.setBoneOverlay}
+                onSetCaptions={displaySettings.setCaptions}
+                onSetWardrobeControl={displaySettings.setWardrobeControl}
+              />
               {speechPlaybackStatus.audioSource && (
                 <section className="surface-panel control-layout__audio-panel">
                   <div className="surface-panel__header">

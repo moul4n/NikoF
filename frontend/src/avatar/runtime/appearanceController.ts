@@ -96,6 +96,50 @@ const APPEARANCE_SPECS: Partial<Record<string, AppearanceSpec>> = {
   kokoa: kokoaAppearance as AppearanceSpec
 };
 
+/**
+ * Wardrobe control specs for a character at their default values, WITHOUT a
+ * loaded VRM — so the operator control surface can render the wardrobe panel
+ * (it never loads the model; the display surface applies the values). Mirrors
+ * the control-state shape createAppearanceController builds.
+ */
+export function listAppearanceControlsForCharacter(characterId: string): AppearanceControlState[] {
+  const spec = ENABLE_APPEARANCE_CONTROLS ? APPEARANCE_SPECS[characterId] : undefined;
+  if (!spec) {
+    return [];
+  }
+  const controls: AppearanceControlState[] = [];
+  for (const group of spec.groups) {
+    for (const control of group.controls) {
+      if (control.type === "toggle") {
+        controls.push({
+          id: control.id,
+          groupId: group.id,
+          groupLabel: group.label,
+          label: control.label,
+          type: "toggle",
+          value: control.default ? 1 : 0,
+          min: 0,
+          max: 1,
+          step: 1
+        });
+      } else {
+        controls.push({
+          id: control.id,
+          groupId: group.id,
+          groupLabel: group.label,
+          label: control.label,
+          type: "slider",
+          value: control.default,
+          min: control.min,
+          max: control.max,
+          step: control.step ?? 0.01
+        });
+      }
+    }
+  }
+  return controls;
+}
+
 interface ResolvedToggle {
   kind: "toggle";
   meshes: THREE.Mesh[];
