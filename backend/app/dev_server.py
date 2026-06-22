@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import os
 import socket
 import sys
 from urllib.error import HTTPError, URLError
@@ -103,6 +104,11 @@ def main() -> None:
         raise SystemExit(
             "uvicorn is not installed in the active backend environment. Install backend dependencies before starting app.dev_server."
         ) from exc
+
+    # Production backend entry point: persist the operator's active-character
+    # selection across restarts. Left unset in tests so the suite never reads or
+    # overwrites the real on-disk selection.
+    os.environ.setdefault("NIKOF_PERSIST_ACTIVE_CHARACTER", "1")
 
     ensure_startup_ready()
     _emit_runtime_prerequisite_guidance()

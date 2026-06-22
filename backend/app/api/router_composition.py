@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable
 
@@ -205,7 +206,23 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
         (character_id for character_id in ("test-vrm-01", "maria") if character_id in available_character_ids),
         available_character_ids[0] if available_character_ids else "maria",
     )
-    session_service = InMemorySessionService(default_character_id=default_character_id)
+    # Persist the active-character selection across restarts so the stage / display
+    # open on the last-selected character even without the control surface present
+    # to restore it. Gated behind an env var (set by the dev_server entry point) so
+    # the test suite — which builds these services too — never reads or clobbers the
+    # real on-disk selection.
+    _persist_active_character = (
+        os.environ.get("NIKOF_PERSIST_ACTIVE_CHARACTER", "").strip().lower() not in ("", "0", "false", "no")
+    )
+    session_service = InMemorySessionService(
+        default_character_id=default_character_id,
+        state_path=(
+            app_paths.local_data_root / "session" / "active-character.json"
+            if _persist_active_character
+            else None
+        ),
+        known_character_ids=frozenset(available_character_ids),
+    )
     speech_services = build_speech_service_registry(app_paths=app_paths)
     transcription_service = speech_services.resolve_transcription(
         SpeechTranscriptionRequest(
