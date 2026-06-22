@@ -181,6 +181,136 @@ select {
   align-content: start;
 }
 
+/* Avatar grid cell + overlay anchor for live captions. min-width:0 lets the
+   1fr column shrink like the bare AvatarStage did. */
+.app-shell__display-stage {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ptt-button {
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(120, 160, 255, 0.45);
+  border-radius: 0.85rem;
+  background: rgba(40, 70, 140, 0.35);
+  color: #eef2ff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+
+.ptt-button:hover:not(:disabled),
+.ptt-button:focus-visible {
+  background: rgba(60, 100, 190, 0.5);
+  border-color: rgba(150, 185, 255, 0.7);
+}
+
+.ptt-button--active {
+  background: rgba(210, 70, 90, 0.7);
+  border-color: rgba(255, 150, 165, 0.9);
+  transform: scale(0.99);
+}
+
+.ptt-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ptt-device {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.ptt-device__label {
+  display: block;
+  font-size: 0.8rem;
+  color: #aeb6c8;
+  margin-bottom: 0.3rem;
+}
+
+.ptt-device__select {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(120, 160, 255, 0.35);
+  background: rgba(20, 30, 55, 0.6);
+  color: #eef2ff;
+  font-size: 0.95rem;
+}
+
+.ptt-status {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #aeb6c8;
+}
+
+.ptt-status--warn {
+  color: #ffcf8b;
+}
+
+.app-shell__captions {
+  position: absolute;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(90%, 720px);
+  pointer-events: none;
+}
+
+.app-shell__live-caption {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(8, 12, 24, 0.72);
+  color: #f4f6fb;
+  font-size: 1.1rem;
+  line-height: 1.35;
+  text-align: center;
+  text-wrap: balance;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.app-shell__live-caption--assistant {
+  background: rgba(20, 40, 90, 0.8);
+  border: 1px solid rgba(120, 160, 255, 0.4);
+}
+
+.app-shell__live-caption--user {
+  font-size: 0.98rem;
+  color: #cdd6e8;
+  font-style: italic;
+}
+
+.app-shell__caption-toggle {
+  width: 100%;
+  padding: 0.6rem 1rem;
+  border: 1px solid rgba(120, 160, 255, 0.35);
+  border-radius: 0.75rem;
+  background: rgba(20, 30, 55, 0.6);
+  color: #eef2ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.app-shell__caption-toggle[aria-pressed="true"] {
+  border-color: rgba(120, 200, 150, 0.6);
+  background: rgba(30, 70, 50, 0.5);
+}
+
 .surface-switcher {
   display: flex;
   flex-wrap: wrap;
@@ -566,6 +696,57 @@ select {
 }
 
 .tts-settings-panel__button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.character-profile-panel__field {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 1rem;
+}
+
+.character-profile-panel__label {
+  color: #8ca0bf;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.character-profile-panel__hint {
+  color: #a9b6ca;
+  font-size: 0.85rem;
+}
+
+.character-profile-panel__textarea {
+  width: 100%;
+  border: 1px solid rgba(160, 175, 200, 0.22);
+  border-radius: 12px;
+  background: rgba(12, 19, 31, 0.92);
+  color: #eef4ff;
+  padding: 0.7rem 0.85rem;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.character-profile-panel__textarea:focus-visible {
+  outline: 2px solid rgba(123, 211, 193, 0.85);
+  outline-offset: 2px;
+}
+
+.character-profile-panel__save {
+  margin-top: 1.1rem;
+  border: 1px solid rgba(123, 211, 193, 0.8);
+  background: rgba(30, 63, 71, 0.72);
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.65rem 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.character-profile-panel__save:disabled {
   cursor: wait;
   opacity: 0.7;
 }

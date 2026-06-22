@@ -60,6 +60,21 @@ interface UseSpeechPlaybackBridgeOptions {
   runtime: AvatarRuntimeBridge;
   canonicalSynthesisEvent: BackendSessionEventDocument | null;
   latestAvailableSynthesisEvent: BackendSessionEventDocument | null;
+  // Phase 1a: ordered segments of the current utterance. Defaults to empty,
+  // in which case the bridge plays the single canonicalSynthesisEvent (legacy).
+  canonicalSynthesisSegments?: BackendSessionEventDocument[];
+  // When false, the bridge tracks lifecycle status (so non-avatar surfaces can
+  // show playback state and still relay cross-window replays) but never starts
+  // local audio/timing playback. Wire this to "is this the avatar surface?" so
+  // a reply is voiced on exactly one page — no duplicate audio on control/
+  // settings windows. Defaults to true (legacy single-surface behavior).
+  playbackEnabled?: boolean;
+  // Phase 2 increment 3: optional browser-safe override for a segment's audio
+  // source, keyed by (utterance_id, segment_index). When it returns a URL
+  // (a streamed blob: from the WebSocket transport), the bridge plays it
+  // instead of resolving the backend audio_reference — saving the artifact
+  // fetch round-trip. Returns null to fall back to the canonical reference.
+  resolveSegmentAudioOverride?: (utteranceId: string | null, segmentIndex: number | null) => string | null;
 }
 
 interface SpeechPlaybackStateSeed {
@@ -80,7 +95,10 @@ interface SharedSpeechReplayRequest {
 export function useSpeechPlaybackBridge({
   runtime,
   canonicalSynthesisEvent,
-  latestAvailableSynthesisEvent
+  latestAvailableSynthesisEvent,
+  canonicalSynthesisSegments,
+  playbackEnabled = true,
+  resolveSegmentAudioOverride
 }: UseSpeechPlaybackBridgeOptions): SpeechPlaybackState {
   const [speechPlaybackStatus, setSpeechPlaybackStatus] = useState<SpeechPlaybackSnapshot>(() => createIdleSpeechPlaybackState(null));
   const [speechPlaybackWindowId] = useState(() => {
@@ -97,7 +115,11 @@ export function useSpeechPlaybackBridge({
     handledPlaybackKey: null as string | null,
     hasResolvedInitialBundle: false,
     pendingPlaybackStateSeed: null as SpeechPlaybackStateSeed | null,
-    pendingTimingMessage: null as string | null
+    pendingTimingMessage: null as string | null,
+    // Phase 1a playlist cursor.
+    activeUtteranceId: null as string | null,
+    segmentCursor: 0,
+    utteranceSegments: [] as BackendSessionEventDocument[]
   }));
 
   useEffect(() => {
@@ -155,51 +177,36 @@ export function useSpeechPlaybackBridge({
   }, [latestAvailableSynthesisEvent]);
 
   useEffect(() => {
-    const playbackKey = buildSpeechSynthesisPlaybackKey(canonicalSynthesisEvent);
+    if (!playbackEnabled) {
+      // Non-avatar surface: do not voice replies here. Lifecycle status is
+      // still tracked by the latestAvailableSynthesisEvent effect above.
+      return;
+    }
 
-    if (!playbackKey || !canonicalSynthesisEvent?.synthesis) {
+    const segments = resolvePlaylistSegments(canonicalSynthesisSegments, canonicalSynthesisEvent);
+
+    if (segments.length === 0) {
+      speechPlaybackBridge.activeUtteranceId = null;
+      speechPlaybackBridge.segmentCursor = 0;
+      speechPlaybackBridge.utteranceSegments = [];
       stopSpeechPlayback(true);
       return;
     }
 
-    if (speechPlaybackBridge.handledPlaybackKey === playbackKey) {
-      return;
+    const utteranceId = resolveUtteranceIdentity(segments);
+    if (utteranceId !== speechPlaybackBridge.activeUtteranceId) {
+      // New utterance: stop current playback and restart the segment cursor.
+      // handledPlaybackKey is intentionally NOT cleared — per-segment dedup in
+      // playSegmentAtCursor preserves the mount-time auto-play suppression (the
+      // initial-bundle effect pre-sets it to the latest event's key).
+      stopSpeechPlayback(false);
+      speechPlaybackBridge.activeUtteranceId = utteranceId;
+      speechPlaybackBridge.segmentCursor = 0;
     }
 
-    stopSpeechPlayback(false);
-    speechPlaybackBridge.handledPlaybackKey = playbackKey;
-
-    const audioResolution = resolveSpeechSynthesisAudioSource(canonicalSynthesisEvent.synthesis.audio_reference);
-    const playbackBundle = buildSpeechPlaybackBundle(canonicalSynthesisEvent, playbackKey, audioResolution);
-    const playbackStateSeed = buildSpeechPlaybackStateSeed(playbackBundle, canonicalSynthesisEvent);
-    const speechReactionInput = resolveSpeechReactionInput(playbackBundle);
-    const durationMs = speechReactionInput.utteranceDurationMs;
-
-    if (playbackBundle.audioSource) {
-      speechPlaybackBridge.pendingPlaybackStateSeed = playbackStateSeed;
-      speechPlaybackBridge.pendingTimingMessage = null;
-      beginAudioSpeechPlayback(playbackBundle, durationMs, playbackKey, speechReactionInput);
-      return;
-    }
-
-    if (typeof durationMs === "number" && durationMs > 0) {
-      speechPlaybackBridge.pendingPlaybackStateSeed = playbackStateSeed;
-      speechPlaybackBridge.pendingTimingMessage = buildTimingPlaybackMessage(audioResolution.reason);
-      beginTimingSpeechWindow(durationMs, playbackKey, speechReactionInput);
-      return;
-    }
-
-    speechPlaybackBridge.pendingPlaybackStateSeed = null;
-    speechPlaybackBridge.pendingTimingMessage = null;
-    runtime.clearSpeechReaction();
-    setSpeechPlaybackStatus(
-      buildSpeechPlaybackState(playbackStateSeed, {
-        status: "idle",
-        transport: "none",
-        message: buildUnavailablePlaybackMessage(audioResolution.reason)
-      })
-    );
-  }, [canonicalSynthesisEvent, runtime, speechPlaybackBridge]);
+    speechPlaybackBridge.utteranceSegments = segments;
+    playSegmentAtCursor();
+  }, [canonicalSynthesisSegments, canonicalSynthesisEvent, runtime, speechPlaybackBridge, playbackEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -274,10 +281,84 @@ export function useSpeechPlaybackBridge({
     }
   }
 
+  function playSegmentAtCursor(): void {
+    const segments = speechPlaybackBridge.utteranceSegments;
+    const segmentEvent = segments[speechPlaybackBridge.segmentCursor] ?? null;
+    const playbackKey = buildSpeechSynthesisPlaybackKey(segmentEvent);
+
+    if (!playbackKey || !segmentEvent?.synthesis) {
+      // Segment not delivered yet (background synthesis still running); a later
+      // snapshot update will re-run the effect and play it when it arrives.
+      return;
+    }
+
+    if (speechPlaybackBridge.handledPlaybackKey === playbackKey) {
+      return;
+    }
+
+    speechPlaybackBridge.handledPlaybackKey = playbackKey;
+
+    // Prefer a streamed blob: URL for this segment (WebSocket transport) over a
+    // fetch of the canonical audio_reference; fall back when none has arrived.
+    const streamedAudioUrl = resolveSegmentAudioOverride?.(
+      normalizeOptionalText(segmentEvent.synthesis.utterance_id),
+      segmentEvent.synthesis.segment_index ?? null
+    ) ?? null;
+    const audioResolution = resolveSpeechSynthesisAudioSource(
+      streamedAudioUrl ?? segmentEvent.synthesis.audio_reference
+    );
+    const playbackBundle = buildSpeechPlaybackBundle(segmentEvent, playbackKey, audioResolution);
+    const playbackStateSeed = buildSpeechPlaybackStateSeed(playbackBundle, segmentEvent);
+    const speechReactionInput = resolveSpeechReactionInput(playbackBundle);
+    const durationMs = speechReactionInput.utteranceDurationMs;
+    const isFinalSegment = segmentEvent.synthesis.is_final ?? true;
+
+    if (playbackBundle.audioSource) {
+      speechPlaybackBridge.pendingPlaybackStateSeed = playbackStateSeed;
+      speechPlaybackBridge.pendingTimingMessage = null;
+      beginAudioSpeechPlayback(playbackBundle, durationMs, playbackKey, speechReactionInput, isFinalSegment);
+      return;
+    }
+
+    if (typeof durationMs === "number" && durationMs > 0) {
+      speechPlaybackBridge.pendingPlaybackStateSeed = playbackStateSeed;
+      speechPlaybackBridge.pendingTimingMessage = buildTimingPlaybackMessage(audioResolution.reason);
+      beginTimingSpeechWindow(durationMs, playbackKey, speechReactionInput, isFinalSegment);
+      return;
+    }
+
+    // Neither audio nor timing for this segment: advance unless it is the last.
+    speechPlaybackBridge.pendingPlaybackStateSeed = null;
+    speechPlaybackBridge.pendingTimingMessage = null;
+    if (!isFinalSegment) {
+      advanceToNextSegment(playbackKey);
+      return;
+    }
+    runtime.clearSpeechReaction();
+    setSpeechPlaybackStatus(
+      buildSpeechPlaybackState(playbackStateSeed, {
+        status: "idle",
+        transport: "none",
+        message: buildUnavailablePlaybackMessage(audioResolution.reason)
+      })
+    );
+  }
+
+  function advanceToNextSegment(completedPlaybackKey: string): void {
+    // Only advance if this completion belongs to the segment we are tracking
+    // (guards against a superseding utterance having reset the cursor).
+    if (speechPlaybackBridge.handledPlaybackKey !== completedPlaybackKey) {
+      return;
+    }
+    speechPlaybackBridge.segmentCursor += 1;
+    playSegmentAtCursor();
+  }
+
   function beginTimingSpeechWindow(
     durationMs: number,
     playbackKey: string,
     speechReactionInput: AvatarSpeechReactionInput,
+    isFinalSegment: boolean,
     error: string | null = null
   ): void {
     const playbackStateSeed = speechPlaybackBridge.pendingPlaybackStateSeed;
@@ -305,6 +386,13 @@ export function useSpeechPlaybackBridge({
         return;
       }
 
+      speechPlaybackBridge.playbackTimeoutId = null;
+
+      if (!isFinalSegment) {
+        advanceToNextSegment(playbackKey);
+        return;
+      }
+
       runtime.clearSpeechReaction();
       setSpeechPlaybackStatus(
         buildSpeechPlaybackState(playbackStateSeed, {
@@ -314,7 +402,6 @@ export function useSpeechPlaybackBridge({
           error
         })
       );
-      speechPlaybackBridge.playbackTimeoutId = null;
     }, durationMs);
   }
 
@@ -322,7 +409,8 @@ export function useSpeechPlaybackBridge({
     playbackBundle: SpeechPlaybackBundle,
     durationMs: number | null,
     playbackKey: string,
-    speechReactionInput: AvatarSpeechReactionInput
+    speechReactionInput: AvatarSpeechReactionInput,
+    isFinalSegment: boolean
   ): void {
     const playbackStateSeed = speechPlaybackBridge.pendingPlaybackStateSeed;
 
@@ -387,6 +475,12 @@ export function useSpeechPlaybackBridge({
         return;
       }
 
+      if (!isFinalSegment) {
+        // Keep the avatar in its speaking reaction and play the next segment.
+        advanceToNextSegment(playbackKey);
+        return;
+      }
+
       runtime.clearSpeechReaction();
       setSpeechPlaybackStatus(
         buildSpeechPlaybackState(playbackStateSeed, {
@@ -445,12 +539,20 @@ export function useSpeechPlaybackBridge({
           durationMs,
           playbackKey,
           speechReactionInput,
+          isFinalSegment,
           errorMessage
         );
         return;
       }
 
       if (speechPlaybackBridge.handledPlaybackKey !== playbackKey) {
+        return;
+      }
+
+      if (!isFinalSegment) {
+        // Cannot play this non-final segment (no audio, no timing) — skip ahead
+        // rather than stalling the utterance.
+        advanceToNextSegment(playbackKey);
         return;
       }
 
@@ -546,6 +648,13 @@ export function useSpeechPlaybackBridge({
     replayPlaybackKey: string,
     synthesisStatus: string | null
   ): void {
+    if (!playbackEnabled) {
+      // Non-avatar surface: relay-only. replayLastBundle still broadcasts the
+      // request to the avatar window via localStorage; we just don't voice it
+      // here. Inbound storage relays are likewise ignored on this surface.
+      return;
+    }
+
     const playbackStateSeed: SpeechPlaybackStateSeed = {
       bundle: playbackBundle,
       synthesisStatus
@@ -559,12 +668,12 @@ export function useSpeechPlaybackBridge({
     speechPlaybackBridge.pendingTimingMessage = buildTimingPlaybackMessage(playbackBundle.sourceResolutionReason);
 
     if (playbackBundle.audioSource) {
-      beginAudioSpeechPlayback(playbackBundle, durationMs, replayPlaybackKey, speechReactionInput);
+      beginAudioSpeechPlayback(playbackBundle, durationMs, replayPlaybackKey, speechReactionInput, true);
       return;
     }
 
     if (typeof durationMs === "number" && durationMs > 0) {
-      beginTimingSpeechWindow(durationMs, replayPlaybackKey, speechReactionInput);
+      beginTimingSpeechWindow(durationMs, replayPlaybackKey, speechReactionInput, true);
     }
   }
 
@@ -768,5 +877,31 @@ function buildSpeechSynthesisPlaybackKey(event: BackendSessionEventDocument | nu
     event.synthesis.text,
     event.synthesis.audio_reference ?? ""
   ].join("|");
+}
+
+/**
+ * Choose the ordered events to play as one utterance. A segmented reply (its
+ * first event carries a utterance_id) plays as a playlist; otherwise the bridge
+ * falls back to the single canonical event (legacy behavior, incl. the
+ * published-operator-command fallback).
+ */
+function resolvePlaylistSegments(
+  segments: BackendSessionEventDocument[] | undefined,
+  fallbackEvent: BackendSessionEventDocument | null
+): BackendSessionEventDocument[] {
+  if (segments && segments.length > 0 && (segments[0].synthesis?.utterance_id ?? null)) {
+    return segments;
+  }
+
+  return fallbackEvent ? [fallbackEvent] : [];
+}
+
+/**
+ * Stable identity for the current utterance: the utterance_id when segmented,
+ * otherwise the single event's playback key so a changed event resets playback.
+ */
+function resolveUtteranceIdentity(segments: BackendSessionEventDocument[]): string | null {
+  const first = segments[0] ?? null;
+  return first?.synthesis?.utterance_id ?? buildSpeechSynthesisPlaybackKey(first);
 }
 

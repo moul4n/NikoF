@@ -2165,6 +2165,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   }
 
   function restoreSelectedIdleAnimation(baseAnimationState: ActiveBaseAnimationState): void {
+    console.debug(
+      `[returnToIdle] ${baseAnimationState.command.id} -> ${selectedIdleAnimation.id}`
+    );
     activateBaseAnimation(selectedIdleAnimation, {
       transitionMs: resolveReturnToIdleTransitionMs(baseAnimationState),
       resumeExistingLoop: true
@@ -2284,6 +2287,32 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return null;
   }
 
+  // Warm a clip into the playback bridge cache (loadClip dedupes by id) without
+  // playing it, so a later activation — e.g. a one-shot's return to a freshly
+  // selected mood idle — crossfades instantly instead of pausing on the FBX
+  // fetch/parse the first time that idle is needed.
+  function preloadBaseAnimation(command: SemanticAnimationCommand): void {
+    const playbackBridge = animationPlayback;
+    if (!playbackBridge || !currentAvatar) {
+      return;
+    }
+    const canonicalCommand = resolveCanonicalAnimationCommand(command);
+    const resolvedPayload = resolveBaseAnimationPayload(canonicalCommand);
+    if (!resolvedPayload) {
+      return;
+    }
+    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload, snapshot.currentCharacterId ?? undefined)
+      .then((source) => {
+        if (source) {
+          return playbackBridge.loadClip(source.url, canonicalCommand.id);
+        }
+        return undefined;
+      })
+      .catch(() => {
+        // Best-effort warmup; activation will surface/handle a real failure.
+      });
+  }
+
   function activateBaseAnimation(
     command: SemanticAnimationCommand,
     options?: {
@@ -2401,6 +2430,18 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         console.warn(`[activateBase] Animation load failed for ${canonicalCommand.id}:`, err);
 
         if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId) {
+          return;
+        }
+
+        // A return-to-idle target that fails to load would otherwise leave the
+        // avatar frozen on the previous gesture's final pose. Fall back to the
+        // known-good default idle (the same target the emote button returns to)
+        // so a one-shot always blends back instead of hanging.
+        if (isIdleAnimationCommand(canonicalCommand) && canonicalCommand.id !== DEFAULT_BASE_ANIMATION_COMMAND.id) {
+          activateBaseAnimation(cloneSemanticAnimationCommand(DEFAULT_BASE_ANIMATION_COMMAND), {
+            transitionMs: options?.transitionMs,
+            resumeExistingLoop: true
+          });
           return;
         }
 
@@ -2612,6 +2653,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
     const isDisplayViewer = snapshot.mountPoints?.viewerVariant === "display";
+    // Display portrait framing: pull the camera ~30% closer than the neutral fit
+    // and lift the character up in-frame so she stays centered, not bottom-heavy.
+    const DISPLAY_ZOOM = 1.3;
+    const DISPLAY_VERTICAL_LIFT = 0.12;
     const verticalHalfFovRadians = THREE.MathUtils.degToRad(camera.fov * 0.5);
     const horizontalHalfFovRadians = Math.atan(Math.tan(verticalHalfFovRadians) * camera.aspect);
     let horizontalSpan = Math.max(size.x, size.z, 0.7);
@@ -2658,8 +2703,15 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         cameraYOffset = verticalSpan * 0.015;
       }
 
+      // Apply the portrait zoom (closer = smaller visible span) and lift her up
+      // by lowering the look target a fraction of her framed height.
+      if (displayVisibleVerticalSpan !== null) {
+        displayVisibleVerticalSpan = displayVisibleVerticalSpan / DISPLAY_ZOOM;
+      }
+      lookTargetY -= verticalSpan * DISPLAY_VERTICAL_LIFT;
+
       horizontalSpan = Math.max(size.x * 0.88, size.z, 0.7);
-      cameraDistanceFloor = 2;
+      cameraDistanceFloor = 1.5;
       horizontalPadding = 0.62;
       verticalPadding = 0.52;
       verticalBias = 0.18;
@@ -2984,6 +3036,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         idleAnimation: cloneSemanticAnimationCommand(selectedIdleAnimation),
         error: null
       });
+      // Warm the idle clip now so an in-flight gesture's return-to-idle is an
+      // instant crossfade rather than pausing to fetch this idle for the first
+      // time (e.g. a mood idle set while a wave is still playing).
+      preloadBaseAnimation(selectedIdleAnimation);
       applySelectedIdleAnimation(options?.source ?? "manual");
     },
 
@@ -2995,6 +3051,21 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
           baseAnimation: null,
           error: null
         });
+        return;
+      }
+
+      // A backend idle/base reconcile can arrive while a one-shot gesture (e.g.
+      // greet.wave.once) is still playing — the session command resolves back to
+      // the persistent idle right after the gesture is published. Don't cut the
+      // gesture: let it finish and run its own smooth return-to-idle (the same
+      // path the dev emote button uses). Non-idle commands still interrupt
+      // normally (a genuinely new gesture should take over).
+      const incomingIsIdle = isIdleAnimationCommand(resolveCanonicalAnimationCommand(command));
+      const activeOneShotPlaying =
+        activeBaseAnimation !== null &&
+        activeBaseAnimation.command.playback !== "loop" &&
+        !isIdleAnimationCommand(activeBaseAnimation.command);
+      if (incomingIsIdle && activeOneShotPlaying) {
         return;
       }
 

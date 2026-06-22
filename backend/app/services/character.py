@@ -42,7 +42,7 @@ class CharacterVoiceProfile:
 
 @dataclass(slots=True)
 class CharacterLipSyncPreferences:
-    preferred_track_id: str = "basic"
+    preferred_track_id: str = "advanced"
 
 
 @dataclass(slots=True)
@@ -168,7 +168,7 @@ class CharacterService:
         if not isinstance(lip_sync_payload, dict):
             return CharacterLipSyncPreferences()
 
-        preferred_track_id = str(lip_sync_payload.get("preferred_track_id") or "").strip() or "basic"
+        preferred_track_id = str(lip_sync_payload.get("preferred_track_id") or "").strip() or "advanced"
         return CharacterLipSyncPreferences(preferred_track_id=preferred_track_id)
 
     @staticmethod

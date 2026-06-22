@@ -111,12 +111,123 @@ class FasterWhisperServerRuntimeTests(unittest.TestCase):
         self.assertIsNone(manager._process)
 
 
+class SttEngineResolutionTests(unittest.TestCase):
+    def test_resolve_engine_defaults_to_faster_whisper(self) -> None:
+        with patch.dict(faster_whisper_runtime.os.environ, {}, clear=True):
+            self.assertEqual(faster_whisper_runtime._resolve_engine_name(), "faster-whisper")
+
+    def test_resolve_engine_selects_parakeet(self) -> None:
+        with patch.dict(faster_whisper_runtime.os.environ, {"NIKOF_STT_ENGINE": "Parakeet"}, clear=True):
+            self.assertEqual(faster_whisper_runtime._resolve_engine_name(), "parakeet")
+
+    def test_resolve_engine_unknown_falls_back(self) -> None:
+        with patch.dict(faster_whisper_runtime.os.environ, {"NIKOF_STT_ENGINE": "vosk"}, clear=True):
+            self.assertEqual(faster_whisper_runtime._resolve_engine_name(), "faster-whisper")
+
+    def test_parakeet_model_root_sits_beside_whisper(self) -> None:
+        whisper_root = Path("/models/stt/faster-whisper-medium")
+        self.assertEqual(
+            faster_whisper_runtime._parakeet_model_root(whisper_root),
+            Path("/models/stt") / faster_whisper_runtime.PARAKEET_MODEL_DIRNAME,
+        )
+
+
+@unittest.skipIf(faster_whisper_runtime.np is None, "numpy is required for STT runtime buffer tests")
+class HotMicTranscribeSegmentTests(unittest.TestCase):
+    def _runtime(self, engine_name: str, model: object) -> HotMicRuntime:
+        runtime = HotMicRuntime.__new__(HotMicRuntime)
+        runtime._engine_name = engine_name
+        runtime._locale = "en-US"
+        runtime._model = model
+        return runtime
+
+    def test_parakeet_branch_returns_recognized_text_without_ranges(self) -> None:
+        class _FakeParakeet:
+            def recognize(self, audio: object) -> str:
+                return "  hey niko  "
+
+        runtime = self._runtime("parakeet", _FakeParakeet())
+        audio = faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ, dtype=faster_whisper_runtime.np.float32)
+        transcript, ranges, confidence = runtime._transcribe_segment(audio)
+        self.assertEqual(transcript, "hey niko")
+        self.assertEqual(ranges, [])
+        self.assertIsNone(confidence)
+
+    def test_whisper_branch_aggregates_segments_and_confidence(self) -> None:
+        class _Seg:
+            def __init__(self, text: str, start: float, end: float, logprob: float) -> None:
+                self.text = text
+                self.start = start
+                self.end = end
+                self.avg_logprob = logprob
+
+        class _FakeWhisper:
+            def transcribe(self, audio: object, **kwargs: object) -> tuple[list[object], None]:
+                return [_Seg("Hello", 0.0, 0.5, -0.1), _Seg("there.", 0.5, 1.0, -0.2)], None
+
+        runtime = self._runtime("faster-whisper", _FakeWhisper())
+        audio = faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ, dtype=faster_whisper_runtime.np.float32)
+        transcript, ranges, confidence = runtime._transcribe_segment(audio)
+        self.assertEqual(transcript, "Hello there.")
+        self.assertEqual(len(ranges), 2)
+        self.assertEqual(ranges[0]["end_ms"], 500)
+        self.assertIsNotNone(confidence)
+
+
+@unittest.skipIf(faster_whisper_runtime.np is None, "numpy is required for STT runtime buffer tests")
+class HotMicPartialEmissionTests(unittest.TestCase):
+    def _runtime(self) -> HotMicRuntime:
+        runtime = HotMicRuntime.__new__(HotMicRuntime)
+        runtime._engine_name = "faster-whisper"
+        runtime._locale = "en-US"
+        runtime._event_sequence = 0
+        runtime._events = deque(maxlen=256)
+        runtime._model = object()
+        return runtime
+
+    def test_emit_partial_appends_transcript_partial_event(self) -> None:
+        runtime = self._runtime()
+        runtime._transcribe_segment = lambda audio: ("hey there", [], 0.8)  # type: ignore[assignment]
+        audio = faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ, dtype=faster_whisper_runtime.np.float32)
+        runtime._emit_partial(audio, 1000)
+        events = [e for e in runtime._events if e.event_type == "transcript.partial"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].payload["transcript"], "hey there")
+        self.assertTrue(events[0].payload["is_partial"])
+
+    def test_emit_partial_empty_transcript_is_silent(self) -> None:
+        runtime = self._runtime()
+        runtime._transcribe_segment = lambda audio: ("", [], None)  # type: ignore[assignment]
+        runtime._emit_partial(object(), 1000)
+        self.assertEqual([e for e in runtime._events if e.event_type == "transcript.partial"], [])
+
+    def test_emit_partial_never_raises_on_decode_error(self) -> None:
+        runtime = self._runtime()
+        def _boom(audio: object) -> tuple[str, list, float | None]:
+            raise RuntimeError("decode failed")
+        runtime._transcribe_segment = _boom  # type: ignore[assignment]
+        runtime._emit_partial(object(), 1000)  # must not raise
+        self.assertEqual([e for e in runtime._events if e.event_type == "transcript.partial"], [])
+
+    def test_enqueue_partial_snapshot_marks_is_partial(self) -> None:
+        runtime = self._runtime()
+        runtime._audio_lock = threading.Lock()
+        runtime._segment_queue = queue.Queue(maxsize=8)
+        runtime._current_chunks = [
+            faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ, dtype=faster_whisper_runtime.np.float32)
+        ]
+        runtime._enqueue_partial_snapshot()
+        _audio, _duration_ms, is_partial = runtime._segment_queue.get_nowait()
+        self.assertTrue(is_partial)
+
+
 @unittest.skipIf(faster_whisper_runtime.np is None, "numpy is required for STT runtime buffer tests")
 class HotMicRuntimeTests(unittest.TestCase):
     def test_stop_listening_flushes_active_segment_for_processing(self) -> None:
         runtime = HotMicRuntime.__new__(HotMicRuntime)
         runtime._model_root = Path("faster-whisper-medium")
         runtime._locale = "en-US"
+        runtime._engine_name = "faster-whisper"
         runtime._owner_pid = None
         runtime._model = object()
         runtime._compute_device = "cpu"
@@ -136,6 +247,9 @@ class HotMicRuntimeTests(unittest.TestCase):
         runtime._event_sequence = 0
         runtime._events = deque(maxlen=256)
         runtime._segment_queue = queue.Queue(maxsize=8)
+        runtime._partials_enabled = False
+        runtime._partial_interval_blocks = 5
+        runtime._blocks_since_partial = 0
         runtime._current_chunks = [
             faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ // 4, dtype=faster_whisper_runtime.np.float32),
             faster_whisper_runtime.np.ones(SERVER_SAMPLE_RATE_HZ // 4, dtype=faster_whisper_runtime.np.float32),
@@ -147,7 +261,7 @@ class HotMicRuntimeTests(unittest.TestCase):
 
         response = runtime.stop_listening()
 
-        segment, duration_ms = runtime._segment_queue.get_nowait()
+        segment, duration_ms, _is_partial = runtime._segment_queue.get_nowait()
         self.assertEqual(500, duration_ms)
         self.assertEqual(SERVER_SAMPLE_RATE_HZ // 2, int(segment.shape[0]))
         self.assertEqual("processing", response["state"])
@@ -157,6 +271,7 @@ class HotMicRuntimeTests(unittest.TestCase):
         runtime = HotMicRuntime.__new__(HotMicRuntime)
         runtime._model_root = Path("faster-whisper-medium")
         runtime._locale = "en-US"
+        runtime._engine_name = "faster-whisper"
         runtime._owner_pid = None
         runtime._model = object()
         runtime._compute_device = "cpu"
@@ -176,6 +291,9 @@ class HotMicRuntimeTests(unittest.TestCase):
         runtime._event_sequence = 0
         runtime._events = deque(maxlen=256)
         runtime._segment_queue = queue.Queue(maxsize=8)
+        runtime._partials_enabled = False
+        runtime._partial_interval_blocks = 5
+        runtime._blocks_since_partial = 0
         runtime._current_chunks = []
         runtime._pre_roll = deque(maxlen=3)
         runtime._speech_blocks = 0
@@ -194,7 +312,7 @@ class HotMicRuntimeTests(unittest.TestCase):
 
         response = runtime.stop_listening()
 
-        segment, duration_ms = runtime._segment_queue.get_nowait()
+        segment, duration_ms, _is_partial = runtime._segment_queue.get_nowait()
         self.assertGreaterEqual(duration_ms, 500)
         self.assertGreaterEqual(int(segment.shape[0]), SERVER_SAMPLE_RATE_HZ // 2)
         self.assertEqual("processing", response["state"])

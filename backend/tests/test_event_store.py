@@ -208,6 +208,30 @@ class FakeFileResponse:
         self.media_type = kwargs.get("media_type")
 
 
+class FakeWebSocketDisconnect(Exception):
+    pass
+
+
+class FakeWebSocket:
+    def __init__(self, query: dict[str, str] | None = None) -> None:
+        self.query_params = query or {}
+        self.accepted = False
+        self.closed = False
+        self.sent: list[dict] = []
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def send_json(self, data: dict) -> None:
+        self.sent.append(data)
+
+    async def send_bytes(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 class FakeRoute:
     def __init__(self, path: str, endpoint, methods: tuple[str, ...]) -> None:
         self.path = path
@@ -230,6 +254,10 @@ class FakeAPIRouter:
     def post(self, path: str, **kwargs):
         del kwargs
         return self._register(path, "POST")
+
+    def websocket(self, path: str, **kwargs):
+        del kwargs
+        return self._register(path, "WEBSOCKET")
 
     def _register(self, path: str, method: str):
         def decorator(endpoint):
@@ -293,13 +321,15 @@ def _build_runtime_services_stub(
     )
 
 
-def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, FiniteSpeechLifecycleLiveDeliveryService]:
+def _build_transport_router():
     fake_fastapi = types.ModuleType("fastapi")
     fake_fastapi.APIRouter = FakeAPIRouter
     fake_fastapi.HTTPException = FakeHTTPException
     fake_fastapi.Request = FakeRequest
     fake_fastapi.Response = FakeResponse
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
+    fake_fastapi.WebSocket = FakeWebSocket
+    fake_fastapi.WebSocketDisconnect = FakeWebSocketDisconnect
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
     fake_fastapi_responses.FileResponse = FakeFileResponse
@@ -346,12 +376,23 @@ def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, Fi
         ):
             router = build_api_router()
 
+    return router, publication, speech_lifecycle_live_delivery
+
+
+def build_transport_route_endpoint() -> tuple[object, BackendTurnPublication, FiniteSpeechLifecycleLiveDeliveryService]:
+    router, publication, speech_lifecycle_live_delivery = _build_transport_router()
     speech_lifecycle_route = next(
         route
         for route in router.routes
         if route.path == "/session/speech-lifecycle" and "GET" in route.methods
     )
     return speech_lifecycle_route.endpoint, publication, speech_lifecycle_live_delivery
+
+
+def build_session_stream_ws_endpoint() -> tuple[object, BackendTurnPublication, FiniteSpeechLifecycleLiveDeliveryService]:
+    router, publication, speech_lifecycle_live_delivery = _build_transport_router()
+    ws_route = next(route for route in router.routes if route.path == "/session/stream")
+    return ws_route.endpoint, publication, speech_lifecycle_live_delivery
 
 
 def build_session_animation_route_endpoints() -> tuple[object, object, FiniteSessionAnimationLiveDeliveryService]:
@@ -361,6 +402,8 @@ def build_session_animation_route_endpoints() -> tuple[object, object, FiniteSes
     fake_fastapi.Request = FakeRequest
     fake_fastapi.Response = FakeResponse
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
+    fake_fastapi.WebSocket = FakeWebSocket
+    fake_fastapi.WebSocketDisconnect = FakeWebSocketDisconnect
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
     fake_fastapi_responses.FileResponse = FakeFileResponse
@@ -430,6 +473,8 @@ def build_operator_command_route_endpoint(
     fake_fastapi.Request = FakeRequest
     fake_fastapi.Response = FakeResponse
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
+    fake_fastapi.WebSocket = FakeWebSocket
+    fake_fastapi.WebSocketDisconnect = FakeWebSocketDisconnect
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
     fake_fastapi_responses.FileResponse = FakeFileResponse
@@ -1599,6 +1644,38 @@ class DefaultTurnPipelinePublisherTests(unittest.TestCase):
                     publication_status,
                     publication.ordered_events[-1].event.status,
                 )
+
+
+class SessionStreamWebSocketTransportTests(unittest.TestCase):
+    def test_ws_endpoint_is_registered(self) -> None:
+        router, _publication, _live = _build_transport_router()
+        ws_paths = [route.path for route in router.routes if "WEBSOCKET" in getattr(route, "methods", ())]
+        self.assertIn("/session/stream", ws_paths)
+
+    def test_ws_sends_snapshot_then_ordered_event_frames(self) -> None:
+        ws_endpoint, _publication, _live = build_session_stream_ws_endpoint()
+        fake_ws = FakeWebSocket()
+
+        asyncio.run(ws_endpoint(fake_ws))
+
+        self.assertTrue(fake_ws.accepted)
+        self.assertGreaterEqual(len(fake_ws.sent), 1)
+
+        first = fake_ws.sent[0]
+        self.assertEqual(first["event"], "speech.lifecycle")
+        self.assertEqual(first["kind"], "snapshot")
+        self.assertIn("data", first)
+
+        event_frames = fake_ws.sent[1:]
+        self.assertGreater(len(event_frames), 0)
+        cursors = [frame["cursor"] for frame in event_frames]
+        for frame in event_frames:
+            self.assertEqual(frame["event"], "speech.lifecycle")
+            self.assertEqual(frame["kind"], "event")
+            self.assertIsNotNone(frame["cursor"])
+            self.assertIn("data", frame)
+        # Frames are delivered in cursor order, after the initial snapshot.
+        self.assertEqual(cursors, sorted(cursors))
 
 
 if __name__ == "__main__":

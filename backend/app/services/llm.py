@@ -6,57 +6,66 @@ import json
 import logging
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 import re
 import threading
-from typing import Any, Protocol
-from urllib import error as urllib_error
-from urllib import request as urllib_request
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from app.core.settings import AppPaths, get_app_paths
+from app.services.streaming_reply import ReplyTextStreamExtractor
 from app.schemas.session import (
-    AssistantAnimationCueContract,
-    AssistantFeelingContract,
-    AssistantMemoryWriteContract,
     AssistantMessageContract,
-    AssistantVoiceToneContract,
     LLM_BASELINE_PROFILE_IDS,
 )
 from app.services.resource_monitor import get_resource_monitor
 from app.services.process_supervision import find_listening_pid, terminate_process_tree, terminate_process_tree_by_pid
-
-
-OLLAMA_GENERATE_PATH = "/api/generate"
-OLLAMA_HEALTH_PATH = "/api/tags"
-DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-DEFAULT_OLLAMA_MODEL_DIRECTORY = "ollama-llama3.1-8b"
-DEFAULT_OLLAMA_MODEL_NAME = "llama3.1:8b"
-DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS = 90
-DEFAULT_OLLAMA_STARTUP_TIMEOUT_SECONDS = 30.0
-DEFAULT_OLLAMA_HEALTH_TIMEOUT_SECONDS = 2.0
-OLLAMA_STARTUP_POLL_INTERVAL_SECONDS = 0.5
-RUNTIME_CONFIG_FILE_NAME = "runtime.json"
+# Core contracts (extracted to a leaf module). Re-exported so callers/tests keep
+# importing them from app.services.llm.
+from app.services.llm_contracts import (  # noqa: F401  (re-exported for callers)
+    TextGenerationInvocationError,
+    TextGenerationRequest,
+    TextGenerationService,
+    TextGenerationStreamEvent,
+)
+# Structured-output parsing (extracted); used by the Ollama adapter below.
+from app.services.llm_parsing import (
+    _extract_json_object,
+    _normalize_contract_status,
+    _normalize_structured_contract,
+)
+# Ollama runtime config constants + HTTP/transport helpers (extracted). Used by
+# the binding/adapter/sidecar below; re-exported for callers/tests.
+from app.services.llm_runtime import (  # noqa: F401  (re-exported for callers)
+    DEFAULT_OLLAMA_BASE_URL,
+    DEFAULT_OLLAMA_HEALTH_TIMEOUT_SECONDS,
+    DEFAULT_OLLAMA_MODEL_DIRECTORY,
+    DEFAULT_OLLAMA_MODEL_NAME,
+    DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_OLLAMA_STARTUP_TIMEOUT_SECONDS,
+    OLLAMA_GENERATE_PATH,
+    OLLAMA_HEALTH_PATH,
+    OLLAMA_STARTUP_POLL_INTERVAL_SECONDS,
+    RUNTIME_CONFIG_FILE_NAME,
+    _build_default_ollama_serve_command,
+    _coerce_bool,
+    _coerce_float,
+    _coerce_int,
+    _normalize_base_url,
+    _normalize_command,
+    _normalize_endpoint,
+    _normalize_health_url,
+    _normalize_model_name,
+    _read_health_response,
+    _read_json_response,
+    _read_ndjson_stream,
+    _read_runtime_config,
+    _resolve_profile_family,
+)
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True, frozen=True)
-class TextGenerationRequest:
-    prompt: str
-    locale: str
-    profile_id: str = LLM_BASELINE_PROFILE_IDS[0]
-    expect_structured_output: bool = False
-
-
-class TextGenerationService(Protocol):
-    """Boundary for provider-agnostic local text-generation adapters."""
-
-    def generate(self, request: TextGenerationRequest) -> AssistantMessageContract:
-        raise NotImplementedError
 
 
 @dataclass(slots=True, frozen=True)
@@ -75,10 +84,6 @@ class TextGenerationRuntimeBinding:
     health_timeout_seconds: float = DEFAULT_OLLAMA_HEALTH_TIMEOUT_SECONDS
     serve_command: tuple[str, ...] = ()
     working_directory: Path | None = None
-
-
-class TextGenerationInvocationError(RuntimeError):
-    """Raised when the local text-generation runtime cannot complete a request."""
 
 
 class TextGenerationSidecarState(str, Enum):
@@ -116,317 +121,14 @@ class TextGenerationSidecarStatus:
     stderr_log_path: str | None
 
 
-def _read_runtime_config(*roots: Path) -> dict[str, Any]:
-    merged_config: dict[str, Any] = {}
-    for root in roots:
-        config_path = root / RUNTIME_CONFIG_FILE_NAME
-        if not config_path.is_file():
-            continue
-
-        try:
-            decoded = json.loads(config_path.read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError):
-            continue
-
-        if isinstance(decoded, dict):
-            merged_config.update(decoded)
-
-    return merged_config
-
-
-def _normalize_model_name(raw_value: Any) -> str:
-    if isinstance(raw_value, str) and raw_value.strip():
-        return raw_value.strip()
-
-    return DEFAULT_OLLAMA_MODEL_NAME
-
-
-def _coerce_int(raw_value: Any, default: int) -> int:
-    try:
-        return int(raw_value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _normalize_contract_status(raw_status: Any, *, has_reply_text: bool) -> str:
-    normalized = str(raw_status or "").strip().lower()
-    if normalized in {"unavailable", "missing", "not_configured"}:
-        return "unavailable"
-
-    if normalized in {"degraded"}:
-        return "degraded"
-
-    if normalized in {"error", "failed"}:
-        return "error"
-
-    if normalized in {"ready", "ok", "success", "completed"}:
-        return "ready" if has_reply_text else "error"
-
-    return "ready" if has_reply_text else "error"
-
-
-def _resolve_profile_family(profile_id: str) -> str:
-    _, separator, remainder = profile_id.partition(".")
-    if not separator:
-        return profile_id
-
-    family, _, _ = remainder.partition(".")
-    return family or profile_id
-
-
-def _normalize_endpoint(raw_value: str | None) -> str:
-    if raw_value is None or not raw_value.strip():
-        return f"{DEFAULT_OLLAMA_BASE_URL}{OLLAMA_GENERATE_PATH}"
-
-    normalized = raw_value.strip().rstrip("/")
-    if normalized.endswith(OLLAMA_GENERATE_PATH):
-        return normalized
-
-    return f"{normalized}{OLLAMA_GENERATE_PATH}"
-
-
-def _normalize_base_url(raw_value: str | None) -> str:
-    endpoint = _normalize_endpoint(raw_value)
-    if endpoint.endswith(OLLAMA_GENERATE_PATH):
-        return endpoint[: -len(OLLAMA_GENERATE_PATH)]
-    return endpoint.rstrip("/")
-
-
-def _normalize_health_url(raw_value: str | None, *, endpoint: str) -> str:
-    if raw_value is not None and raw_value.strip():
-        normalized = raw_value.strip().rstrip("/")
-        if normalized.startswith("http://") or normalized.startswith("https://"):
-            return normalized
-        base_url = _normalize_base_url(endpoint)
-        return f"{base_url}{normalized if normalized.startswith('/') else '/' + normalized}"
-
-    return f"{_normalize_base_url(endpoint)}{OLLAMA_HEALTH_PATH}"
-
-
-def _coerce_float(raw_value: Any, default: float) -> float:
-    try:
-        parsed = float(raw_value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed > 0 else default
-
-
-def _coerce_bool(raw_value: Any, default: bool = False) -> bool:
-    if isinstance(raw_value, bool):
-        return raw_value
-    if isinstance(raw_value, (int, float)):
-        return bool(raw_value)
-    if isinstance(raw_value, str):
-        normalized = raw_value.strip().lower()
-        if normalized in {"1", "true", "yes", "on", "managed"}:
-            return True
-        if normalized in {"0", "false", "no", "off", "disabled"}:
-            return False
-    return default
-
-
-def _normalize_command(raw_value: Any) -> tuple[str, ...]:
-    if isinstance(raw_value, (list, tuple)):
-        return tuple(str(part).strip() for part in raw_value if str(part).strip())
-
-    if isinstance(raw_value, str) and raw_value.strip():
-        return (raw_value.strip(),)
-
-    return tuple()
-
-
-def _build_default_ollama_serve_command() -> tuple[str, ...]:
-    return ("ollama", "serve")
-
-
-def _read_health_response(
-    url: str,
-    *,
-    timeout_seconds: float = DEFAULT_OLLAMA_HEALTH_TIMEOUT_SECONDS,
-) -> dict[str, Any]:
-    request = urllib_request.Request(url, method="GET")
-
-    try:
-        with urllib_request.urlopen(request, timeout=max(0.1, timeout_seconds)) as response:
-            raw_response = response.read().decode("utf-8")
-    except (urllib_error.URLError, TimeoutError, OSError) as exc:
-        raise TextGenerationInvocationError("connection-failed") from exc
-
-    try:
-        decoded = json.loads(raw_response)
-    except json.JSONDecodeError as exc:
-        raise TextGenerationInvocationError("invalid-json") from exc
-
-    if not isinstance(decoded, dict):
-        raise TextGenerationInvocationError("invalid-payload")
-
-    return decoded
-
-
-def _read_json_response(url: str, payload: dict[str, Any], *, timeout_seconds: int = DEFAULT_OLLAMA_REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
-    request = urllib_request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib_request.urlopen(request, timeout=max(1, timeout_seconds)) as response:
-            raw_response = response.read().decode("utf-8")
-    except (urllib_error.URLError, TimeoutError) as exc:
-        raise TextGenerationInvocationError("connection-failed") from exc
-
-    try:
-        decoded = json.loads(raw_response)
-    except json.JSONDecodeError as exc:
-        raise TextGenerationInvocationError("invalid-json") from exc
-
-    if not isinstance(decoded, dict):
-        raise TextGenerationInvocationError("invalid-payload")
-
-    return decoded
-
-
-def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
-    stripped = raw_text.strip()
-    if not stripped:
-        return None
-
-    candidates = [stripped]
-    fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", stripped, re.DOTALL)
-    if fenced_match is not None:
-        candidates.insert(0, fenced_match.group(1).strip())
-
-    start_index = stripped.find("{")
-    if start_index >= 0:
-        depth = 0
-        in_string = False
-        escaped = False
-        for index in range(start_index, len(stripped)):
-            character = stripped[index]
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif character == "\\":
-                    escaped = True
-                elif character == '"':
-                    in_string = False
-                continue
-
-            if character == '"':
-                in_string = True
-            elif character == "{":
-                depth += 1
-            elif character == "}":
-                depth -= 1
-                if depth == 0:
-                    candidates.append(stripped[start_index : index + 1])
-                    break
-
-    for candidate in candidates:
-        try:
-            decoded = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(decoded, dict):
-            return decoded
-
-    return None
-
-
-def _coerce_optional_text(raw_value: Any) -> str | None:
-    if raw_value is None:
-        return None
-    normalized = str(raw_value).strip()
-    return normalized or None
-
-
-def _coerce_optional_float(raw_value: Any) -> float | None:
-    try:
-        return float(raw_value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _normalize_structured_contract(
-    request: TextGenerationRequest,
-    payload: dict[str, Any],
-) -> AssistantMessageContract:
-    reply_text = _coerce_optional_text(payload.get("reply_text") or payload.get("text"))
-    if reply_text is None:
-        raise TextGenerationInvocationError("invalid-structured-response")
-
-    feeling_payload = payload.get("feeling") if isinstance(payload.get("feeling"), dict) else None
-    feeling = None
-    if feeling_payload is not None:
-        feeling_name = _coerce_optional_text(feeling_payload.get("name") or feeling_payload.get("label"))
-        if feeling_name is not None:
-            feeling = AssistantFeelingContract(
-                name=feeling_name,
-                intensity=_coerce_optional_float(feeling_payload.get("intensity")),
-            )
-
-    voice_payload = payload.get("voice_tone") if isinstance(payload.get("voice_tone"), dict) else None
-    voice_tone = None
-    if voice_payload is not None:
-        voice_tone = AssistantVoiceToneContract(
-            style=_coerce_optional_text(voice_payload.get("style")),
-            pace=_coerce_optional_text(voice_payload.get("pace")),
-            energy=_coerce_optional_float(voice_payload.get("energy")),
-        )
-
-    animation_cues: list[AssistantAnimationCueContract] = []
-    raw_animation_cues = payload.get("animation_cues")
-    if isinstance(raw_animation_cues, list):
-        for raw_cue in raw_animation_cues:
-            if not isinstance(raw_cue, dict):
-                continue
-            cue = _coerce_optional_text(raw_cue.get("cue") or raw_cue.get("name"))
-            if cue is None:
-                continue
-            duration_ms = raw_cue.get("duration_ms")
-            animation_cues.append(
-                AssistantAnimationCueContract(
-                    cue=cue,
-                    layer=_coerce_optional_text(raw_cue.get("layer")) or "face",
-                    intensity=_coerce_optional_float(raw_cue.get("intensity") or raw_cue.get("weight")),
-                    duration_ms=int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
-                )
-            )
-
-    memory_writebacks: list[AssistantMemoryWriteContract] = []
-    raw_writebacks = payload.get("memory_writebacks")
-    if isinstance(raw_writebacks, list):
-        for raw_writeback in raw_writebacks:
-            if not isinstance(raw_writeback, dict):
-                continue
-            summary = _coerce_optional_text(raw_writeback.get("summary"))
-            if summary is None:
-                continue
-            namespace = _coerce_optional_text(raw_writeback.get("namespace")) or "memory"
-            raw_tags = raw_writeback.get("tags") if isinstance(raw_writeback.get("tags"), list) else []
-            memory_writebacks.append(
-                AssistantMemoryWriteContract(
-                    namespace=namespace.lower(),
-                    summary=summary,
-                    salience=_coerce_optional_float(raw_writeback.get("salience")),
-                    source=_coerce_optional_text(raw_writeback.get("source")),
-                    tags=tuple(str(tag).strip().lower() for tag in raw_tags if str(tag).strip()),
-                )
-            )
-
-    return AssistantMessageContract(
-        profile_id=request.profile_id,
-        status="ready",
-        text=reply_text,
-        locale=request.locale,
-        thinking_summary=_coerce_optional_text(payload.get("thinking_summary")),
-        feeling=feeling,
-        voice_tone=voice_tone,
-        animation_cues=tuple(animation_cues),
-        memory_writebacks=tuple(memory_writebacks),
-    )
+def _optional_generate_params() -> dict[str, Any]:
+    """Optional Ollama /api/generate params from env. NIKOF_LLM_THINK toggles a
+    reasoning model's thinking (e.g. qwen3) — set it false for fast, clean JSON
+    planner output during speed testing."""
+    raw = os.environ.get("NIKOF_LLM_THINK")
+    if raw is None or not raw.strip():
+        return {}
+    return {"think": raw.strip().lower() in {"1", "true", "yes", "on"}}
 
 
 @dataclass(slots=True)
@@ -442,6 +144,11 @@ class StubTextGenerationService:
             text=self.unavailable_text,
             locale=request.locale,
         )
+
+    def generate_stream(self, request: TextGenerationRequest) -> Iterator[TextGenerationStreamEvent]:
+        """Non-streaming fallback: produce the whole reply as one final event."""
+        contract = self.generate(request)
+        yield TextGenerationStreamEvent(text_delta=contract.text, contract=contract)
 
 
 @dataclass(slots=True)
@@ -467,7 +174,9 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             runtime_config.get("health_url") or runtime_config.get("health_endpoint"),
             endpoint=endpoint,
         )
-        model_name = _normalize_model_name(runtime_config.get("model"))
+        model_name = os.environ.get("NIKOF_LLM_MODEL", "").strip() or _normalize_model_name(
+            runtime_config.get("model")
+        )
         configured = provider_root.exists() and model_root.exists()
         manage_process = _coerce_bool(
             runtime_config.get("manage_process")
@@ -534,6 +243,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
                     "model": binding.model_name,
                     "prompt": request.prompt,
                     **({"format": "json"} if request.expect_structured_output else {}),
+                    **_optional_generate_params(),
                     "stream": False,
                 },
                 timeout_seconds=binding.timeout_seconds,
@@ -576,6 +286,69 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             request,
             status=_normalize_contract_status(response.get("status"), has_reply_text=True),
             text=reply_text,
+        )
+
+    def _finalize_completion(self, request: TextGenerationRequest, completion_text: str) -> AssistantMessageContract:
+        reply_text = completion_text.strip()
+        if not reply_text:
+            return self._build_contract(request, status="error", text="Local text generation returned no reply.")
+        if request.expect_structured_output:
+            structured_payload = _extract_json_object(reply_text)
+            if structured_payload is not None:
+                try:
+                    return _normalize_structured_contract(request, structured_payload)
+                except TextGenerationInvocationError:
+                    pass
+        return self._build_contract(
+            request,
+            status=_normalize_contract_status(None, has_reply_text=True),
+            text=reply_text,
+        )
+
+    def generate_stream(self, request: TextGenerationRequest) -> Iterator[TextGenerationStreamEvent]:
+        binding = self.binding_for(request)
+        tracker = get_resource_monitor().tracker("llm")
+
+        if not binding.configured:
+            yield TextGenerationStreamEvent(
+                contract=self._build_contract(request, status="unavailable", text=self.unavailable_text)
+            )
+            return
+
+        payload: dict[str, Any] = {
+            "model": binding.model_name,
+            "prompt": request.prompt,
+            "stream": True,
+            **({"format": "json"} if request.expect_structured_output else {}),
+            **_optional_generate_params(),
+        }
+        extractor = ReplyTextStreamExtractor()
+        completion_parts: list[str] = []
+        start_time = time.time()
+
+        try:
+            for line in _read_ndjson_stream(binding.endpoint, payload, timeout_seconds=binding.timeout_seconds):
+                fragment = str(line.get("response") or "")
+                if fragment:
+                    completion_parts.append(fragment)
+                    delta = extractor.feed(fragment)
+                    if delta:
+                        yield TextGenerationStreamEvent(text_delta=delta)
+                if line.get("done"):
+                    break
+        except TextGenerationInvocationError as error:
+            status = "unavailable" if str(error) == "connection-failed" else "error"
+            text = self.unavailable_text if status == "unavailable" else "Local text generation failed."
+            yield TextGenerationStreamEvent(contract=self._build_contract(request, status=status, text=text))
+            return
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        if not tracker.loaded:
+            tracker.mark_loaded(f"ollama/{binding.model_name}", vram_mb=5500, ram_mb=1024)
+        tracker.record_request(elapsed_ms)
+
+        yield TextGenerationStreamEvent(
+            contract=self._finalize_completion(request, "".join(completion_parts))
         )
 
 
@@ -623,6 +396,30 @@ class ManagedTextGenerationService:
         contract = self._delegate.generate(request)
         self._manager.observe_result(request=request, binding=binding, contract=contract)
         return contract
+
+    def generate_stream(self, request: TextGenerationRequest) -> Iterator[TextGenerationStreamEvent]:
+        binding = self._manager.binding_for(self._delegate, request)
+        preflight_contract = self._manager.prepare_request(request=request, binding=binding)
+        if preflight_contract is not None:
+            if binding is not None:
+                self._manager.observe_result(request=request, binding=binding, contract=preflight_contract)
+            yield TextGenerationStreamEvent(text_delta=preflight_contract.text, contract=preflight_contract)
+            return
+
+        delegate_stream = getattr(self._delegate, "generate_stream", None)
+        if delegate_stream is None:
+            contract = self._delegate.generate(request)
+            self._manager.observe_result(request=request, binding=binding, contract=contract)
+            yield TextGenerationStreamEvent(text_delta=contract.text, contract=contract)
+            return
+
+        final_contract: AssistantMessageContract | None = None
+        for event in delegate_stream(request):
+            if event.contract is not None:
+                final_contract = event.contract
+            yield event
+        if final_contract is not None:
+            self._manager.observe_result(request=request, binding=binding, contract=final_contract)
 
 
 class TextGenerationSidecarManager:

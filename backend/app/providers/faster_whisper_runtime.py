@@ -43,7 +43,27 @@ MIN_UTTERANCE_SECONDS = 0.45
 MAX_UTTERANCE_SECONDS = 15.0
 MIN_RMS_THRESHOLD = 0.012
 SPEECH_START_BLOCKS = 1
-SPEECH_END_BLOCKS = 8
+
+
+def _speech_end_blocks_from_env() -> int:
+    """Number of consecutive silent blocks (100ms each) that end an utterance.
+
+    Defaults to 8 (~800ms) to preserve historical capture behavior. Lowering it
+    (e.g. NIKOF_STT_SPEECH_END_BLOCKS=4 for ~400ms) reduces end-of-speech latency
+    but risks clipping trailing words, so the tightening is opt-in until validated
+    on real-microphone audio (see docs/STREAMING_PERFORMANCE_PLAN.md, Phase 0).
+    """
+    raw_value = os.environ.get("NIKOF_STT_SPEECH_END_BLOCKS", "").strip()
+    if not raw_value:
+        return 8
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return 8
+    return value if value >= 1 else 1
+
+
+SPEECH_END_BLOCKS = _speech_end_blocks_from_env()
 OWNER_POLL_INTERVAL_SECONDS = 2.0
 
 
@@ -130,11 +150,105 @@ def _resample_audio(audio: Any, source_rate_hz: int, target_rate_hz: int) -> Any
     return np.interp(target_positions, source_positions, audio).astype(np.float32)
 
 
+# Phase 3: selectable recognizer. "faster-whisper" (default) keeps the existing
+# engine; "parakeet" loads NVIDIA Parakeet TDT 0.6B v2 via onnx-asr. The sidecar
+# stays self-contained (no app.* imports) so the Parakeet glue is inlined here,
+# mirroring app/providers/stt_engines.py (the in-process equivalent).
+PARAKEET_MODEL_DIRNAME = "parakeet-tdt-0.6b-v2"
+_PARAKEET_ONNX_MODEL_ID = "nemo-parakeet-tdt-0.6b-v2"
+
+
+def _resolve_engine_name() -> str:
+    raw = os.environ.get("NIKOF_STT_ENGINE", "").strip().lower()
+    return raw if raw in {"faster-whisper", "parakeet"} else "faster-whisper"
+
+
+def _partials_enabled_from_env() -> bool:
+    return os.environ.get("NIKOF_STT_PARTIALS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _partial_interval_blocks_from_env() -> int:
+    """How many ~100ms speech blocks between interim transcripts (default 5 ≈
+    500ms). Lower = more frequent captions + more decode work."""
+    raw = os.environ.get("NIKOF_STT_PARTIAL_INTERVAL_BLOCKS", "").strip()
+    if not raw:
+        return 5
+    try:
+        value = int(raw)
+    except ValueError:
+        return 5
+    return value if value >= 1 else 1
+
+
+def _prefer_gpu() -> bool:
+    if os.environ.get("NIKOF_STT_DEVICE_POLICY", "auto").strip().lower() == "cpu":
+        return False
+    return os.environ.get("NIKOF_STT_ALLOW_GPU", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parakeet_model_root(whisper_model_root: Path) -> Path:
+    # Parakeet lives beside the Faster-Whisper model under the shared STT root.
+    return whisper_model_root.parent / PARAKEET_MODEL_DIRNAME
+
+
+def _ensure_onnx_cuda_dll_path() -> None:
+    """Expose CUDA 12 / cuDNN 9 runtime DLLs (from torch's cu12 build or the
+    nvidia-*-cu12 wheels) to onnxruntime's CUDA EP on Windows. find_spec locates
+    them without importing torch. Best-effort no-op when absent."""
+    if os.name != "nt":
+        return
+    import importlib.util
+
+    candidates: list[Path] = []
+    torch_spec = importlib.util.find_spec("torch")
+    if torch_spec and torch_spec.submodule_search_locations:
+        candidates.append(Path(list(torch_spec.submodule_search_locations)[0]) / "lib")
+    nvidia_spec = importlib.util.find_spec("nvidia")
+    if nvidia_spec and nvidia_spec.submodule_search_locations:
+        base = Path(list(nvidia_spec.submodule_search_locations)[0])
+        candidates.extend(base.glob("*/bin"))
+    for directory in candidates:
+        try:
+            if directory.is_dir():
+                os.add_dll_directory(str(directory))
+        except OSError:
+            pass
+
+
+def _load_parakeet_model(model_root: Path) -> tuple[Any, str, str]:
+    try:
+        import onnx_asr
+    except ImportError as error:
+        raise RuntimeError("onnx-asr is not installed; install backend[parakeet] for the Parakeet engine.") from error
+
+    if not model_root.exists():
+        raise RuntimeError(f"Parakeet model directory not found: {model_root}")
+
+    if _prefer_gpu():
+        _ensure_onnx_cuda_dll_path()
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        device = "cuda"
+    else:
+        providers = ["CPUExecutionProvider"]
+        device = "cpu"
+    model = onnx_asr.load_model(_PARAKEET_ONNX_MODEL_ID, str(model_root), providers=providers)
+    return model, device, "onnx"
+
+
+def _coerce_parakeet_text(recognized: Any) -> str:
+    if isinstance(recognized, str):
+        return recognized.strip()
+    if isinstance(recognized, (list, tuple)):
+        return " ".join(str(part) for part in recognized).strip()
+    text = getattr(recognized, "text", None)
+    return str(text).strip() if text is not None else str(recognized).strip()
+
+
 def _load_model(model_root: Path) -> tuple[Any, str, str]:
     if WhisperModel is None:
         raise RuntimeError("faster-whisper is not installed")
 
-    prefer_gpu = os.environ.get("NIKOF_STT_ALLOW_GPU", "0").strip().lower() in {"1", "true", "yes", "on"}
+    prefer_gpu = _prefer_gpu()
     device_policy = os.environ.get("NIKOF_STT_DEVICE_POLICY", "auto").strip().lower() or "auto"
     model_path = str(model_root)
 
@@ -147,9 +261,37 @@ def _load_model(model_root: Path) -> tuple[Any, str, str]:
     return WhisperModel(model_path, device="cpu", compute_type="int8"), "cpu", "int8"
 
 
+def _transcribe_audio_parakeet(model_root: Path, audio: Any, *, locale: str) -> dict[str, Any]:
+    model, device, compute_type = _load_parakeet_model(model_root)
+    transcript = _coerce_parakeet_text(model.recognize(audio.astype(np.float32)))
+    duration_ms = int(round(audio.shape[0] * 1000 / SERVER_SAMPLE_RATE_HZ)) if getattr(audio, "shape", None) else 0
+    success = bool(transcript)
+    return {
+        "status": "final" if success else "unavailable",
+        "transcript": transcript or "Local transcription is unavailable.",
+        "locale": locale,
+        "confidence": None,
+        "timing": {
+            "utterance_duration_ms": duration_ms,
+            "segment_ranges": [],
+            "audio_format": {
+                "container": "wav",
+                "encoding": "pcm_f32le",
+                "sample_rate_hz": SERVER_SAMPLE_RATE_HZ,
+                "channels": 1,
+            },
+        },
+        "device": device,
+        "compute_type": compute_type,
+    }
+
+
 def _transcribe_audio(model_root: Path, audio: Any, *, locale: str) -> dict[str, Any]:
     if np is None:
         raise RuntimeError("numpy is not installed")
+
+    if _resolve_engine_name() == "parakeet":
+        return _transcribe_audio_parakeet(_parakeet_model_root(model_root), audio, locale=locale)
 
     model, device, compute_type = _load_model(model_root)
     segments, _info = model.transcribe(
@@ -265,6 +407,7 @@ class HotMicRuntime:
     def __init__(self, *, model_root: Path, locale: str = "en-US") -> None:
         self._model_root = model_root
         self._locale = locale
+        self._engine_name = _resolve_engine_name()
         self._owner_pid = _owner_pid_from_env()
         self._model = None
         self._compute_device = "cpu"
@@ -280,7 +423,12 @@ class HotMicRuntime:
         self._total_submitted = 0
         self._event_sequence = 0
         self._events: deque[RuntimeEvent] = deque(maxlen=256)
-        self._segment_queue: queue.Queue[tuple[Any, int]] = queue.Queue(maxsize=8)
+        # (audio, duration_ms, is_partial). Partials are interim captions emitted
+        # while speaking; the confirmed final has is_partial=False.
+        self._segment_queue: queue.Queue[tuple[Any, int, bool]] = queue.Queue(maxsize=8)
+        self._partials_enabled = _partials_enabled_from_env()
+        self._partial_interval_blocks = _partial_interval_blocks_from_env()
+        self._blocks_since_partial = 0
         self._processor_stop = threading.Event()
         self._processor_thread = threading.Thread(target=self._process_loop, name="stt-sidecar-process", daemon=True)
         self._stream_lock = threading.Lock()
@@ -297,7 +445,12 @@ class HotMicRuntime:
 
     def _load_runtime(self) -> None:
         try:
-            self._model, self._compute_device, self._compute_type = _load_model(self._model_root)
+            if self._engine_name == "parakeet":
+                self._model, self._compute_device, self._compute_type = _load_parakeet_model(
+                    _parakeet_model_root(self._model_root)
+                )
+            else:
+                self._model, self._compute_device, self._compute_type = _load_model(self._model_root)
             self._set_state("ready")
         except Exception as exc:
             self._last_error = str(exc)
@@ -321,12 +474,16 @@ class HotMicRuntime:
         )
 
     def health(self) -> dict[str, Any]:
+        model_name = (
+            PARAKEET_MODEL_DIRNAME if self._engine_name == "parakeet" else self._model_root.name
+        )
         return {
             "status": "ready" if self._state != "error" else "error",
             "model_loaded": self._model is not None,
             "state": self._state,
             "owner_pid": self._owner_pid,
-            "model_name": self._model_root.name,
+            "engine": self._engine_name,
+            "model_name": model_name,
             "compute_device": self._compute_device,
             "compute_type": self._compute_type,
             "last_error": self._last_error,
@@ -488,11 +645,26 @@ class HotMicRuntime:
             return
 
         try:
-            self._segment_queue.put_nowait((segment, duration_ms))
+            self._segment_queue.put_nowait((segment, duration_ms, False))
             self._set_state("processing")
         except queue.Full:
             self._last_error = "STT processing queue is full"
             self._append_event("segment.dropped", {"reason": self._last_error})
+
+    def _enqueue_partial_snapshot(self) -> None:
+        """Snapshot the in-progress utterance for an interim decode. Caller holds
+        _audio_lock. Best-effort: dropped if the processing queue is busy, and it
+        never changes the runtime state (the confirmed final owns that)."""
+        if np is None or not self._current_chunks:
+            return
+        snapshot = np.concatenate(self._current_chunks).astype(np.float32)
+        duration_ms = int(round(snapshot.shape[0] * 1000 / SERVER_SAMPLE_RATE_HZ))
+        if duration_ms < int(MIN_UTTERANCE_SECONDS * 1000):
+            return
+        try:
+            self._segment_queue.put_nowait((snapshot, duration_ms, True))
+        except queue.Full:
+            pass
 
     def events_after(self, after_sequence: int) -> dict[str, Any]:
         return {
@@ -513,7 +685,7 @@ class HotMicRuntime:
         self.stop_listening()
         self._processor_stop.set()
         try:
-            self._segment_queue.put_nowait((None, 0))
+            self._segment_queue.put_nowait((None, 0, False))
         except Exception:
             pass
         return {"status": "shutdown"}
@@ -554,6 +726,7 @@ class HotMicRuntime:
                     self._current_chunks = list(self._pre_roll)
                     self._silence_blocks = 0
                     self._speech_blocks = 0
+                    self._blocks_since_partial = 0
                 return
 
             self._current_chunks.append(chunk)
@@ -565,6 +738,13 @@ class HotMicRuntime:
             total_samples = sum(item.shape[0] for item in self._current_chunks)
             total_seconds = total_samples / SERVER_SAMPLE_RATE_HZ
             if self._silence_blocks < SPEECH_END_BLOCKS and total_seconds < MAX_UTTERANCE_SECONDS:
+                # Interim caption: every N blocks while still speaking, enqueue a
+                # snapshot of the utterance-so-far for a best-effort partial decode.
+                if self._partials_enabled:
+                    self._blocks_since_partial += 1
+                    if self._blocks_since_partial >= self._partial_interval_blocks:
+                        self._blocks_since_partial = 0
+                        self._enqueue_partial_snapshot()
                 return
 
             segment = np.concatenate(self._current_chunks).astype(np.float32)
@@ -572,6 +752,7 @@ class HotMicRuntime:
             self._pre_roll.clear()
             self._speaking = False
             self._silence_blocks = 0
+            self._blocks_since_partial = 0
 
         duration_ms = int(round(segment.shape[0] * 1000 / SERVER_SAMPLE_RATE_HZ))
         if duration_ms < int(MIN_UTTERANCE_SECONDS * 1000):
@@ -580,7 +761,7 @@ class HotMicRuntime:
             return
 
         try:
-            self._segment_queue.put_nowait((segment, duration_ms))
+            self._segment_queue.put_nowait((segment, duration_ms, False))
             self._set_state("processing")
         except queue.Full:
             self._last_error = "STT processing queue is full"
@@ -588,49 +769,87 @@ class HotMicRuntime:
             if self._listening:
                 self._set_state("listening")
 
+    def _transcribe_segment(self, audio: Any) -> tuple[str, list[dict[str, Any]], float | None]:
+        """Engine-neutral utterance transcription. Returns
+        (transcript, segment_ranges, confidence)."""
+        if self._engine_name == "parakeet":
+            transcript = _coerce_parakeet_text(self._model.recognize(audio))
+            return transcript, [], None
+
+        segments, _info = self._model.transcribe(
+            audio,
+            language=_resolve_locale_language(self._locale),
+            beam_size=1,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            compression_ratio_threshold=2.4,
+            no_speech_threshold=0.55,
+        )
+        transcript_parts: list[str] = []
+        segment_ranges: list[dict[str, Any]] = []
+        confidences: list[float] = []
+        for segment in segments:
+            text = str(getattr(segment, "text", "") or "").strip()
+            if not text:
+                continue
+            transcript_parts.append(text)
+            segment_ranges.append(
+                {
+                    "start_ms": int(round(float(getattr(segment, "start", 0.0)) * 1000)),
+                    "end_ms": int(round(float(getattr(segment, "end", 0.0)) * 1000)),
+                    "text": text,
+                }
+            )
+            avg_logprob = getattr(segment, "avg_logprob", None)
+            if avg_logprob is not None:
+                confidences.append(max(0.0, min(1.0, math.exp(float(avg_logprob)))))
+
+        transcript = " ".join(transcript_parts).strip()
+        confidence = sum(confidences) / len(confidences) if confidences else None
+        return transcript, segment_ranges, confidence
+
+    def _emit_partial(self, audio: Any, duration_ms: int) -> None:
+        """Decode an interim utterance snapshot and emit transcript.partial.
+        Best-effort: never raises, never touches confirmed state/counters or the
+        error state machine — the confirmed final remains authoritative."""
+        started_at = time.time()
+        try:
+            transcript, _segment_ranges, confidence = self._transcribe_segment(audio)
+        except Exception:
+            return
+        if not transcript:
+            return
+        self._append_event(
+            "transcript.partial",
+            {
+                "state": "processing",
+                "transcript": transcript,
+                "locale": self._locale,
+                "confidence": confidence,
+                "duration_ms": duration_ms,
+                "is_partial": True,
+                "latency_ms": int(round((time.time() - started_at) * 1000)),
+            },
+        )
+
     def _process_loop(self) -> None:
         while not self._processor_stop.is_set():
             try:
-                audio, duration_ms = self._segment_queue.get(timeout=0.2)
+                audio, duration_ms, is_partial = self._segment_queue.get(timeout=0.2)
             except queue.Empty:
                 continue
 
             if audio is None:
                 break
 
+            if is_partial:
+                self._emit_partial(audio, duration_ms)
+                continue
+
             started_at = time.time()
             try:
-                segments, _info = self._model.transcribe(
-                    audio,
-                    language=_resolve_locale_language(self._locale),
-                    beam_size=1,
-                    vad_filter=False,
-                    condition_on_previous_text=False,
-                    compression_ratio_threshold=2.4,
-                    no_speech_threshold=0.55,
-                )
-                transcript_parts: list[str] = []
-                segment_ranges: list[dict[str, Any]] = []
-                confidences: list[float] = []
-                for segment in segments:
-                    text = str(getattr(segment, "text", "") or "").strip()
-                    if not text:
-                        continue
-                    transcript_parts.append(text)
-                    segment_ranges.append(
-                        {
-                            "start_ms": int(round(float(getattr(segment, "start", 0.0)) * 1000)),
-                            "end_ms": int(round(float(getattr(segment, "end", 0.0)) * 1000)),
-                            "text": text,
-                        }
-                    )
-                    avg_logprob = getattr(segment, "avg_logprob", None)
-                    if avg_logprob is not None:
-                        confidences.append(max(0.0, min(1.0, math.exp(float(avg_logprob)))))
-
-                transcript = " ".join(transcript_parts).strip()
+                transcript, segment_ranges, confidence = self._transcribe_segment(audio)
                 if transcript:
-                    confidence = sum(confidences) / len(confidences) if confidences else None
                     self._latest_confirmed_text = transcript
                     self._latest_confirmed_at = time.time()
                     self._total_confirmed += 1

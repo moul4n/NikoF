@@ -1724,11 +1724,17 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import sys
 import types
 from pathlib import Path
 from unittest.mock import patch
 
+# Snapshot must be pure JSON on stdout. The turn pipeline (and LLM sidecar
+# manager) log to stderr — and the runner merges stderr into the captured
+# output before parsing it as JSON — so silence logging to keep output clean
+# and environment-independent (e.g. a local Ollama listener reclaim notice).
+logging.disable(logging.CRITICAL)
 
 repo_root = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(repo_root / "backend"))
@@ -1763,6 +1769,13 @@ class FakeStreamingResponse:
         self.media_type = media_type
 
 
+class FakeFileResponse:
+    def __init__(self, path, *args, **kwargs) -> None:
+        del args, kwargs
+        self.path = path
+        self.status_code = 200
+
+
 class FakeRoute:
     def __init__(self, path: str, endpoint, methods: tuple[str, ...]) -> None:
         self.path = path
@@ -1786,12 +1799,20 @@ class FakeAPIRouter:
         del kwargs
         return self._register(path, "POST")
 
+    def websocket(self, path: str, **kwargs):
+        del kwargs
+        return self._register(path, "WEBSOCKET")
+
     def _register(self, path: str, method: str):
         def decorator(endpoint):
             self.routes.append(FakeRoute(path=path, endpoint=endpoint, methods=(method,)))
             return endpoint
 
         return decorator
+
+
+class FakeWebSocketDisconnect(Exception):
+    pass
 
 
 def build_router():
@@ -1801,8 +1822,11 @@ def build_router():
     fake_fastapi.Request = FakeRequest
     fake_fastapi.Response = FakeResponse
     fake_fastapi.status = types.SimpleNamespace(HTTP_400_BAD_REQUEST=400)
+    fake_fastapi.WebSocket = object
+    fake_fastapi.WebSocketDisconnect = FakeWebSocketDisconnect
     fake_fastapi_responses = types.ModuleType("fastapi.responses")
     fake_fastapi_responses.StreamingResponse = FakeStreamingResponse
+    fake_fastapi_responses.FileResponse = FakeFileResponse
 
     with patch.dict(
         sys.modules,

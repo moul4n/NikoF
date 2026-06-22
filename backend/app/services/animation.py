@@ -113,7 +113,12 @@ DEFAULT_PLAYBACK_LIBRARY = {
 }
 
 
-def _clamp_intensity(value: float) -> float:
+def _clamp_intensity(value: float | None) -> float:
+    # Animation cue intensity is optional (AssistantAnimationCueContract.intensity
+    # is float | None); fall back to the AnimationIntent default of 1.0 rather
+    # than crashing on None.
+    if value is None:
+        return 1.0
     return max(0.0, min(1.0, value))
 
 

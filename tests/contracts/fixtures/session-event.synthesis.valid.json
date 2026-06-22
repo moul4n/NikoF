@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "event_type": "speech.synthesis",
   "session_id": "session-demo-01",
   "character_id": "test-vrm-01",
@@ -10,6 +10,10 @@
     "status": "ready",
     "text": "Sure. I can wave once I finish speaking.",
     "locale": "en-US",
+    "utterance_id": "utterance-demo-01",
+    "segment_index": 0,
+    "segment_count": 1,
+    "is_final": true,
     "timing": {
       "utterance_duration_ms": 2120,
       "segment_ranges": [

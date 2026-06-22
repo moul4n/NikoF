@@ -15,7 +15,7 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 2
     },
     "event_type": {
       "type": "string",
@@ -26,6 +26,7 @@
         "session.started",
         "session.stopped",
         "transcription.status",
+        "transcript.partial",
         "text.reply",
         "speech.synthesis",
         "animation.play"
@@ -81,6 +82,20 @@
         "properties": {
           "event_type": {
             "const": "transcription.status"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "transcription"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "transcript.partial"
           }
         }
       },
@@ -268,6 +283,9 @@
         },
         "timing": {
           "$ref": "#/$defs/timingMetadata"
+        },
+        "is_final": {
+          "type": ["boolean", "null"]
         }
       }
     },
@@ -329,8 +347,25 @@
           "type": "string",
           "minLength": 1
         },
+        "audio_reference": {
+          "type": ["string", "null"]
+        },
         "timing": {
           "$ref": "#/$defs/timingMetadata"
+        },
+        "utterance_id": {
+          "type": ["string", "null"]
+        },
+        "segment_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "segment_count": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "is_final": {
+          "type": "boolean"
         }
       }
     }

@@ -45,6 +45,9 @@ interface AvatarStageProps {
   selectedCharacter: CharacterCatalogEntry | null;
   variant?: "embedded" | "display";
   onSelectDisplayAnimationOverride?: (optionId: string) => void;
+  // Optional overlay (voice captions) rendered over the bottom of the avatar
+  // viewport on the display surface, in place of the static "ready" message.
+  captionsSlot?: JSX.Element | null;
 }
 
 function formatSemanticAnimationLabel(semanticId: string): string {
@@ -71,7 +74,8 @@ export function AvatarStage({
   runtime,
   selectedCharacter,
   variant = "embedded",
-  onSelectDisplayAnimationOverride
+  onSelectDisplayAnimationOverride,
+  captionsSlot
 }: AvatarStageProps): JSX.Element {
   const mountPoints = getAvatarRuntimeMountPoints(variant);
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
@@ -162,7 +166,11 @@ export function AvatarStage({
             <p className="avatar-stage__viewport-message avatar-stage__viewport-message--loading">Loading the bundled VRM from the manifest-resolved model URL...</p>
           ) : null}
           {snapshot.error ? <p className="avatar-stage__viewport-message avatar-stage__viewport-message--error">{snapshot.error}</p> : null}
-          {snapshot.loadState === "ready" ? <p className="avatar-stage__viewport-message">{readyMessage}</p> : null}
+          {snapshot.loadState === "ready"
+            ? variant === "display"
+              ? captionsSlot ?? null
+              : <p className="avatar-stage__viewport-message">{readyMessage}</p>
+            : null}
         </div>
         {variant === "display" ? (
           <>

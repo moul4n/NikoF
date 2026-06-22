@@ -22,6 +22,16 @@ import {
 import { describeAttentionStateLine, useAttentionState } from "./useAttentionState.js";
 import { describeSttStateLine, useSttState } from "./useSttState.js";
 import { useAttentionCapture } from "../features/vision/useAttentionCapture.js";
+import {
+  formatPushToTalkBindingLabel,
+  isEditableKeyboardTarget,
+  isModifierOnlyKey,
+  matchesPushToTalkBinding,
+  normalizePushToTalkBinding,
+  readPersistedPushToTalkBinding,
+  writePersistedPushToTalkBinding,
+  type PushToTalkBinding
+} from "./pushToTalkBinding.js";
 
 type OperatorCommandSubmissionState = {
   status: "idle" | "submitting" | "ready" | "error";
@@ -36,123 +46,6 @@ interface ControlSurfaceOperatorCommandPanelProps {
   speechLifecycleState: SpeechLifecycleLoadState;
   speechPlaybackStatus: SpeechPlaybackState;
   onCommandPublished: (response: BackendOperatorCommandResponseDocument | null) => void;
-}
-
-type PushToTalkBinding = {
-  code: string | null;
-  key: string | null;
-};
-
-const PUSH_TO_TALK_STORAGE_KEY = "nikof.stt.pushToTalkKey";
-const DEFAULT_PUSH_TO_TALK_BINDING: PushToTalkBinding = {
-  code: "KeyQ",
-  key: "q"
-};
-
-function normalizePushToTalkBinding(value: unknown): PushToTalkBinding {
-  if (!value || typeof value !== "object") {
-    return DEFAULT_PUSH_TO_TALK_BINDING;
-  }
-
-  const candidate = value as { code?: unknown; key?: unknown };
-  const code = typeof candidate.code === "string" && candidate.code.trim().length > 0 ? candidate.code.trim() : null;
-  const key = typeof candidate.key === "string" && candidate.key.length > 0 ? candidate.key : null;
-  if (!code && !key) {
-    return DEFAULT_PUSH_TO_TALK_BINDING;
-  }
-
-  return { code, key };
-}
-
-function readPersistedPushToTalkBinding(): PushToTalkBinding {
-  if (typeof window === "undefined") {
-    return DEFAULT_PUSH_TO_TALK_BINDING;
-  }
-
-  const persistedValue = window.localStorage.getItem(PUSH_TO_TALK_STORAGE_KEY);
-  if (!persistedValue) {
-    return DEFAULT_PUSH_TO_TALK_BINDING;
-  }
-
-  try {
-    return normalizePushToTalkBinding(JSON.parse(persistedValue));
-  } catch {
-    return DEFAULT_PUSH_TO_TALK_BINDING;
-  }
-}
-
-function writePersistedPushToTalkBinding(binding: PushToTalkBinding): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(PUSH_TO_TALK_STORAGE_KEY, JSON.stringify(binding));
-}
-
-function isModifierOnlyKey(key: string): boolean {
-  return key === "Shift" || key === "Control" || key === "Alt" || key === "Meta";
-}
-
-function isEditableKeyboardTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  const tagName = target.tagName;
-  return target.isContentEditable || tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
-}
-
-function matchesPushToTalkBinding(event: KeyboardEvent, binding: PushToTalkBinding): boolean {
-  if (binding.code && event.code === binding.code) {
-    return true;
-  }
-
-  if (!binding.key) {
-    return false;
-  }
-
-  return event.key.toLowerCase() === binding.key.toLowerCase();
-}
-
-function formatPushToTalkBindingLabel(binding: PushToTalkBinding): string {
-  if (binding.code?.startsWith("Key") && binding.code.length === 4) {
-    return binding.code.slice(3);
-  }
-
-  if (binding.code?.startsWith("Digit") && binding.code.length === 6) {
-    return binding.code.slice(5);
-  }
-
-  switch (binding.code) {
-    case "Space":
-      return "Space";
-    case "Escape":
-      return "Esc";
-    case "ArrowUp":
-      return "Up";
-    case "ArrowDown":
-      return "Down";
-    case "ArrowLeft":
-      return "Left";
-    case "ArrowRight":
-      return "Right";
-    default:
-      break;
-  }
-
-  if (binding.key === " ") {
-    return "Space";
-  }
-
-  if (binding.key && binding.key.length === 1) {
-    return binding.key.toUpperCase();
-  }
-
-  if (binding.key) {
-    return `${binding.key.charAt(0).toUpperCase()}${binding.key.slice(1)}`;
-  }
-
-  return "Unassigned";
 }
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];

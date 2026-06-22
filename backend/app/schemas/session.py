@@ -13,6 +13,7 @@ from app.schemas.character import CharacterSummary
 STT_BASELINE_PROFILE_IDS = (
     "stt.faster-whisper.medium-2026",
     "stt.faster-whisper.small-2026",
+    "stt.parakeet-tdt.0.6b-v2-2026",
 )
 
 TTS_BASELINE_PROFILE_IDS = (
@@ -22,6 +23,11 @@ TTS_BASELINE_PROFILE_IDS = (
 LLM_BASELINE_PROFILE_IDS = (
     "llm.ollama.llama3.1-8b-2026",
 )
+
+# Session-event contract version. Bumped to 2 in Phase 1 when the synthesis
+# contract gained the multi-segment streaming fields (utterance_id,
+# segment_index, segment_count, is_final).
+SESSION_EVENT_SCHEMA_VERSION = 2
 
 
 @dataclass(slots=True, frozen=True)
@@ -111,6 +117,11 @@ class SpeechTranscriptionContract:
     transcript: str | None = None
     confidence: float | None = None
     timing: SpeechTimingMetadata | None = None
+    # Phase 3 streaming STT. None ⇒ a confirmed, final transcript (legacy
+    # behavior; serialization is unchanged because strip_none drops None).
+    # Interim/partial transcripts (the `transcript.partial` event) set this
+    # to False; the LLM turn still fires only on the confirmed final.
+    is_final: bool | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -121,6 +132,12 @@ class SpeechSynthesisContract:
     locale: str
     audio_reference: str | None = None
     timing: SpeechTimingMetadata | None = None
+    # Multi-segment streaming fields (Phase 1). Defaults describe a single,
+    # final segment so a non-streamed utterance is semantically unchanged.
+    utterance_id: str | None = None
+    segment_index: int = 0
+    segment_count: int | None = None
+    is_final: bool = True
 
 
 @dataclass(slots=True, frozen=True)

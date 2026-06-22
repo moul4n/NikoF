@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -79,6 +80,104 @@ class _FakeManager:
             "next_sequence": 2,
             "last_error": None,
         }
+
+
+class _PartialManager:
+    def __init__(self) -> None:
+        self.is_healthy = True
+
+    def events(self, *, after_sequence: int) -> dict[str, object]:
+        del after_sequence
+        return {
+            "events": [
+                {
+                    "sequence": 1,
+                    "event_type": "transcript.partial",
+                    "state": "processing",
+                    "transcript": "hello wor",
+                    "locale": "en-US",
+                    "confidence": 0.6,
+                    "duration_ms": 700,
+                    "is_partial": True,
+                    "latency_ms": 40.0,
+                }
+            ],
+            "next_sequence": 2,
+        }
+
+    def state(self) -> dict[str, object]:
+        return {"status": "ready", "state": "listening", "listening": True, "next_sequence": 2, "last_error": None}
+
+
+class _FakeTurnServices:
+    """Minimal stand-in for UserTurnServices for the partial caption path."""
+
+    def __init__(self) -> None:
+        self.appended: list[tuple[str, object]] = []
+        services = self
+
+        class _EventStore:
+            def append(self, stream: str, event: object) -> object:
+                services.appended.append((stream, event))
+                return event
+
+        class _SessionService:
+            event_store = _EventStore()
+
+            def get_snapshot(self) -> object:
+                return types.SimpleNamespace(active_character_id="niko")
+
+        class _CharacterService:
+            def get_character_summary(self, character_id: str) -> object:
+                return types.SimpleNamespace(character_id=character_id)
+
+        class _Factory:
+            def build_event(self, snapshot, *, character_id, event_type, status, transcription):
+                return types.SimpleNamespace(
+                    event_type=event_type, status=status, transcription=transcription, character_id=character_id
+                )
+
+        self.session_service = _SessionService()
+        self.character_service = _CharacterService()
+        self.session_event_factory = _Factory()
+
+
+class STTWorkerPartialTests(unittest.IsolatedAsyncioTestCase):
+    async def test_partial_event_publishes_lifecycle_event_without_turn(self) -> None:
+        fake_monitor = _FakeMonitor()
+        fake_manager = _PartialManager()
+        with patch("app.services.stt_worker.get_resource_monitor", return_value=fake_monitor), patch(
+            "app.services.stt_worker.get_server_manager", return_value=fake_manager
+        ), patch("app.services.stt_worker.run_user_text_turn") as run_turn_mock:
+            worker = STTWorker()
+            services = _FakeTurnServices()
+            worker._turn_services = services
+            worker._partials_enabled = True
+
+            await worker._process_events()
+
+        run_turn_mock.assert_not_called()  # partials never trigger an LLM turn
+        self.assertEqual(len(services.appended), 1)
+        stream, event = services.appended[0]
+        self.assertEqual(stream, "speech.lifecycle")
+        self.assertEqual(event.event_type, "transcript.partial")
+        self.assertFalse(event.transcription.is_final)
+        self.assertEqual(event.transcription.transcript, "hello wor")
+
+    async def test_partial_event_ignored_when_disabled(self) -> None:
+        fake_monitor = _FakeMonitor()
+        fake_manager = _PartialManager()
+        with patch("app.services.stt_worker.get_resource_monitor", return_value=fake_monitor), patch(
+            "app.services.stt_worker.get_server_manager", return_value=fake_manager
+        ):
+            worker = STTWorker()
+            services = _FakeTurnServices()
+            worker._turn_services = services
+            worker._partials_enabled = False
+
+            await worker._process_events()
+
+        self.assertEqual(services.appended, [])
 
 
 class STTWorkerDispatchTests(unittest.IsolatedAsyncioTestCase):

@@ -7,6 +7,8 @@
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "stability:control-summary": "pwsh -NoProfile -File ../scripts/testing/Invoke-StabilitySuite.ps1 -Scenario frontend-stage1-character-flow-runtime"
   },
   "dependencies": {
@@ -18,11 +20,14 @@
     "three": "^0.172.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
     "@types/node": "^22.15.21",
     "@types/three": "^0.172.0",
     "@vitejs/plugin-react": "^4.4.1",
     "jsdom": "^29.1.1",
     "typescript": "^5.8.3",
-    "vite": "^5.4.19"
+    "vite": "^5.4.19",
+    "vitest": "^2.1.9"
   }
 }

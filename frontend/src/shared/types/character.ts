@@ -235,6 +235,13 @@ export interface BackendSpeechSynthesisDocument {
   locale: string;
   audio_reference?: string | null;
   timing?: BackendSpeechTimingMetadataDocument | null;
+  // Multi-segment streaming fields (Phase 1). Present on every synthesis event;
+  // utterance_id/segment_count are omitted when null. A non-segmented reply is
+  // a single final segment (segment_index 0, is_final true, no utterance_id).
+  utterance_id?: string | null;
+  segment_index?: number | null;
+  segment_count?: number | null;
+  is_final?: boolean | null;
 }
 
 export interface BackendAssistantFeelingDocument {

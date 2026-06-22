@@ -23,25 +23,57 @@ class ApplicationShell:
 @asynccontextmanager
 async def _lifespan(app: Any) -> AsyncIterator[None]:
     """Manage async services that need startup/shutdown hooks."""
+    from app.core.runtime_tuning import get_runtime_tuning
     from app.services.attention_worker import get_attention_worker
     from app.services.llm import get_text_generation_sidecar_manager
     from app.services.stt_worker import get_stt_worker
     from app.services.tts_worker import get_tts_worker
 
+    tuning = get_runtime_tuning()
     attention_worker = get_attention_worker()
     llm_sidecar_manager = get_text_generation_sidecar_manager()
     stt_worker = get_stt_worker()
     tts_worker = get_tts_worker()
     await attention_worker.start()
     logger.info("Attention worker started")
-    if llm_sidecar_manager.start():
+    llm_started = llm_sidecar_manager.start()
+    if llm_started:
         logger.info("LLM sidecar started")
     await stt_worker.start()
     logger.info("STT worker sidecar started")
     await tts_worker.start()
     logger.info("TTS worker process loop started (model loads on first request)")
 
+    # Phase 0 warmups: pay the model lazy-load cost at startup instead of on the
+    # first user turn. TTS warmup is already non-blocking; the LLM warmup sends a
+    # tiny generation, so run it off the event loop and never block startup on it.
+    warm_llm_task: asyncio.Task[None] | None = None
+    if tuning.warm_tts_on_start:
+        from app.services.tts_engines import build_alternate_synthesis_service, resolve_tts_engine_name
+
+        engine_name = resolve_tts_engine_name()
+        alternate_tts = build_alternate_synthesis_service(engine_name)
+        if alternate_tts is not None:
+            # Selected engine is an in-process adapter (kokoro/xtts) — warm it
+            # (GPT-SoVITS stays unloaded since the worker isn't the synth path).
+            alternate_tts.request_warmup()
+            logger.info("TTS warmup scheduled (%s)", engine_name)
+        elif tts_worker.request_warmup():
+            logger.info("TTS warmup scheduled (gpt-sovits)")
+    if tuning.warm_llm_on_start and llm_started:
+        async def _warm_llm() -> None:
+            try:
+                await asyncio.to_thread(llm_sidecar_manager.warmup)
+                logger.info("LLM warmup complete")
+            except Exception:  # pragma: no cover - warmup is best-effort
+                logger.warning("LLM warmup failed; first turn will pay load cost", exc_info=True)
+
+        warm_llm_task = asyncio.create_task(_warm_llm())
+
     yield
+
+    if warm_llm_task is not None and not warm_llm_task.done():
+        warm_llm_task.cancel()
 
     await attention_worker.stop()
     logger.info("Attention worker shut down")

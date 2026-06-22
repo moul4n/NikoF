@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from app.api.active_character_routes import ActiveCharacterRouteServices, register_active_character_routes
 from app.api.attention_routes import register_attention_routes
+from app.api.character_profile_routes import register_character_profile_routes
 from app.api.llm_routes import register_llm_routes
 from app.api.operator_routes import OperatorCommandRouteServices, register_operator_command_routes
 from app.api.read_routes import ReadRouteServices, register_read_routes
@@ -213,7 +214,20 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
             locale="en-US",
         )
     )
-    synthesis_service: SpeechSynthesisService = QueuedSynthesisService(get_tts_worker(app_paths), eager=False)
+    # Phase 3/4: NIKOF_TTS_ENGINE selects the synthesis engine (gpt-sovits
+    # default via the TTS worker; kokoro / xtts as in-process adapters) so we can
+    # benchmark speed/quality. An unconfigured alternate engine returns
+    # status="unavailable" rather than breaking the turn.
+    from app.services.tts_engines import build_alternate_synthesis_service, resolve_tts_engine_name
+
+    _alternate_synthesis_service = build_alternate_synthesis_service(
+        resolve_tts_engine_name(), app_paths=app_paths
+    )
+    synthesis_service: SpeechSynthesisService = (
+        _alternate_synthesis_service
+        if _alternate_synthesis_service is not None
+        else QueuedSynthesisService(get_tts_worker(app_paths), eager=False)
+    )
     llm_sidecar_manager = get_text_generation_sidecar_manager(app_paths)
     text_generation_service = llm_sidecar_manager.resolve(
         TextGenerationRequest(prompt="", locale="en-US")
@@ -535,4 +549,5 @@ def register_api_routes(
     register_llm_routes(router)
     register_attention_routes(router)
     register_tts_settings_routes(router)
+    register_character_profile_routes(router, memory_service=services.memory_service)
     register_resource_routes(router)

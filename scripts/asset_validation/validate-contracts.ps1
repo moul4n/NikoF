@@ -358,8 +358,8 @@ function Assert-SessionEventShape {
         }
     }
 
-    if ($Event.schema_version -ne 1) {
-        Add-Failure -Failures $Failures -Message "$Label schema_version must equal 1."
+    if ($Event.schema_version -ne 2) {
+        Add-Failure -Failures $Failures -Message "$Label schema_version must equal 2."
     }
 
     foreach ($propertyName in @('event_type', 'session_id', 'character_id', 'status')) {
@@ -370,7 +370,8 @@ function Assert-SessionEventShape {
 
     $baselineSttProfileIds = @(
         'stt.faster-whisper.medium-2026',
-        'stt.faster-whisper.small-2026'
+        'stt.faster-whisper.small-2026',
+        'stt.parakeet-tdt.0.6b-v2-2026'
     )
     $baselineTtsProfileIds = @(
         'tts.gpt-sovits.2026-stable'
@@ -410,6 +411,13 @@ function Assert-SessionEventShape {
             if ($hasTranscriptionTiming -and $null -ne $Event.transcription.timing) {
                 Assert-SpeechTimingShape -Failures $Failures -Label "$Label.transcription.timing" -Timing $Event.transcription.timing
             }
+
+            $hasIsFinal = Test-HasProperty -Object $Event.transcription -Name 'is_final'
+            if ($hasIsFinal -and $null -ne $Event.transcription.is_final) {
+                if ($Event.transcription.is_final -isnot [bool]) {
+                    Add-Failure -Failures $Failures -Message "$Label.transcription.is_final must be a boolean when present."
+                }
+            }
         }
     }
 
@@ -440,8 +448,8 @@ function Assert-SessionEventShape {
         }
     }
 
-    if ($Event.event_type -eq 'transcription.status' -and (-not $hasTranscription -or $null -eq $Event.transcription)) {
-        Add-Failure -Failures $Failures -Message "$Label must include transcription when event_type is transcription.status."
+    if ($Event.event_type -in @('transcription.status', 'transcript.partial') -and (-not $hasTranscription -or $null -eq $Event.transcription)) {
+        Add-Failure -Failures $Failures -Message "$Label must include transcription when event_type is $($Event.event_type)."
     }
 
     if ($Event.event_type -eq 'speech.synthesis' -and (-not $hasSynthesis -or $null -eq $Event.synthesis)) {
@@ -667,6 +675,9 @@ Assert-SessionEventShape -Failures $failures -Label 'session-event.valid.json' -
 $sessionEventTranscriptionFixture = Read-JsonFile -Path (Join-Path $fixtureRoot 'session-event.transcription.valid.json')
 Assert-SessionEventShape -Failures $failures -Label 'session-event.transcription.valid.json' -Event $sessionEventTranscriptionFixture
 
+$sessionEventTranscriptionPartialFixture = Read-JsonFile -Path (Join-Path $fixtureRoot 'session-event.transcription-partial.valid.json')
+Assert-SessionEventShape -Failures $failures -Label 'session-event.transcription-partial.valid.json' -Event $sessionEventTranscriptionPartialFixture
+
 $sessionEventSynthesisFixture = Read-JsonFile -Path (Join-Path $fixtureRoot 'session-event.synthesis.valid.json')
 Assert-SessionEventShape -Failures $failures -Label 'session-event.synthesis.valid.json' -Event $sessionEventSynthesisFixture
 
@@ -682,7 +693,7 @@ foreach ($characterId in @('test-vrm-01', 'test-vrm-02', 'test-vrm-03')) {
 Write-Output 'Contract validation summary:'
 Write-Output ("- Schemas checked: {0}" -f $schemaPaths.Count)
 Write-Output '- Character packages checked: 3'
-Write-Output '- Fixture payloads checked: 3'
+Write-Output '- Fixture payloads checked: 4'
 
 if ($notes.Count -gt 0) {
     Write-Output 'Notes:'
