@@ -70,7 +70,7 @@ class DefaultAnimationServiceTests(unittest.TestCase):
 
         cases = (
             ("idle.happy", "loop"),
-            ("gesture.clap.once", "oneshot"),
+            ("gesture.crazy.once", "oneshot"),
             ("think.considering.once", "oneshot"),
         )
 

@@ -55,9 +55,9 @@ def _build_lean_reply_prompt(
         "reply_text: concise and natural aloud, one to three short sentences.",
         "feeling.name: one mood word.",
         "animation_cues[].cue: a single animation id from this set — idle.neutral, idle.happy, "
-        "idle.sad, idle.confident, greet.wave.once, gesture.clap.once, dance.hiphop.loop, "
+        "idle.sad, idle.confident, greet.wave.once, dance.hiphop.loop, "
         "emote.happy.once, emote.excited.once, emote.surprised.once, emote.angry.once.",
-        "If the user asks you to perform a gesture (wave, clap, dance, etc.), you MUST include the "
+        "If the user asks you to perform a gesture (wave, dance, etc.), you MUST include the "
         "matching cue; otherwise pick one that fits the mood, or omit the array if none fits.",
     ]
     if memory_context is not None:
@@ -141,9 +141,9 @@ def _build_spoken_reply_prompt(
         '{"reply_text":"string","thinking_summary":"string","feeling":{"name":"string","intensity":0.0},"voice_tone":{"style":"string","pace":"string","energy":0.0},"animation_cues":[{"cue":"string","layer":"base|upper|face","intensity":0.0,"duration_ms":0}],"memory_writebacks":[{"namespace":"persona|memory|appearance","summary":"string","salience":0.0,"source":"player|assistant|system","tags":["tag"]}]}',
         "reply_text must be concise, natural aloud, and easy to synthesize in one to three short sentences.",
         "thinking_summary must be a brief user-visible planning note, not hidden chain-of-thought.",
-        "For animation_cues[].cue, prefer semantic ids or close aliases that map onto known shared animations such as idle.neutral, idle.happy, idle.sad, idle.confident, greet.wave.once, greet.wave.small.once, gesture.clap.once, emote.happy.once, emote.happy.alt.once, emote.excited.once, emote.reject.once, emote.surprised.once, emote.angry.once, dance.hiphop.loop, or reply.speaking.loop.",
+        "For animation_cues[].cue, prefer semantic ids or close aliases that map onto known shared animations such as idle.neutral, idle.happy, idle.sad, idle.confident, greet.wave.once, greet.wave.small.once, emote.happy.once, emote.happy.alt.once, emote.excited.once, emote.reject.once, emote.surprised.once, emote.angry.once, dance.hiphop.loop, or reply.speaking.loop.",
         "Prefer calm idle.* semantics before stronger one-shot emotes when the reply only needs emotional color; reserve bigger emotes for clearly emphatic wording or explicit semantic ids.",
-        "When multiple animation words fit, choose the single best cue from the reply, feeling, and thinking_summary; words such as wave, small wave, clap, smile, happy, sad, confident, excited, surprised, angry, reject, greeting, hello, or dance are all valid guidance.",
+        "When multiple animation words fit, choose the single best cue from the reply, feeling, and thinking_summary; words such as wave, small wave, smile, happy, sad, confident, excited, surprised, angry, reject, greeting, hello, or dance are all valid guidance.",
         "memory_writebacks should only include durable facts, promises, preferences, plans, emotional milestones, or explicit appearance notes.",
         "Never store raw images, raw screenshots, meshes, or transient outfit details unless they are explicitly memorable.",
         f"Active character id: {character_id}.",

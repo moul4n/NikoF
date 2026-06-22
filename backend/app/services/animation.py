@@ -26,7 +26,6 @@ DEFAULT_SHARED_ANIMATION_IDS = frozenset(
         "emote.happy.once",
         "emote.reject.once",
         "emote.surprised.once",
-        "gesture.clap.once",
         "gesture.crazy.once",
         "greet.wave.small.once",
         "think.considering.once",
@@ -96,12 +95,6 @@ DEFAULT_PLAYBACK_LIBRARY = {
         mode="oneshot",
         blend_hint="upper_body_additive",
         expected_duration_ms=1400,
-        loop=False,
-    ),
-    "gesture.clap.once": AnimationPlayback(
-        mode="oneshot",
-        blend_hint="upper_body_additive",
-        expected_duration_ms=1167,
         loop=False,
     ),
     "gesture.crazy.once": AnimationPlayback(

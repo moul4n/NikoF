@@ -27,11 +27,6 @@
       "stage": "staged_raw_unity_source",
       "approved_for_shared_library": false
     },
-    "gesture.clap.once": {
-      "path": "assets/animations/dsl/shared/gesture.clap.once.json",
-      "stage": "staged_raw_unity_source",
-      "approved_for_shared_library": false
-    },
     "emote.excited.once": {
       "path": "assets/animations/dsl/shared/emote.excited.once.json",
       "stage": "staged_raw_unity_source",

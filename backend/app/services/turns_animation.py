@@ -19,10 +19,6 @@ from app.services.animation import AnimationService
 
 _ANIMATION_CUE_ALIAS_TO_SEMANTIC_ID = {
     "angry": "emote.angry.once",
-    "applaud": "gesture.clap.once",
-    "applause": "gesture.clap.once",
-    "clap": "gesture.clap.once",
-    "clapping": "gesture.clap.once",
     "confident": "idle.confident",
     "dance": "dance.hiphop.loop",
     "excited": "emote.excited.once",
@@ -71,13 +67,6 @@ _ANIMATION_CUE_KEYWORD_RULES: tuple[_AnimationCueKeywordRule, ...] = (
         layer="upper",
         priority=110,
         default_duration_ms=533,
-    ),
-    _AnimationCueKeywordRule(
-        semantic_id="gesture.clap.once",
-        keywords=("clap", "clapping", "applaud", "applause"),
-        layer="upper",
-        priority=105,
-        default_duration_ms=1167,
     ),
     _AnimationCueKeywordRule(
         semantic_id="dance.hiphop.loop",

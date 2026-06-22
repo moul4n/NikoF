@@ -7,7 +7,6 @@ export const semanticAnimationIds = [
   "emote.happy.once",
   "emote.reject.once",
   "emote.surprised.once",
-  "gesture.clap.once",
   "gesture.crazy.once",
   "greet.wave.once",
   "greet.wave.small.once",
