@@ -153,15 +153,25 @@ export function resolveAnimationClipSourceKind(url: string): AnimationClipSource
  */
 export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): AnimationPlaybackBridge {
   const mixer = new THREE.AnimationMixer(root);
+  // The gesture overlay runs on its OWN mixer that updates AFTER the base mixer
+  // each frame. A masked gesture clip (upper-body bone tracks only) plays as a
+  // normal-blend action: at full weight it OVERRIDES the base on those bones
+  // (so the arm reaches the gesture's absolute pose — a wave actually raises),
+  // and while its weight fades in/out it blends against whatever the base mixer
+  // just wrote (a smooth raise/lower). Bones with no track in the masked clip —
+  // hips, legs, head — are never written by this mixer, so the base keeps them.
+  // (Additive blending was wrong here: gesture clips are absolute poses, not
+  // deltas, so an additive layer only reproduced the wiggle, not the raise.)
+  const overlayMixer = new THREE.AnimationMixer(root);
   const activeClips = new Map<string, AnimationClipHandle>();
   const overlayClips = new Map<string, AnimationClipHandle>();
   const loadedVrmAnimations = new Map<string, VRMAnimation>();
 
-  // Humanoid bones excluded from upper-body additive overlays: the root/hips
-  // (anchors the avatar — additive hip motion would slide it), the legs/feet
-  // (keep locomotion owned by the base clip), and the head/neck/eyes/jaw (owned
-  // by look-at and the passive facial layers). Everything else — spine, chest,
-  // shoulders, arms, hands, fingers — can carry a gesture additively.
+  // Humanoid bones excluded from upper-body overlays: the root/hips (anchors the
+  // avatar), the legs/feet (locomotion stays owned by the base clip), and the
+  // head/neck/eyes/jaw (owned by look-at and the passive facial layers).
+  // Everything else — spine, chest, shoulders, arms, hands, fingers — is driven
+  // by the gesture while it plays.
   const NON_OVERLAY_BONES: ReadonlySet<VRMHumanBoneNameValue> = new Set([
     VRMHumanBoneName.Hips,
     VRMHumanBoneName.Neck,
@@ -198,18 +208,17 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     return names;
   }
 
-  // Restrict a clip to upper-body bone-rotation tracks, then convert to an
-  // additive clip (each frame becomes a delta from the clip's rest frame). The
-  // result adds onto the base pose for arms/torso only — legs, hips and head
-  // are left to the base clip and the gaze/facial layers.
-  function makeUpperBodyAdditiveClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  // Restrict a clip to upper-body bone-rotation tracks so the overlay action
+  // only writes arms/torso. Kept as ABSOLUTE poses (no additive conversion):
+  // played at full weight on the overlay mixer it overrides the base on these
+  // bones, so the gesture reaches its intended pose; legs/hips/head have no
+  // track here and stay owned by the base clip and the gaze/facial layers.
+  function makeUpperBodyOverlayClip(clip: THREE.AnimationClip): THREE.AnimationClip {
     const allowed = overlayBoneNodeNames();
     const tracks = clip.tracks.filter(
       (track) => track.name.endsWith(".quaternion") && allowed.has(track.name.split(".")[0])
     );
-    const additiveClip = new THREE.AnimationClip(`${clip.name}__upperAdditive`, clip.duration, tracks);
-    THREE.AnimationUtils.makeClipAdditive(additiveClip);
-    return additiveClip;
+    return new THREE.AnimationClip(`${clip.name}__upperOverlay`, clip.duration, tracks);
   }
 
   const vrmaLoader = new GLTFLoader();
@@ -337,16 +346,16 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     }
 
     const baseClip = sourceKind === "vrma" ? await loadVrmaClip(url, clipId) : await loadMixamoFbxClip(url, clipId);
-    const additiveClip = makeUpperBodyAdditiveClip(baseClip);
+    const overlayClip = makeUpperBodyOverlayClip(baseClip);
 
-    // Additive blend mode must be set at action creation; it composes with the
-    // normal-blend base action on this same mixer (a second mixer would
-    // overwrite rather than add).
-    const action = mixer.clipAction(additiveClip, root, THREE.AdditiveAnimationBlendMode);
+    // Normal blend on the dedicated overlay mixer (updated after the base): at
+    // weight 1 it overrides the base on the masked bones; at partial weight it
+    // blends against the base's current pose.
+    const action = overlayMixer.clipAction(overlayClip, root);
     action.setEffectiveWeight(0);
     action.enabled = true;
 
-    const handle: AnimationClipHandle = { clipId, sourceKind, clip: additiveClip, action, channel: "overlay" };
+    const handle: AnimationClipHandle = { clipId, sourceKind, clip: overlayClip, action, channel: "overlay" };
     overlayClips.set(clipId, handle);
     return handle;
   }
@@ -438,9 +447,10 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     const restart = options?.restart ?? true;
 
     handle.action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
-    // One-shot gestures must NOT clamp: holding the last additive frame would
-    // freeze the arm off-pose. Letting it finish returns the delta to zero.
-    handle.action.clampWhenFinished = false;
+    // Hold the final frame for one-shots: the caller fades the overlay weight
+    // out just before the clip ends, so the arm eases back to the base pose
+    // instead of snapping when a LoopOnce action stops.
+    handle.action.clampWhenFinished = !loop;
     if (restart) {
       handle.action.reset();
     }
@@ -485,7 +495,10 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
   }
 
   function update(deltaSeconds: number): void {
+    // Base first, then the overlay: the overlay's normal-blend override reads
+    // the base's just-applied pose to blend against while fading in/out.
     mixer.update(deltaSeconds);
+    overlayMixer.update(deltaSeconds);
   }
 
   function hasActiveClip(clipId: string): boolean {
@@ -583,13 +596,14 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
 
   function dispose(): void {
     mixer.stopAllAction();
+    overlayMixer.stopAllAction();
     for (const handle of activeClips.values()) {
       mixer.uncacheClip(handle.clip);
       mixer.uncacheAction(handle.clip);
     }
     for (const handle of overlayClips.values()) {
-      mixer.uncacheClip(handle.clip);
-      mixer.uncacheAction(handle.clip);
+      overlayMixer.uncacheClip(handle.clip);
+      overlayMixer.uncacheAction(handle.clip);
     }
     activeClips.clear();
     overlayClips.clear();

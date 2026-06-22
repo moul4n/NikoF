@@ -2541,10 +2541,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
           error: null
         });
 
-        // A one-shot gesture clears itself once its clip has played through, so
-        // the additive layer fades back to zero and the snapshot reflects idle.
+        // A one-shot gesture clears itself near the end of its clip: the fade
+        // begins just before the final frame so the overlay weight eases the
+        // arm back to the base pose instead of snapping, and the snapshot
+        // returns to idle.
         if (!loop) {
-          const holdMs = Math.max(0, clipHandle.clip.duration * 1000);
+          const holdMs = Math.max(0, clipHandle.clip.duration * 1000 - OVERLAY_TRANSITION_MS);
           activeOverlayAnimation.stopTimer = setTimeout(() => {
             if (!activeOverlayAnimation || activeOverlayAnimation.expectedCommandId !== expectedCommandId) {
               return;
