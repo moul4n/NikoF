@@ -25,15 +25,9 @@ export type SemanticAnimationId = (typeof semanticAnimationIds)[number] | (strin
 
 export type SemanticAnimationPlaybackMode = "loop" | "once";
 
-export type SemanticAnimationLayer = "base" | "upper-additive";
-
 export interface SemanticAnimationCommand {
   id: SemanticAnimationId;
   playback: SemanticAnimationPlaybackMode;
-  // Which runtime channel plays this command. "base" replaces the full-body
-  // animation (idle/locomotion); "upper-additive" layers a gesture (wave,
-  // clap) on top of the maintained base via the additive overlay channel.
-  layer?: SemanticAnimationLayer;
   intensity?: number;
   durationMs?: number;
 }

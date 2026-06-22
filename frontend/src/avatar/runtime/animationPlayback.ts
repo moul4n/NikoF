@@ -17,7 +17,6 @@ export interface AnimationClipHandle {
   sourceKind: AnimationClipSourceKind;
   clip: THREE.AnimationClip;
   action: THREE.AnimationAction;
-  channel: "base" | "overlay";
 }
 
 export interface AnimationPlaybackDebugSnapshot {
@@ -51,19 +50,6 @@ export interface AnimationPlaybackBridge {
   crossfade(fromClipId: string, toClipId: string, durationMs: number): void;
   stopAll(fadeOutMs?: number): void;
   stopAllExcept(keepClipId: string, options?: { fadeOutMs?: number }): void;
-  // Upper-body additive overlay channel: gesture clips that layer ON TOP of the
-  // maintained base animation (e.g. a wave while idling) instead of replacing
-  // it. Overlay actions share the base mixer (additive blending only composes
-  // within one mixer) but are tracked separately, so base stop/crossfade never
-  // disturbs them and vice versa.
-  loadOverlayClip(url: string, clipId: string): Promise<AnimationClipHandle>;
-  playOverlay(
-    clipId: string,
-    options?: { loop?: boolean; transitionMs?: number; intensity?: number; restart?: boolean }
-  ): void;
-  stopOverlay(clipId: string, options?: { fadeOutMs?: number }): void;
-  stopAllOverlay(fadeOutMs?: number): void;
-  hasActiveOverlay(clipId: string): boolean;
   update(deltaSeconds: number): void;
   hasActiveClip(clipId: string): boolean;
   getDebugSnapshot(): AnimationPlaybackDebugSnapshot;
@@ -153,77 +139,8 @@ export function resolveAnimationClipSourceKind(url: string): AnimationClipSource
  */
 export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): AnimationPlaybackBridge {
   const mixer = new THREE.AnimationMixer(root);
-  // The gesture overlay runs on its OWN mixer that updates AFTER the base mixer
-  // each frame. A masked gesture clip (upper-body bone tracks only) plays as a
-  // normal-blend action: at full weight it OVERRIDES the base on those bones
-  // (so the arm reaches the gesture's absolute pose — a wave actually raises),
-  // and while its weight fades in/out it blends against whatever the base mixer
-  // just wrote (a smooth raise/lower). Bones with no track in the masked clip —
-  // hips, legs, head — are never written by this mixer, so the base keeps them.
-  // (Additive blending was wrong here: gesture clips are absolute poses, not
-  // deltas, so an additive layer only reproduced the wiggle, not the raise.)
-  const overlayMixer = new THREE.AnimationMixer(root);
   const activeClips = new Map<string, AnimationClipHandle>();
-  const overlayClips = new Map<string, AnimationClipHandle>();
   const loadedVrmAnimations = new Map<string, VRMAnimation>();
-
-  // Humanoid bones excluded from upper-body overlays. The overlay drives ONLY
-  // the arms (shoulders, upper/lower arms, hands, fingers). The spine/chest are
-  // excluded too: our gesture clips are holistic full-body motions whose torso
-  // lean pivots from a moving hip — overriding the spine while the hips are held
-  // steady tilts the character unnaturally, so we leave the whole torso, hips,
-  // legs and head to the base clip and the gaze/facial layers.
-  const NON_OVERLAY_BONES: ReadonlySet<VRMHumanBoneNameValue> = new Set([
-    VRMHumanBoneName.Hips,
-    VRMHumanBoneName.Spine,
-    VRMHumanBoneName.Chest,
-    VRMHumanBoneName.UpperChest,
-    VRMHumanBoneName.Neck,
-    VRMHumanBoneName.Head,
-    VRMHumanBoneName.LeftEye,
-    VRMHumanBoneName.RightEye,
-    VRMHumanBoneName.Jaw,
-    VRMHumanBoneName.LeftUpperLeg,
-    VRMHumanBoneName.LeftLowerLeg,
-    VRMHumanBoneName.LeftFoot,
-    VRMHumanBoneName.LeftToes,
-    VRMHumanBoneName.RightUpperLeg,
-    VRMHumanBoneName.RightLowerLeg,
-    VRMHumanBoneName.RightFoot,
-    VRMHumanBoneName.RightToes,
-  ]);
-
-  let cachedOverlayNodeNames: Set<string> | null = null;
-  function overlayBoneNodeNames(): Set<string> {
-    if (cachedOverlayNodeNames) {
-      return cachedOverlayNodeNames;
-    }
-    const names = new Set<string>();
-    for (const boneName of Object.values(VRMHumanBoneName) as VRMHumanBoneNameValue[]) {
-      if (NON_OVERLAY_BONES.has(boneName)) {
-        continue;
-      }
-      const node = vrm.humanoid.getNormalizedBoneNode(boneName);
-      if (node?.name) {
-        names.add(node.name);
-      }
-    }
-    cachedOverlayNodeNames = names;
-    return names;
-  }
-
-  // Restrict a clip to upper-body bone-rotation tracks so the overlay action
-  // only writes arms/torso. Kept as ABSOLUTE poses (no additive conversion):
-  // played at full weight on the overlay mixer it overrides the base on these
-  // bones, so the gesture reaches its intended pose; legs/hips/head have no
-  // track here and stay owned by the base clip and the gaze/facial layers.
-  function makeUpperBodyOverlayClip(clip: THREE.AnimationClip): THREE.AnimationClip {
-    const allowed = overlayBoneNodeNames();
-    const tracks = clip.tracks.filter(
-      (track) => track.name.endsWith(".quaternion") && allowed.has(track.name.split(".")[0])
-    );
-    return new THREE.AnimationClip(`${clip.name}__upperOverlay`, clip.duration, tracks);
-  }
 
   const vrmaLoader = new GLTFLoader();
   vrmaLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
@@ -332,35 +249,8 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     action.setEffectiveWeight(0);
     action.enabled = true;
 
-    const handle: AnimationClipHandle = { clipId, sourceKind, clip, action, channel: "base" };
+    const handle: AnimationClipHandle = { clipId, sourceKind, clip, action };
     activeClips.set(clipId, handle);
-    return handle;
-  }
-
-  async function loadOverlayClip(url: string, clipId: string): Promise<AnimationClipHandle> {
-    const existing = overlayClips.get(clipId);
-    if (existing) {
-      return existing;
-    }
-
-    const sourceKind = resolveAnimationClipSourceKind(url);
-
-    if (!sourceKind) {
-      throw new Error(`Unsupported animation source (expected .vrma or .fbx): ${url}`);
-    }
-
-    const baseClip = sourceKind === "vrma" ? await loadVrmaClip(url, clipId) : await loadMixamoFbxClip(url, clipId);
-    const overlayClip = makeUpperBodyOverlayClip(baseClip);
-
-    // Normal blend on the dedicated overlay mixer (updated after the base): at
-    // weight 1 it overrides the base on the masked bones; at partial weight it
-    // blends against the base's current pose.
-    const action = overlayMixer.clipAction(overlayClip, root);
-    action.setEffectiveWeight(0);
-    action.enabled = true;
-
-    const handle: AnimationClipHandle = { clipId, sourceKind, clip: overlayClip, action, channel: "overlay" };
-    overlayClips.set(clipId, handle);
     return handle;
   }
 
@@ -436,73 +326,8 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     }
   }
 
-  function playOverlay(
-    clipId: string,
-    options?: { loop?: boolean; transitionMs?: number; intensity?: number; restart?: boolean }
-  ): void {
-    const handle = overlayClips.get(clipId);
-    if (!handle) {
-      return;
-    }
-
-    const loop = options?.loop ?? false;
-    const transitionMs = options?.transitionMs ?? 0;
-    const intensity = Math.max(0, Math.min(1, options?.intensity ?? 1));
-    const restart = options?.restart ?? true;
-
-    handle.action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
-    // Hold the final frame for one-shots: the caller fades the overlay weight
-    // out just before the clip ends, so the arm eases back to the base pose
-    // instead of snapping when a LoopOnce action stops.
-    handle.action.clampWhenFinished = !loop;
-    if (restart) {
-      handle.action.reset();
-    }
-    handle.action.enabled = true;
-    handle.action.setEffectiveWeight(intensity);
-
-    if (transitionMs > 0) {
-      handle.action.fadeIn(transitionMs / 1000);
-    }
-
-    handle.action.play();
-  }
-
-  function stopOverlay(clipId: string, options?: { fadeOutMs?: number }): void {
-    const handle = overlayClips.get(clipId);
-    if (!handle) {
-      return;
-    }
-
-    const fadeOutMs = options?.fadeOutMs ?? 0;
-
-    if (fadeOutMs > 0) {
-      handle.action.fadeOut(fadeOutMs / 1000);
-      return;
-    }
-
-    handle.action.stop();
-    handle.action.setEffectiveWeight(0);
-  }
-
-  function stopAllOverlay(fadeOutMs?: number): void {
-    for (const clipId of overlayClips.keys()) {
-      stopOverlay(clipId, { fadeOutMs: fadeOutMs ?? 0 });
-    }
-  }
-
-  function hasActiveOverlay(clipId: string): boolean {
-    const handle = overlayClips.get(clipId);
-    return Boolean(
-      handle && handle.action.enabled && (handle.action.isRunning() || handle.action.getEffectiveWeight() > 0.001)
-    );
-  }
-
   function update(deltaSeconds: number): void {
-    // Base first, then the overlay: the overlay's normal-blend override reads
-    // the base's just-applied pose to blend against while fading in/out.
     mixer.update(deltaSeconds);
-    overlayMixer.update(deltaSeconds);
   }
 
   function hasActiveClip(clipId: string): boolean {
@@ -600,17 +425,11 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
 
   function dispose(): void {
     mixer.stopAllAction();
-    overlayMixer.stopAllAction();
     for (const handle of activeClips.values()) {
       mixer.uncacheClip(handle.clip);
       mixer.uncacheAction(handle.clip);
     }
-    for (const handle of overlayClips.values()) {
-      overlayMixer.uncacheClip(handle.clip);
-      overlayMixer.uncacheAction(handle.clip);
-    }
     activeClips.clear();
-    overlayClips.clear();
     loadedVrmAnimations.clear();
   }
 
@@ -621,11 +440,6 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     crossfade,
     stopAll,
     stopAllExcept,
-    loadOverlayClip,
-    playOverlay,
-    stopOverlay,
-    stopAllOverlay,
-    hasActiveOverlay,
     update,
     hasActiveClip,
     getDebugSnapshot,

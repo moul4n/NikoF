@@ -40,15 +40,9 @@ function formatSemanticAnimationLabel(semanticId: string): string {
     .join(" ");
 }
 
-// Semantic-id prefixes that the backend tags `upper_body_additive`; mirror that
-// here so the dev display tools drive gestures through the additive overlay
-// channel (layered over idle) rather than replacing the base animation.
-const UPPER_ADDITIVE_PREFIXES = ["gesture.", "greet.", "emote.", "think."];
-
 function buildSharedAnimationOption(payload: SemanticAnimationRuntimePayload): DevDisplayAnimationOption {
   const label = payload.semanticId === DEFAULT_BASE_ANIMATION_COMMAND.id ? "Idle Neutral" : formatSemanticAnimationLabel(payload.semanticId);
   const playbackVerb = payload.playback === "once" ? "Play" : "Loop";
-  const isUpperAdditive = UPPER_ADDITIVE_PREFIXES.some((prefix) => payload.semanticId.startsWith(prefix));
 
   return {
     id: payload.semanticId,
@@ -57,8 +51,7 @@ function buildSharedAnimationOption(payload: SemanticAnimationRuntimePayload): D
     behavior: "command",
     semanticCommand: {
       id: payload.semanticId,
-      playback: payload.playback,
-      layer: isUpperAdditive ? "upper-additive" : "base"
+      playback: payload.playback
     }
   };
 }
