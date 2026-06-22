@@ -17,6 +17,7 @@ export interface AnimationClipHandle {
   sourceKind: AnimationClipSourceKind;
   clip: THREE.AnimationClip;
   action: THREE.AnimationAction;
+  channel: "base" | "overlay";
 }
 
 export interface AnimationPlaybackDebugSnapshot {
@@ -50,6 +51,19 @@ export interface AnimationPlaybackBridge {
   crossfade(fromClipId: string, toClipId: string, durationMs: number): void;
   stopAll(fadeOutMs?: number): void;
   stopAllExcept(keepClipId: string, options?: { fadeOutMs?: number }): void;
+  // Upper-body additive overlay channel: gesture clips that layer ON TOP of the
+  // maintained base animation (e.g. a wave while idling) instead of replacing
+  // it. Overlay actions share the base mixer (additive blending only composes
+  // within one mixer) but are tracked separately, so base stop/crossfade never
+  // disturbs them and vice versa.
+  loadOverlayClip(url: string, clipId: string): Promise<AnimationClipHandle>;
+  playOverlay(
+    clipId: string,
+    options?: { loop?: boolean; transitionMs?: number; intensity?: number; restart?: boolean }
+  ): void;
+  stopOverlay(clipId: string, options?: { fadeOutMs?: number }): void;
+  stopAllOverlay(fadeOutMs?: number): void;
+  hasActiveOverlay(clipId: string): boolean;
   update(deltaSeconds: number): void;
   hasActiveClip(clipId: string): boolean;
   getDebugSnapshot(): AnimationPlaybackDebugSnapshot;
@@ -140,7 +154,63 @@ export function resolveAnimationClipSourceKind(url: string): AnimationClipSource
 export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): AnimationPlaybackBridge {
   const mixer = new THREE.AnimationMixer(root);
   const activeClips = new Map<string, AnimationClipHandle>();
+  const overlayClips = new Map<string, AnimationClipHandle>();
   const loadedVrmAnimations = new Map<string, VRMAnimation>();
+
+  // Humanoid bones excluded from upper-body additive overlays: the root/hips
+  // (anchors the avatar — additive hip motion would slide it), the legs/feet
+  // (keep locomotion owned by the base clip), and the head/neck/eyes/jaw (owned
+  // by look-at and the passive facial layers). Everything else — spine, chest,
+  // shoulders, arms, hands, fingers — can carry a gesture additively.
+  const NON_OVERLAY_BONES: ReadonlySet<VRMHumanBoneNameValue> = new Set([
+    VRMHumanBoneName.Hips,
+    VRMHumanBoneName.Neck,
+    VRMHumanBoneName.Head,
+    VRMHumanBoneName.LeftEye,
+    VRMHumanBoneName.RightEye,
+    VRMHumanBoneName.Jaw,
+    VRMHumanBoneName.LeftUpperLeg,
+    VRMHumanBoneName.LeftLowerLeg,
+    VRMHumanBoneName.LeftFoot,
+    VRMHumanBoneName.LeftToes,
+    VRMHumanBoneName.RightUpperLeg,
+    VRMHumanBoneName.RightLowerLeg,
+    VRMHumanBoneName.RightFoot,
+    VRMHumanBoneName.RightToes,
+  ]);
+
+  let cachedOverlayNodeNames: Set<string> | null = null;
+  function overlayBoneNodeNames(): Set<string> {
+    if (cachedOverlayNodeNames) {
+      return cachedOverlayNodeNames;
+    }
+    const names = new Set<string>();
+    for (const boneName of Object.values(VRMHumanBoneName) as VRMHumanBoneNameValue[]) {
+      if (NON_OVERLAY_BONES.has(boneName)) {
+        continue;
+      }
+      const node = vrm.humanoid.getNormalizedBoneNode(boneName);
+      if (node?.name) {
+        names.add(node.name);
+      }
+    }
+    cachedOverlayNodeNames = names;
+    return names;
+  }
+
+  // Restrict a clip to upper-body bone-rotation tracks, then convert to an
+  // additive clip (each frame becomes a delta from the clip's rest frame). The
+  // result adds onto the base pose for arms/torso only — legs, hips and head
+  // are left to the base clip and the gaze/facial layers.
+  function makeUpperBodyAdditiveClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+    const allowed = overlayBoneNodeNames();
+    const tracks = clip.tracks.filter(
+      (track) => track.name.endsWith(".quaternion") && allowed.has(track.name.split(".")[0])
+    );
+    const additiveClip = new THREE.AnimationClip(`${clip.name}__upperAdditive`, clip.duration, tracks);
+    THREE.AnimationUtils.makeClipAdditive(additiveClip);
+    return additiveClip;
+  }
 
   const vrmaLoader = new GLTFLoader();
   vrmaLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
@@ -249,8 +319,35 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     action.setEffectiveWeight(0);
     action.enabled = true;
 
-    const handle: AnimationClipHandle = { clipId, sourceKind, clip, action };
+    const handle: AnimationClipHandle = { clipId, sourceKind, clip, action, channel: "base" };
     activeClips.set(clipId, handle);
+    return handle;
+  }
+
+  async function loadOverlayClip(url: string, clipId: string): Promise<AnimationClipHandle> {
+    const existing = overlayClips.get(clipId);
+    if (existing) {
+      return existing;
+    }
+
+    const sourceKind = resolveAnimationClipSourceKind(url);
+
+    if (!sourceKind) {
+      throw new Error(`Unsupported animation source (expected .vrma or .fbx): ${url}`);
+    }
+
+    const baseClip = sourceKind === "vrma" ? await loadVrmaClip(url, clipId) : await loadMixamoFbxClip(url, clipId);
+    const additiveClip = makeUpperBodyAdditiveClip(baseClip);
+
+    // Additive blend mode must be set at action creation; it composes with the
+    // normal-blend base action on this same mixer (a second mixer would
+    // overwrite rather than add).
+    const action = mixer.clipAction(additiveClip, root, THREE.AdditiveAnimationBlendMode);
+    action.setEffectiveWeight(0);
+    action.enabled = true;
+
+    const handle: AnimationClipHandle = { clipId, sourceKind, clip: additiveClip, action, channel: "overlay" };
+    overlayClips.set(clipId, handle);
     return handle;
   }
 
@@ -324,6 +421,67 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
         stop(clipId, options);
       }
     }
+  }
+
+  function playOverlay(
+    clipId: string,
+    options?: { loop?: boolean; transitionMs?: number; intensity?: number; restart?: boolean }
+  ): void {
+    const handle = overlayClips.get(clipId);
+    if (!handle) {
+      return;
+    }
+
+    const loop = options?.loop ?? false;
+    const transitionMs = options?.transitionMs ?? 0;
+    const intensity = Math.max(0, Math.min(1, options?.intensity ?? 1));
+    const restart = options?.restart ?? true;
+
+    handle.action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
+    // One-shot gestures must NOT clamp: holding the last additive frame would
+    // freeze the arm off-pose. Letting it finish returns the delta to zero.
+    handle.action.clampWhenFinished = false;
+    if (restart) {
+      handle.action.reset();
+    }
+    handle.action.enabled = true;
+    handle.action.setEffectiveWeight(intensity);
+
+    if (transitionMs > 0) {
+      handle.action.fadeIn(transitionMs / 1000);
+    }
+
+    handle.action.play();
+  }
+
+  function stopOverlay(clipId: string, options?: { fadeOutMs?: number }): void {
+    const handle = overlayClips.get(clipId);
+    if (!handle) {
+      return;
+    }
+
+    const fadeOutMs = options?.fadeOutMs ?? 0;
+
+    if (fadeOutMs > 0) {
+      handle.action.fadeOut(fadeOutMs / 1000);
+      return;
+    }
+
+    handle.action.stop();
+    handle.action.setEffectiveWeight(0);
+  }
+
+  function stopAllOverlay(fadeOutMs?: number): void {
+    for (const clipId of overlayClips.keys()) {
+      stopOverlay(clipId, { fadeOutMs: fadeOutMs ?? 0 });
+    }
+  }
+
+  function hasActiveOverlay(clipId: string): boolean {
+    const handle = overlayClips.get(clipId);
+    return Boolean(
+      handle && handle.action.enabled && (handle.action.isRunning() || handle.action.getEffectiveWeight() > 0.001)
+    );
   }
 
   function update(deltaSeconds: number): void {
@@ -429,7 +587,12 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
       mixer.uncacheClip(handle.clip);
       mixer.uncacheAction(handle.clip);
     }
+    for (const handle of overlayClips.values()) {
+      mixer.uncacheClip(handle.clip);
+      mixer.uncacheAction(handle.clip);
+    }
     activeClips.clear();
+    overlayClips.clear();
     loadedVrmAnimations.clear();
   }
 
@@ -440,6 +603,11 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
     crossfade,
     stopAll,
     stopAllExcept,
+    loadOverlayClip,
+    playOverlay,
+    stopOverlay,
+    stopAllOverlay,
+    hasActiveOverlay,
     update,
     hasActiveClip,
     getDebugSnapshot,

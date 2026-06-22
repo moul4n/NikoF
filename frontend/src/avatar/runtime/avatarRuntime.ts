@@ -359,6 +359,9 @@ export interface AvatarRuntimeSnapshot {
   pendingAnimation: SemanticAnimationCommand | null;
   baseAnimation: SemanticAnimationCommand | null;
   idleAnimation: SemanticAnimationCommand | null;
+  // Upper-body gesture currently layered over the base via the additive overlay
+  // channel (e.g. a wave while idling), or null when no gesture is overlaid.
+  overlayAnimation: SemanticAnimationCommand | null;
   currentModelUrl: string | null;
   loadState: AvatarRuntimeLoadState;
   activeEmotion: AvatarRuntimeEmotionName | null;
@@ -472,6 +475,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     pendingAnimation: null,
     baseAnimation: null,
     idleAnimation: cloneSemanticAnimationCommand(DEFAULT_BASE_ANIMATION_COMMAND),
+    overlayAnimation: null,
     currentModelUrl: null,
     loadState: "idle",
     activeEmotion: null,
@@ -489,6 +493,12 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let animationFrameId: number | null = null;
   let currentAvatar: LoadedAvatar | null = null;
   let activeBaseAnimation: ActiveBaseAnimationState | null = null;
+  // The upper-body gesture currently overlaid on the base, plus the timer that
+  // clears a one-shot once its clip duration elapses. `expectedCommandId`
+  // guards against superseded async loads (last write wins).
+  let activeOverlayAnimation:
+    | { command: SemanticAnimationCommand; expectedCommandId: string; stopTimer: ReturnType<typeof setTimeout> | null }
+    | null = null;
   let selectedIdleAnimation = cloneSemanticAnimationCommand(DEFAULT_BASE_ANIMATION_COMMAND);
   let debugProfileView: AvatarDebugProfileView = "front";
   let rigOverlayEnabled = false;
@@ -2459,6 +2469,104 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     });
   }
 
+  // Small fade applied when a gesture overlay starts and when it ends, so the
+  // additive layer eases in/out instead of popping.
+  const OVERLAY_TRANSITION_MS = 180;
+
+  function stopOverlayAnimation(fadeOutMs = 0): void {
+    if (activeOverlayAnimation?.stopTimer) {
+      clearTimeout(activeOverlayAnimation.stopTimer);
+    }
+    if (activeOverlayAnimation) {
+      animationPlayback?.stopOverlay(activeOverlayAnimation.command.id, { fadeOutMs });
+    } else {
+      animationPlayback?.stopAllOverlay(fadeOutMs);
+    }
+    activeOverlayAnimation = null;
+    if (snapshot.overlayAnimation) {
+      updateSnapshot({ overlayAnimation: null });
+    }
+  }
+
+  // Layer an upper-body gesture (wave, clap, …) ON TOP of the maintained base
+  // animation via the additive overlay channel, instead of replacing the base.
+  // The base idle keeps running underneath; only arms/torso pick up the gesture.
+  function activateBodyGestureOverlay(command: SemanticAnimationCommand): void {
+    const canonicalCommand = resolveCanonicalAnimationCommand(command);
+    const resolvedPayload = resolveBaseAnimationPayload(canonicalCommand);
+    const playbackBridge = animationPlayback;
+
+    if (!resolvedPayload || !playbackBridge || !currentAvatar) {
+      updateSnapshot({
+        error: resolvedPayload
+          ? "Animation playback is unavailable until a VRM humanoid finishes loading."
+          : `Semantic animation '${canonicalCommand.id}' is not yet backed by a web runtime payload.`
+      });
+      return;
+    }
+
+    // Supersede any in-flight gesture (last write wins).
+    if (activeOverlayAnimation?.stopTimer) {
+      clearTimeout(activeOverlayAnimation.stopTimer);
+    }
+    const expectedCommandId = canonicalCommand.id;
+    const loop = canonicalCommand.playback === "loop";
+    const intensity = canonicalCommand.intensity ?? 1;
+    activeOverlayAnimation = { command: canonicalCommand, expectedCommandId, stopTimer: null };
+
+    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload)
+      .then(async (source) => {
+        if (!activeOverlayAnimation || activeOverlayAnimation.expectedCommandId !== expectedCommandId || !currentAvatar) {
+          return;
+        }
+        if (!source) {
+          throw new Error(`Semantic animation '${canonicalCommand.id}' has no playable VRMA or FBX source.`);
+        }
+
+        const clipHandle = await playbackBridge.loadOverlayClip(source.url, canonicalCommand.id);
+
+        if (!activeOverlayAnimation || activeOverlayAnimation.expectedCommandId !== expectedCommandId || !currentAvatar) {
+          return;
+        }
+
+        playbackBridge.playOverlay(canonicalCommand.id, {
+          loop,
+          intensity,
+          transitionMs: OVERLAY_TRANSITION_MS,
+          restart: true
+        });
+
+        updateSnapshot({
+          overlayAnimation: cloneSemanticAnimationCommand(canonicalCommand),
+          error: null
+        });
+
+        // A one-shot gesture clears itself once its clip has played through, so
+        // the additive layer fades back to zero and the snapshot reflects idle.
+        if (!loop) {
+          const holdMs = Math.max(0, clipHandle.clip.duration * 1000);
+          activeOverlayAnimation.stopTimer = setTimeout(() => {
+            if (!activeOverlayAnimation || activeOverlayAnimation.expectedCommandId !== expectedCommandId) {
+              return;
+            }
+            playbackBridge.stopOverlay(canonicalCommand.id, { fadeOutMs: OVERLAY_TRANSITION_MS });
+            activeOverlayAnimation = null;
+            updateSnapshot({ overlayAnimation: null });
+          }, holdMs);
+        }
+      })
+      .catch((err) => {
+        console.warn(`[activateOverlay] Gesture overlay load failed for ${canonicalCommand.id}:`, err);
+        if (activeOverlayAnimation?.expectedCommandId === expectedCommandId) {
+          activeOverlayAnimation = null;
+        }
+        updateSnapshot({
+          overlayAnimation: null,
+          error: err instanceof Error ? err.message : `Gesture '${canonicalCommand.id}' could not be loaded.`
+        });
+      });
+  }
+
   function disposeMaterial(material: THREE.Material): void {
     for (const value of Object.values(material as unknown as Record<string, unknown>)) {
       if (isTexture(value)) {
@@ -2474,6 +2582,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       removeRigOverlayHelper();
       removeGazeDebugMarkerHelper();
       stopBaseAnimation();
+      stopOverlayAnimation();
       if (animationPlayback) { animationPlayback.dispose(); animationPlayback = null; }
       if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
       if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
@@ -2486,6 +2595,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     removeRigOverlayHelper();
   removeGazeDebugMarkerHelper();
     stopBaseAnimation();
+    stopOverlayAnimation();
     if (animationPlayback) { animationPlayback.dispose(); animationPlayback = null; }
     if (passiveBlink) { passiveBlink.dispose(); passiveBlink = null; }
     if (passiveMouth) { passiveMouth.dispose(); passiveMouth = null; }
@@ -3047,11 +3157,20 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     play(command) {
       if (!command) {
         stopBaseAnimation();
+        stopOverlayAnimation(OVERLAY_TRANSITION_MS);
         updateSnapshot({
           pendingAnimation: null,
           baseAnimation: null,
           error: null
         });
+        return;
+      }
+
+      // Upper-body gestures layer additively over the maintained base instead
+      // of replacing it — route them to the overlay channel and leave the base
+      // (idle/locomotion) untouched.
+      if (command.layer === "upper-additive") {
+        activateBodyGestureOverlay(command);
         return;
       }
 

@@ -3,6 +3,7 @@ import type {
   BackendSessionAnimationSnapshotDocument,
   BackendSessionLifecycleUpdateRequestDocument,
   SemanticAnimationCommand,
+  SemanticAnimationLayer,
   SemanticAnimationPlaybackMode
 } from "../../shared/types/animation";
 
@@ -229,6 +230,7 @@ export function consumeSessionAnimationSnapshot(
     semanticCommand: {
       id: rawCommand.semantic_id,
       playback: resolvePlaybackMode(rawCommand.playback.mode),
+      layer: resolveAnimationLayer(rawCommand),
       intensity: rawCommand.intensity,
       durationMs: rawCommand.playback.expected_duration_ms ?? undefined
     },
@@ -238,6 +240,24 @@ export function consumeSessionAnimationSnapshot(
 
 function resolvePlaybackMode(mode: string): SemanticAnimationPlaybackMode {
   return mode === "loop" ? "loop" : "once";
+}
+
+const UPPER_ADDITIVE_SEMANTIC_PREFIXES = ["gesture.", "greet.", "emote."];
+
+/**
+ * Decide which runtime channel a command targets. The backend's
+ * `blend_hint === "upper_body_additive"` is the canonical signal; a
+ * semantic-id prefix is a defensive fallback for older payloads.
+ */
+function resolveAnimationLayer(rawCommand: BackendAnimationCommandDocument): SemanticAnimationLayer {
+  if (rawCommand.playback.blend_hint === "upper_body_additive") {
+    return "upper-additive";
+  }
+  const semanticId = rawCommand.semantic_id ?? "";
+  if (UPPER_ADDITIVE_SEMANTIC_PREFIXES.some((prefix) => semanticId.startsWith(prefix))) {
+    return "upper-additive";
+  }
+  return "base";
 }
 
 async function fetchSessionAnimationSnapshotDocument(

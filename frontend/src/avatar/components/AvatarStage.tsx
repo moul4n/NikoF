@@ -17,6 +17,11 @@ const DISPLAY_ANIMATION_BUTTON_EXCLUDED_IDS = new Set(["idle.default", "listen.l
 const DISPLAY_IDLE_SELECTOR_IDS = ["idle.neutral", "idle.happy", "idle.sad"] as const;
 const DISPLAY_IDLE_SELECTOR_ID_SET = new Set<string>(DISPLAY_IDLE_SELECTOR_IDS);
 
+// Gesture-prefixed clips route through the additive overlay channel (layered
+// over idle) rather than replacing the base animation, mirroring the backend's
+// `upper_body_additive` blend hint.
+const UPPER_ADDITIVE_PREFIXES = ["gesture.", "greet.", "emote.", "think."];
+
 const DISPLAY_ANIMATION_OPTIONS = listSharedSemanticAnimationPayloads()
   .filter((payload) => !DISPLAY_ANIMATION_BUTTON_EXCLUDED_IDS.has(payload.semanticId))
   .map((payload) => ({
@@ -25,7 +30,10 @@ const DISPLAY_ANIMATION_OPTIONS = listSharedSemanticAnimationPayloads()
     playbackLabel: payload.playback === "loop" ? "Loop" : "Once",
     command: {
       id: payload.semanticId,
-      playback: payload.playback
+      playback: payload.playback,
+      layer: UPPER_ADDITIVE_PREFIXES.some((prefix) => payload.semanticId.startsWith(prefix))
+        ? "upper-additive"
+        : "base"
     } as const
   }));
 
