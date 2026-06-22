@@ -167,13 +167,17 @@ export function createAnimationPlayback(vrm: VRM, root: THREE.Object3D): Animati
   const overlayClips = new Map<string, AnimationClipHandle>();
   const loadedVrmAnimations = new Map<string, VRMAnimation>();
 
-  // Humanoid bones excluded from upper-body overlays: the root/hips (anchors the
-  // avatar), the legs/feet (locomotion stays owned by the base clip), and the
-  // head/neck/eyes/jaw (owned by look-at and the passive facial layers).
-  // Everything else — spine, chest, shoulders, arms, hands, fingers — is driven
-  // by the gesture while it plays.
+  // Humanoid bones excluded from upper-body overlays. The overlay drives ONLY
+  // the arms (shoulders, upper/lower arms, hands, fingers). The spine/chest are
+  // excluded too: our gesture clips are holistic full-body motions whose torso
+  // lean pivots from a moving hip — overriding the spine while the hips are held
+  // steady tilts the character unnaturally, so we leave the whole torso, hips,
+  // legs and head to the base clip and the gaze/facial layers.
   const NON_OVERLAY_BONES: ReadonlySet<VRMHumanBoneNameValue> = new Set([
     VRMHumanBoneName.Hips,
+    VRMHumanBoneName.Spine,
+    VRMHumanBoneName.Chest,
+    VRMHumanBoneName.UpperChest,
     VRMHumanBoneName.Neck,
     VRMHumanBoneName.Head,
     VRMHumanBoneName.LeftEye,
