@@ -51,7 +51,6 @@ function buildSharedAnimationOption(payload: SemanticAnimationRuntimePayload): D
     behavior: "command",
     semanticCommand: {
       id: payload.semanticId,
-      source: "shared",
       playback: payload.playback
     }
   };

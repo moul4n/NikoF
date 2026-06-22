@@ -347,7 +347,6 @@ function buildLocalManifestSummary(
       modelUrl: `/assets/characters/${character.character_id}/model.vrm`,
       metadataUrl: `/assets/characters/${character.character_id}/metadata/identity.json`,
       expressionMapUrl: `/assets/characters/${character.character_id}/expressions/map.json`,
-      animationOverridesUrl: `/assets/characters/${character.character_id}/overrides/animations.json`,
       voiceProfile: {
         profileId: `local-profile-${index + 1}`,
         url: `/assets/characters/${character.character_id}/voice/profile.json`

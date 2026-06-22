@@ -192,7 +192,6 @@ function normalizeCharacterManifest(
       modelUrl: resolveManifestAssetUrl(manifestUrl, document.model_file, assetUrlOverrides),
       metadataUrl: resolveManifestAssetUrl(manifestUrl, document.metadata_file, assetUrlOverrides),
       expressionMapUrl: resolveManifestAssetUrl(manifestUrl, document.expression_map, assetUrlOverrides),
-      animationOverridesUrl: resolveManifestAssetUrl(manifestUrl, document.animation_overrides, assetUrlOverrides),
       voiceProfile: {
         profileId: document.voice_profile.profile_id,
         url: resolveManifestAssetUrl(manifestUrl, document.voice_profile.path, assetUrlOverrides)

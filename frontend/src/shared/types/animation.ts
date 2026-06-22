@@ -27,7 +27,6 @@ export type SemanticAnimationPlaybackMode = "loop" | "once";
 
 export interface SemanticAnimationCommand {
   id: SemanticAnimationId;
-  source: "shared" | "override";
   playback: SemanticAnimationPlaybackMode;
   intensity?: number;
   durationMs?: number;
@@ -146,7 +145,6 @@ export interface BackendAnimationResolutionDocument {
   selected_source: string;
   selected_asset_id: string;
   fallback_applied: boolean;
-  override_character_id?: string | null;
 }
 
 export interface BackendAnimationPlaybackDocument {

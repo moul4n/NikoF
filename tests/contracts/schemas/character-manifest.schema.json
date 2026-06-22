@@ -16,8 +16,7 @@
     "supported_states",
     "shared_animation_set",
     "voice_profile",
-    "expression_map",
-    "animation_overrides"
+    "expression_map"
   ],
   "properties": {
     "schema_version": {
@@ -85,10 +84,6 @@
       }
     },
     "expression_map": {
-      "type": "string",
-      "minLength": 1
-    },
-    "animation_overrides": {
       "type": "string",
       "minLength": 1
     }

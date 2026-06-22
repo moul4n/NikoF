@@ -231,7 +231,6 @@ class DefaultAnimationService:
     """Resolves semantic animation intents into normalized playback commands."""
 
     shared_animation_ids: frozenset[str] = field(default_factory=lambda: DEFAULT_SHARED_ANIMATION_IDS)
-    character_overrides: dict[str, dict[str, str]] = field(default_factory=dict)
     playback_library: dict[str, AnimationPlayback] = field(default_factory=lambda: dict(DEFAULT_PLAYBACK_LIBRARY))
 
     def resolve_intent(self, intent: AnimationIntent) -> AnimationCommand:
@@ -278,18 +277,6 @@ class DefaultAnimationService:
                 AnimationResolution(
                     selected_source="shared_library",
                     selected_asset_id=intent.semantic_id,
-                ),
-                intent.semantic_id,
-            )
-
-        character_assets = self.character_overrides.get(intent.character_id, {})
-        override_asset_id = character_assets.get(intent.semantic_id)
-        if override_asset_id is not None:
-            return (
-                AnimationResolution(
-                    selected_source="character_override",
-                    selected_asset_id=override_asset_id,
-                    override_character_id=intent.character_id,
                 ),
                 intent.semantic_id,
             )

@@ -21,7 +21,6 @@ class CharacterManifest:
     supported_states: list[str]
     shared_animation_set: str
     expression_map: str
-    animation_overrides: str
     voice_profile_id: str
     voice_profile_path: str
 

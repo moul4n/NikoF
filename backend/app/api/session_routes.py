@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.schemas.animation import SessionAnimationSnapshot
-from app.schemas.animation_commands import AnimationCommandEnvelope
 from app.schemas.session import SessionLifecycleUpdateRequest, SpeechLifecycleTransportSnapshot
 from app.services.animation import (
     AnimationService,
@@ -13,7 +12,6 @@ from app.services.animation import (
     SessionAnimationLiveDeliveryService,
     SessionAnimationUpdate,
 )
-from app.services.animation_commands import AnimationCommandTranslator
 from app.services.character import CharacterService
 from app.services.session import InvalidEventCursor, SessionService
 from app.services.speech_audio_broadcast import get_speech_audio_broadcaster
@@ -34,7 +32,6 @@ class SessionTransportRouteServices:
     character_service: CharacterService
     animation_service: AnimationService
     session_animation_live_delivery: SessionAnimationLiveDeliveryService
-    animation_command_translator: AnimationCommandTranslator
     speech_lifecycle_service: SpeechLifecycleSnapshotService
     speech_lifecycle_live_delivery: SpeechLifecycleLiveDeliveryService
 
@@ -123,13 +120,6 @@ def register_session_transport_routes(
                     payload=animation_snapshot,
                     serialize_dataclass_payload=serialize_dataclass_payload,
                 )
-                # Also emit the thin frontend command
-                cmd_envelope = services.animation_command_translator.translate(animation_snapshot)
-                yield _build_sse_frame(
-                    event_name="animation.command",
-                    payload=cmd_envelope,
-                    serialize_dataclass_payload=serialize_dataclass_payload,
-                )
                 async for update in _iterate_blocking_iterator(
                     services.session_animation_live_delivery.iter_live_updates(
                         animation_snapshot.session_id,
@@ -142,13 +132,6 @@ def register_session_transport_routes(
                         event_name=SESSION_ANIMATION_STREAM,
                         payload=update.snapshot,
                         cursor=update.cursor,
-                        serialize_dataclass_payload=serialize_dataclass_payload,
-                    )
-                    # Emit corresponding frontend command
-                    cmd_envelope = services.animation_command_translator.translate(update.snapshot)
-                    yield _build_sse_frame(
-                        event_name="animation.command",
-                        payload=cmd_envelope,
                         serialize_dataclass_payload=serialize_dataclass_payload,
                     )
 

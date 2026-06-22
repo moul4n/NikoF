@@ -65,32 +65,6 @@ class DefaultAnimationServiceTests(unittest.TestCase):
         self.assertTrue(command.playback.loop)
         self.assertEqual(command.playback.expected_duration_ms, 8333)
 
-    def test_prefers_shared_semantic_over_character_override(self) -> None:
-        service = DefaultAnimationService(
-            character_overrides={
-                "test-vrm-01": {
-                    "greet.wave.once": "override.wave.once",
-                }
-            }
-        )
-
-        command = service.resolve_intent(
-            AnimationIntent(
-                intent_id="anim-intent-1",
-                session_id="session-1",
-                character_id="test-vrm-01",
-                intent_type="gesture",
-                semantic_id="greet.wave.once",
-                source="assistant_reply",
-            )
-        )
-
-        self.assertEqual(command.semantic_id, "greet.wave.once")
-        self.assertEqual(command.resolution.selected_source, "shared_library")
-        self.assertEqual(command.resolution.selected_asset_id, "greet.wave.once")
-        self.assertIsNone(command.resolution.override_character_id)
-        self.assertEqual(command.playback.mode, "oneshot")
-
     def test_resolves_imported_generic_shared_animation_ids(self) -> None:
         service = DefaultAnimationService()
 
@@ -117,32 +91,6 @@ class DefaultAnimationServiceTests(unittest.TestCase):
                 self.assertEqual(command.resolution.selected_source, "shared_library")
                 self.assertEqual(command.resolution.selected_asset_id, semantic_id)
                 self.assertEqual(command.playback.mode, playback_mode)
-
-    def test_uses_character_override_when_shared_semantic_is_missing(self) -> None:
-        service = DefaultAnimationService(
-            character_overrides={
-                "test-vrm-02": {
-                    "gesture.salute.once": "character.salute.once",
-                }
-            }
-        )
-
-        command = service.resolve_intent(
-            AnimationIntent(
-                intent_id="anim-intent-2",
-                session_id="session-2",
-                character_id="test-vrm-02",
-                intent_type="gesture",
-                semantic_id="gesture.salute.once",
-                source="assistant_reply",
-            )
-        )
-
-        self.assertEqual(command.semantic_id, "gesture.salute.once")
-        self.assertEqual(command.resolution.selected_source, "character_override")
-        self.assertEqual(command.resolution.selected_asset_id, "character.salute.once")
-        self.assertEqual(command.resolution.override_character_id, "test-vrm-02")
-        self.assertEqual(command.playback.mode, "oneshot")
 
     def test_falls_back_to_policy_semantic_and_clamps_intensity(self) -> None:
         service = DefaultAnimationService()

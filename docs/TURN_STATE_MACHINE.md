@@ -361,7 +361,6 @@ The current implementation has two sources for this stream:
 Expected event types:
 
 - `session.animation`
-- `animation.command`
 - `animation.interrupt`
 
 ## Canonical Event Envelope

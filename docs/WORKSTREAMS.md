@@ -63,8 +63,8 @@ This is the active scaffold board for the current stages. It assumes the three t
 ### Switch Stage 5
 
 - [x] Implement animation playback against semantic ids rather than file paths.
-- [ ] Resolve per-character overrides through manifest data returned by the backend.
-- [x] Add safe fallback handling when a shared or override animation asset is missing.
+- [x] Removed the per-character animation override layer; all characters resolve against the shared library.
+- [x] Add safe fallback handling when a shared animation asset is missing.
 
 ### Switch Stage 6
 

@@ -41,7 +41,6 @@ function resolveMoodDrivenIdleCommand(feelingName: string | null | undefined) {
   if (normalizedFeelingName === "happy") {
     return {
       id: "idle.happy",
-      source: "shared",
       playback: "loop"
     } as const;
   }
@@ -49,7 +48,6 @@ function resolveMoodDrivenIdleCommand(feelingName: string | null | undefined) {
   if (normalizedFeelingName === "sad") {
     return {
       id: "idle.sad",
-      source: "shared",
       playback: "loop"
     } as const;
   }

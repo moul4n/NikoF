@@ -13,7 +13,6 @@ from app.api.resource_routes import register_resource_routes
 from app.api.stt_routes import register_stt_routes
 from app.api.tts_settings_routes import register_tts_settings_routes
 from app.api.session_routes import SessionTransportRouteServices, register_session_transport_routes
-from app.services.animation_commands import AnimationCommandTranslator
 from app.core.settings import get_app_paths
 from app.schemas.animation import SessionAnimationSnapshot
 from app.schemas.character import ActiveCharacterSelection, CharacterCatalogResponse
@@ -524,7 +523,6 @@ def register_api_routes(
             character_service=services.character_service,
             animation_service=services.animation_service,
             session_animation_live_delivery=services.session_animation_live_delivery,
-            animation_command_translator=AnimationCommandTranslator(),
             speech_lifecycle_service=services.speech_lifecycle_service,
             speech_lifecycle_live_delivery=services.speech_lifecycle_live_delivery,
         ),

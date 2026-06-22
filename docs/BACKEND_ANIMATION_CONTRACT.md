@@ -59,8 +59,7 @@ Current snapshot shape:
     "resolution": {
       "selected_source": "shared_library",
       "selected_asset_id": "idle.neutral",
-      "fallback_applied": false,
-      "override_character_id": null
+      "fallback_applied": false
     },
     "playback": {
       "mode": "loop",
@@ -95,8 +94,7 @@ Current snapshot shape:
 Current backend resolution order:
 
 1. approved shared semantic animation
-2. declared character override
-3. safe fallback semantic animation
+2. safe fallback semantic animation
 
 Current lifecycle-state mapping:
 

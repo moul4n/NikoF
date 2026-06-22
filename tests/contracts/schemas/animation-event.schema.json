@@ -39,7 +39,6 @@
       "type": "string",
       "enum": [
         "shared-library",
-        "character-override",
         "generated-staged"
       ]
     },

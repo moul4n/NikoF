@@ -25,7 +25,6 @@ export interface CharacterManifestDocument {
   shared_animation_set: string;
   voice_profile: CharacterVoiceProfileDocument;
   expression_map: string;
-  animation_overrides: string;
 }
 
 export interface CharacterVoiceProfileSummary {
@@ -39,7 +38,6 @@ export interface CharacterAssetPaths {
   modelUrl: string;
   metadataUrl: string;
   expressionMapUrl: string;
-  animationOverridesUrl: string;
   voiceProfile: CharacterVoiceProfileSummary;
 }
 

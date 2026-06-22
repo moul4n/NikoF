@@ -48,7 +48,6 @@ class AnimationResolution:
     selected_source: str
     selected_asset_id: str
     fallback_applied: bool = False
-    override_character_id: str | None = None
 
 
 @dataclass(slots=True, frozen=True)

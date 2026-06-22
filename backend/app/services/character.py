@@ -78,7 +78,6 @@ class FileSystemCharacterManifestSource:
             supported_states=list(payload.get("supported_states", [])),
             shared_animation_set=payload["shared_animation_set"],
             expression_map=payload["expression_map"],
-            animation_overrides=payload["animation_overrides"],
             voice_profile_id=voice_profile.get("profile_id", ""),
             voice_profile_path=voice_profile.get("path", ""),
         )

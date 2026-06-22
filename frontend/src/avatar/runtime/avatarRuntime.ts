@@ -331,12 +331,10 @@ function cloneSemanticAnimationCommand(command: SemanticAnimationCommand): Seman
 }
 
 function resolveCanonicalAnimationCommand(command: SemanticAnimationCommand): SemanticAnimationCommand {
-  return command.source === "shared"
-    ? {
-        ...command,
-        id: resolveCanonicalSharedSemanticAnimationId(command.id)
-      }
-    : command;
+  return {
+    ...command,
+    id: resolveCanonicalSharedSemanticAnimationId(command.id)
+  };
 }
 
 function isIdleAnimationCommand(command: SemanticAnimationCommand): boolean {
@@ -2246,10 +2244,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
    */
   async function resolveBaseAnimationSource(
     semanticId: string,
-    payload: SemanticAnimationRuntimePayload,
-    characterId: string | undefined
+    payload: SemanticAnimationRuntimePayload
   ): Promise<ResolvedBaseAnimationSource | null> {
-    const vrmaResolution = await probeVrmaAsset(semanticId, characterId).catch(() => null);
+    const vrmaResolution = await probeVrmaAsset(semanticId).catch(() => null);
 
     if (vrmaResolution) {
       return { url: vrmaResolution.url, sourceKind: "vrma" };
@@ -2267,7 +2264,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return null;
     }
 
-    const fallbackVrmaResolution = await probeVrmaAsset(fallbackSemanticId, characterId).catch(() => null);
+    const fallbackVrmaResolution = await probeVrmaAsset(fallbackSemanticId).catch(() => null);
 
     if (fallbackVrmaResolution) {
       return { url: fallbackVrmaResolution.url, sourceKind: "vrma" };
@@ -2275,7 +2272,6 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     const fallbackPayload = resolveSharedSemanticAnimationPayload({
       id: fallbackSemanticId,
-      source: "shared",
       playback: payload.playback
     });
     const fallbackFbxUrl = resolvePlayableSourceUrl(fallbackPayload);
@@ -2301,7 +2297,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     if (!resolvedPayload) {
       return;
     }
-    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload, snapshot.currentCharacterId ?? undefined)
+    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload)
       .then((source) => {
         if (source) {
           return playbackBridge.loadClip(source.url, canonicalCommand.id);
@@ -2380,7 +2376,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       sourceKind: null
     };
 
-    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload, snapshot.currentCharacterId ?? undefined)
+    resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload)
       .then(async (source) => {
         if (!activeBaseAnimation || activeBaseAnimation.command.id !== expectedCommandId || !currentAvatar) {
           return;

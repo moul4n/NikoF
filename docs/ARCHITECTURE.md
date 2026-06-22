@@ -169,7 +169,7 @@ The repository structure above intentionally omits committed model payload direc
 
 - Loads UniVRM 1.0 avatars and validates that each character satisfies the required humanoid and expression contract.
 - Plays shared animation assets against a normalized rig mapping.
-- Applies per-character overrides only where a manifest explicitly declares them.
+- Plays the shared animation library for every character; there is no per-character animation override layer.
 - Exposes a narrow runtime API to the React app: load character, swap character, play idle set, play scripted animation event, update gaze or expression state.
 - Accepts semantic face or scene reactions from the frontend state layer, not raw MediaPipe or CLIP payloads.
 
@@ -234,7 +234,7 @@ The repository structure above intentionally omits committed model payload direc
 ### Animation Runtime Service
 
 - Converts conversation state and backend intent into animation DSL events.
-- Resolves shared animation library references and optional per-character overrides.
+- Resolves shared animation library references.
 - Emits frontend-safe animation commands, not engine-specific scene code.
 
 ## Interface Boundaries And Contracts
@@ -414,7 +414,6 @@ Required minimum fields in `manifest.json`:
 - `shared_animation_set`
 - `voice_profile`
 - `expression_map`
-- `animation_overrides`
 
 Required minimum fields in `metadata/identity.json`:
 
@@ -442,7 +441,6 @@ Suggested manifest fields:
 - `supported_expressions`
 - `voice_profile`
 - `prompt_profile`
-- `animation_overrides`
 - `camera_defaults`
 
 Minimal scaffold example:
@@ -463,8 +461,7 @@ Minimal scaffold example:
     "profile_id": "test-vrm-01-default",
     "path": "voice/profile.json"
   },
-  "expression_map": "expressions/mapping.json",
-  "animation_overrides": "overrides/animations.json"
+  "expression_map": "expressions/mapping.json"
 }
 ```
 
@@ -496,7 +493,7 @@ Animation assets are organized by semantic ownership, not by whichever system au
 
 - Character-specific override payloads live in two places: `assets/characters/{character_id}/overrides/animations.json` for manifest declarations, and `assets/animations/overrides/{character_id}/` for the override assets themselves.
 - Overrides are allowed only when a shared semantic animation exists first and the character needs a different clip, timing patch, expression blend, or additive motion layer.
-- Runtime resolution order is: shared semantic clip, declared character override, then safe fallback pose or expression if neither exists.
+- Runtime resolution order is: shared semantic clip, then safe fallback pose or expression if it does not exist.
 - Frontend code must request semantic animation ids only. It may not branch on `character_id` to pick files.
 
 ### AI-Authored Animation Generation

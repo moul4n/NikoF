@@ -212,8 +212,7 @@
         "field_order": [
           "selected_source",
           "selected_asset_id",
-          "fallback_applied",
-          "override_character_id"
+          "fallback_applied"
         ],
         "required_field_names": [
           "selected_source",
@@ -237,12 +236,6 @@
             "type": "bool",
             "required": false,
             "default": "False"
-          },
-          {
-            "name": "override_character_id",
-            "type": "str | None",
-            "required": false,
-            "default": "None"
           }
         ]
       },

@@ -25,7 +25,6 @@ const DISPLAY_ANIMATION_OPTIONS = listSharedSemanticAnimationPayloads()
     playbackLabel: payload.playback === "loop" ? "Loop" : "Once",
     command: {
       id: payload.semanticId,
-      source: "shared",
       playback: payload.playback
     } as const
   }));

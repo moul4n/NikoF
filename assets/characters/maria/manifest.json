@@ -18,6 +18,5 @@
     "profile_id": "maria-default",
     "path": "voice/profile.json"
   },
-  "expression_map": "expressions/mapping.json",
-  "animation_overrides": "overrides/animations.json"
+  "expression_map": "expressions/mapping.json"
 }

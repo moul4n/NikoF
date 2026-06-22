@@ -189,7 +189,7 @@ function Assert-AnimationEventShape {
         Assert-NonEmptyString -Failures $Failures -Label "$Label.$propertyName" -Value $Event.$propertyName
     }
 
-    if ($Event.source_category -notin @('shared-library', 'character-override', 'generated-staged')) {
+    if ($Event.source_category -notin @('shared-library', 'generated-staged')) {
         Add-Failure -Failures $Failures -Message "$Label.source_category must stay within the approved categories."
     }
 
@@ -483,7 +483,7 @@ function Assert-ManifestPackage {
     $manifestPath = Join-Path $CharacterPath 'manifest.json'
     $manifest = Read-JsonFile -Path $manifestPath
 
-    foreach ($propertyName in @('schema_version', 'character_id', 'display_name', 'identity_source', 'asset_version', 'vrm_spec_version', 'model_file', 'metadata_file', 'supported_states', 'shared_animation_set', 'voice_profile', 'expression_map', 'animation_overrides')) {
+    foreach ($propertyName in @('schema_version', 'character_id', 'display_name', 'identity_source', 'asset_version', 'vrm_spec_version', 'model_file', 'metadata_file', 'supported_states', 'shared_animation_set', 'voice_profile', 'expression_map')) {
         if (-not (Assert-Property -Failures $Failures -Label $manifestPath -Object $manifest -PropertyName $propertyName)) {
             return
         }
@@ -538,7 +538,6 @@ function Assert-ManifestPackage {
     Assert-PathExists -Failures $Failures -Label "$manifestPath.metadata_file" -BasePath $CharacterPath -RelativePath $manifest.metadata_file
     Assert-PathExists -Failures $Failures -Label "$manifestPath.voice_profile.path" -BasePath $CharacterPath -RelativePath $manifest.voice_profile.path
     Assert-PathExists -Failures $Failures -Label "$manifestPath.expression_map" -BasePath $CharacterPath -RelativePath $manifest.expression_map
-    Assert-PathExists -Failures $Failures -Label "$manifestPath.animation_overrides" -BasePath $CharacterPath -RelativePath $manifest.animation_overrides
 
     $modelPath = Join-Path $CharacterPath $manifest.model_file
     if (-not (Test-Path -LiteralPath $modelPath)) {
@@ -613,22 +612,6 @@ function Assert-ManifestPackage {
         if (-not (Test-HasProperty -Object $expressionMap.required -Name $expressionName)) {
             Add-Failure -Failures $Failures -Message "$expressionPath required expressions must include '$expressionName'."
         }
-    }
-
-    $overridePath = Join-Path $CharacterPath $manifest.animation_overrides
-    $overrideManifest = Read-JsonFile -Path $overridePath
-    foreach ($propertyName in @('character_id', 'shared_set', 'overrides', 'custom_only')) {
-        if (-not (Assert-Property -Failures $Failures -Label $overridePath -Object $overrideManifest -PropertyName $propertyName)) {
-            return
-        }
-    }
-
-    if ($overrideManifest.character_id -ne $manifest.character_id) {
-        Add-Failure -Failures $Failures -Message "$overridePath character_id must match manifest.json."
-    }
-
-    if ($overrideManifest.shared_set -ne $manifest.shared_animation_set) {
-        Add-Failure -Failures $Failures -Message "$overridePath shared_set must match manifest shared_animation_set."
     }
 
     $summary = [pscustomobject]@{

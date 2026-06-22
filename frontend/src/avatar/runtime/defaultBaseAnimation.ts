@@ -159,7 +159,6 @@ function resolveRuntimeSourceAsset(
 
 export const DEFAULT_BASE_ANIMATION_COMMAND: SemanticAnimationCommand = {
   id: "idle.neutral",
-  source: "shared",
   playback: "loop"
 };
 
@@ -549,10 +548,6 @@ function resolveSharedSemanticAnimationPayloadFromCatalog(
   command: SemanticAnimationCommand,
   catalog: Map<string, SemanticAnimationRuntimePayload>
 ): SemanticAnimationRuntimePayload | null {
-  if (command.source !== "shared") {
-    return null;
-  }
-
   const resolvedPayload = catalog.get(command.id) ?? catalog.get(legacySharedSemanticAnimationAliases[command.id] ?? "");
 
   if (!resolvedPayload) {

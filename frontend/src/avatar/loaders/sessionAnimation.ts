@@ -228,7 +228,6 @@ export function consumeSessionAnimationSnapshot(
     commandId: rawCommand.command_id,
     semanticCommand: {
       id: rawCommand.semantic_id,
-      source: rawCommand.resolution.selected_source === "character_override" ? "override" : "shared",
       playback: resolvePlaybackMode(rawCommand.playback.mode),
       intensity: rawCommand.intensity,
       durationMs: rawCommand.playback.expected_duration_ms ?? undefined
