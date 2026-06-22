@@ -5,6 +5,10 @@ export const STT_STATE_ROUTE_PATH = "/session/stt";
 export const STT_DEVICE_ROUTE_PATH = "/session/stt/device";
 export const STT_DEVICES_ROUTE_PATH = "/session/stt/devices";
 export const STT_LISTENING_ROUTE_PATH = "/session/stt/listening";
+// The chosen microphone is persisted here so it is saved globally: the control
+// page picks it, and every surface (incl. the display hold-to-talk) re-applies
+// it automatically after a reload or backend restart.
+export const STT_DEVICE_STORAGE_KEY = "nikof.stt.selectedDevice";
 
 const sttPollIntervalMs = 1250;
 
@@ -168,6 +172,27 @@ export function useSttState(): {
     };
   }, []);
 
+  // Re-apply the globally-saved microphone after a reload or backend restart
+  // (the sidecar resets its selection to none), so any surface — including the
+  // display hold-to-talk — just works without re-picking the device.
+  const reappliedDeviceRef = useRef(false);
+  useEffect(() => {
+    if (
+      reappliedDeviceRef.current ||
+      state.status !== "ready" ||
+      !state.snapshot?.available ||
+      state.snapshot?.selected_device_id ||
+      state.devices.length === 0
+    ) {
+      return;
+    }
+    const persisted = typeof window !== "undefined" ? window.localStorage.getItem(STT_DEVICE_STORAGE_KEY) : null;
+    if (persisted && state.devices.some((device) => device.device_id === persisted)) {
+      reappliedDeviceRef.current = true;
+      void setSelectedDevice(persisted);
+    }
+  }, [state.status, state.snapshot?.available, state.snapshot?.selected_device_id, state.devices]);
+
   async function setSelectedDevice(deviceId: string | null): Promise<void> {
     setState((currentState) => ({ ...currentState, action: "device", message: null }));
     try {
@@ -176,6 +201,13 @@ export function useSttState(): {
         body: JSON.stringify({ device_id: deviceId })
       });
       latestSnapshotRef.current = snapshot;
+      if (typeof window !== "undefined") {
+        if (deviceId) {
+          window.localStorage.setItem(STT_DEVICE_STORAGE_KEY, deviceId);
+        } else {
+          window.localStorage.removeItem(STT_DEVICE_STORAGE_KEY);
+        }
+      }
       setState((currentState) => ({
         status: "ready",
         snapshot,

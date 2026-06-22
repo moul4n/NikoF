@@ -254,12 +254,21 @@ select {
   color: #ffcf8b;
 }
 
-.app-shell__live-caption {
+.app-shell__captions {
   position: absolute;
   left: 50%;
   bottom: 1.25rem;
   transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
   max-width: min(90%, 720px);
+  pointer-events: none;
+}
+
+.app-shell__live-caption {
   margin: 0;
   padding: 0.5rem 1rem;
   border-radius: 0.75rem;
@@ -271,6 +280,35 @@ select {
   text-wrap: balance;
   pointer-events: none;
   backdrop-filter: blur(4px);
+}
+
+.app-shell__live-caption--assistant {
+  background: rgba(20, 40, 90, 0.8);
+  border: 1px solid rgba(120, 160, 255, 0.4);
+}
+
+.app-shell__live-caption--user {
+  font-size: 0.98rem;
+  color: #cdd6e8;
+  font-style: italic;
+}
+
+.app-shell__caption-toggle {
+  width: 100%;
+  padding: 0.6rem 1rem;
+  border: 1px solid rgba(120, 160, 255, 0.35);
+  border-radius: 0.75rem;
+  background: rgba(20, 30, 55, 0.6);
+  color: #eef2ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.app-shell__caption-toggle[aria-pressed="true"] {
+  border-color: rgba(120, 200, 150, 0.6);
+  background: rgba(30, 70, 50, 0.5);
 }
 
 .surface-switcher {

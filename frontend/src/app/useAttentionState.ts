@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BackendAttentionInputDeviceDocument, BackendAttentionStateDocument } from "../shared/types/character";
 
 export const ATTENTION_STATE_ROUTE_PATH = "/session/attention";
@@ -8,6 +8,13 @@ export const ATTENTION_DEVICES_ROUTE_PATH = "/session/attention/devices";
 export const ATTENTION_ENABLED_ROUTE_PATH = "/session/attention/enabled";
 export const ATTENTION_TRACKING_ROUTE_PATH = "/session/attention/tracking";
 const ATTENTION_DEBUG_MARKER_STORAGE_KEY = "nikof.attention.showTrackingDebugMarker";
+// Persist the operator's camera-attention intent (chosen on the control page) so
+// it survives reloads AND backend restarts, and is re-applied on every surface
+// — including the display window — rather than resetting to off.
+const ATTENTION_ENABLED_STORAGE_KEY = "nikof.attention.enabled";
+const ATTENTION_TRACKING_STORAGE_KEY = "nikof.attention.tracking";
+const ATTENTION_DEVICE_STORAGE_KEY = "nikof.attention.selectedDevice";
+const ATTENTION_DEVICE_LABEL_STORAGE_KEY = "nikof.attention.selectedDeviceLabel";
 
 const attentionPollIntervalMs = 1250;
 
@@ -17,6 +24,32 @@ function readPersistedAttentionDebugMarkerEnabled(): boolean {
   }
 
   return window.localStorage.getItem(ATTENTION_DEBUG_MARKER_STORAGE_KEY) === "true";
+}
+
+function readPersistedBoolean(key: string): boolean | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const value = window.localStorage.getItem(key);
+  return value === null ? null : value === "true";
+}
+
+function writePersistedBoolean(key: string, value: boolean): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(key, value ? "true" : "false");
+}
+
+function writePersistedString(key: string, value: string | null): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (value) {
+    window.localStorage.setItem(key, value);
+  } else {
+    window.localStorage.removeItem(key);
+  }
 }
 
 function writePersistedAttentionDebugMarkerEnabled(enabled: boolean): void {
@@ -314,6 +347,44 @@ export function useAttentionState(): {
     };
   }, []);
 
+  // Once the backend reports a usable camera, re-apply the persisted operator
+  // intent (device -> enabled -> tracking) so a reload or backend restart
+  // restores the same on/off state on whichever surface mounts first. Runs at
+  // most once; later user toggles update the persisted intent directly.
+  const reconciledRef = useRef(false);
+  useEffect(() => {
+    if (reconciledRef.current || state.status !== "ready" || !state.snapshot?.available) {
+      return;
+    }
+    const persistedDevice = typeof window !== "undefined" ? window.localStorage.getItem(ATTENTION_DEVICE_STORAGE_KEY) : null;
+    const persistedDeviceLabel = typeof window !== "undefined" ? window.localStorage.getItem(ATTENTION_DEVICE_LABEL_STORAGE_KEY) : null;
+    const persistedEnabled = readPersistedBoolean(ATTENTION_ENABLED_STORAGE_KEY);
+    const persistedTracking = readPersistedBoolean(ATTENTION_TRACKING_STORAGE_KEY);
+
+    if (persistedDevice === null && persistedEnabled === null && persistedTracking === null) {
+      reconciledRef.current = true;
+      return;
+    }
+
+    const snapshot = state.snapshot;
+    reconciledRef.current = true;
+    void (async () => {
+      if (
+        persistedDevice &&
+        state.devices.some((device) => device.device_id === persistedDevice) &&
+        snapshot.selected_device_id !== persistedDevice
+      ) {
+        await setSelectedDevice({ deviceId: persistedDevice, deviceLabel: persistedDeviceLabel });
+      }
+      if (persistedEnabled !== null && snapshot.enabled !== persistedEnabled) {
+        await setEnabled(persistedEnabled);
+      }
+      if (persistedTracking !== null && persistedEnabled !== false && snapshot.tracking !== persistedTracking) {
+        await setTracking(persistedTracking);
+      }
+    })();
+  }, [state.status, state.snapshot?.available, state.devices]);
+
   async function setSelectedDevice(input: AttentionDeviceSelectionInput): Promise<void> {
     setState((currentState) => ({ ...currentState, action: "device", message: null }));
     try {
@@ -321,6 +392,8 @@ export function useAttentionState(): {
         method: "PUT",
         body: JSON.stringify({ device_id: input.deviceId, device_label: input.deviceLabel ?? null })
       });
+      writePersistedString(ATTENTION_DEVICE_STORAGE_KEY, input.deviceId);
+      writePersistedString(ATTENTION_DEVICE_LABEL_STORAGE_KEY, input.deviceLabel ?? null);
       const devicesPayload = await fetchJson<{ devices: BackendAttentionInputDeviceDocument[] }>(ATTENTION_DEVICES_ROUTE_PATH);
       setState((currentState) => ({
         status: "ready",
@@ -347,6 +420,7 @@ export function useAttentionState(): {
         method: "PUT",
         body: JSON.stringify({ enabled })
       });
+      writePersistedBoolean(ATTENTION_ENABLED_STORAGE_KEY, enabled);
       setState((currentState) => ({
         status: "ready",
         snapshot: pickNewerSnapshot(currentState.snapshot, snapshot),
@@ -372,6 +446,7 @@ export function useAttentionState(): {
         method: "PUT",
         body: JSON.stringify({ enabled })
       });
+      writePersistedBoolean(ATTENTION_TRACKING_STORAGE_KEY, enabled);
       setState((currentState) => ({
         status: "ready",
         snapshot: pickNewerSnapshot(currentState.snapshot, snapshot),

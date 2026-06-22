@@ -214,8 +214,6 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
         speechLifecycleState={speechLifecycleState}
         speechPlaybackStatus={speechPlaybackStatus}
         isDevAnimationSwitcherEnabled={isDevAnimationSwitcherEnabled}
-        devDisplayProfileView={devDisplayProfileView}
-        onSelectDevDisplayProfileView={setDevDisplayProfileView}
         devDisplayRigOverlayEnabled={devDisplayRigOverlayEnabled}
         onSetDevDisplayRigOverlayEnabled={setDevDisplayRigOverlayEnabled}
         onSelectDevDisplayAnimation={handleSelectDevDisplayAnimation}

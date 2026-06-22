@@ -2653,6 +2653,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
     const isDisplayViewer = snapshot.mountPoints?.viewerVariant === "display";
+    // Display portrait framing: pull the camera ~30% closer than the neutral fit
+    // and lift the character up in-frame so she stays centered, not bottom-heavy.
+    const DISPLAY_ZOOM = 1.3;
+    const DISPLAY_VERTICAL_LIFT = 0.12;
     const verticalHalfFovRadians = THREE.MathUtils.degToRad(camera.fov * 0.5);
     const horizontalHalfFovRadians = Math.atan(Math.tan(verticalHalfFovRadians) * camera.aspect);
     let horizontalSpan = Math.max(size.x, size.z, 0.7);
@@ -2699,8 +2703,15 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         cameraYOffset = verticalSpan * 0.015;
       }
 
+      // Apply the portrait zoom (closer = smaller visible span) and lift her up
+      // by lowering the look target a fraction of her framed height.
+      if (displayVisibleVerticalSpan !== null) {
+        displayVisibleVerticalSpan = displayVisibleVerticalSpan / DISPLAY_ZOOM;
+      }
+      lookTargetY -= verticalSpan * DISPLAY_VERTICAL_LIFT;
+
       horizontalSpan = Math.max(size.x * 0.88, size.z, 0.7);
-      cameraDistanceFloor = 2;
+      cameraDistanceFloor = 1.5;
       horizontalPadding = 0.62;
       verticalPadding = 0.52;
       verticalBias = 0.18;

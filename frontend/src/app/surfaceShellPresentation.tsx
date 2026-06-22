@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { AvatarStage } from "../avatar/components/AvatarStage";
 import { DisplayPushToTalkControl } from "./DisplayPushToTalkControl";
 import {
@@ -8,7 +8,6 @@ import {
   resolveSpeechPlaybackTransportLabel
 } from "./ControlSurfaceShell";
 import type {
-  AvatarDebugProfileView,
   AvatarRuntimeBridge
 } from "../avatar/runtime/avatarRuntime";
 import {
@@ -17,9 +16,9 @@ import {
   type SpeechLifecycleLoadState
 } from "./useSpeechLifecycleState";
 import { useAttentionState } from "./useAttentionState";
+import { useAttentionCapture } from "../features/vision/useAttentionCapture.js";
 import type { SpeechPlaybackState } from "./useSpeechPlaybackBridge";
 import {
-  DevDisplayProfilePanel,
   DevDisplayRenderModePanel,
   type DevDisplayAnimationOptionId
 } from "./devDisplayTools";
@@ -157,6 +156,8 @@ export function DisplaySurfaceStatusPanel({
   );
 }
 
+const CAPTIONS_STORAGE_KEY = "nikof.display.captionsEnabled";
+
 interface DisplaySurfaceShellProps {
   runtime: AvatarRuntimeBridge;
   selectedCharacter: CharacterCatalogEntry | null;
@@ -164,8 +165,6 @@ interface DisplaySurfaceShellProps {
   speechLifecycleState: SpeechLifecycleLoadState;
   speechPlaybackStatus: SpeechPlaybackState;
   isDevAnimationSwitcherEnabled: boolean;
-  devDisplayProfileView: AvatarDebugProfileView;
-  onSelectDevDisplayProfileView: (profileView: AvatarDebugProfileView) => void;
   devDisplayRigOverlayEnabled: boolean;
   onSetDevDisplayRigOverlayEnabled: (enabled: boolean) => void;
   onSelectDevDisplayAnimation: (optionId: DevDisplayAnimationOptionId) => void;
@@ -179,8 +178,6 @@ export function DisplaySurfaceShell({
   speechLifecycleState,
   speechPlaybackStatus,
   isDevAnimationSwitcherEnabled,
-  devDisplayProfileView,
-  onSelectDevDisplayProfileView,
   devDisplayRigOverlayEnabled,
   onSetDevDisplayRigOverlayEnabled,
   onSelectDevDisplayAnimation,
@@ -192,6 +189,53 @@ export function DisplaySurfaceShell({
   const displayReplySnapshot = resolveDisplayReplySnapshot(speechLifecycleSnapshot);
   const controlSurfaceHref = buildSurfaceHref("control");
   const displaySurfaceHref = buildSurfaceHref("display");
+
+  // Run the browser webcam capture here too, so attention tracking keeps working
+  // on the display surface (not just while the control panel is mounted). It is
+  // driven entirely by the backend attention snapshot, whose enabled/tracking/
+  // device come from the control-surface settings (persisted + reconciled).
+  const attentionSnapshot = attentionState.state.snapshot;
+  useAttentionCapture({
+    enabled: attentionSnapshot?.enabled ?? false,
+    tracking: attentionSnapshot?.tracking ?? false,
+    selectedDeviceId: attentionSnapshot?.selected_device_id ?? null,
+    selectedDeviceLabel: attentionSnapshot?.selected_device_label ?? null,
+  });
+
+  // Voice captions (subtitles for the live transcript + the assistant reply),
+  // with an on/off toggle persisted across reloads. Defaults on.
+  const [captionsEnabled, setCaptionsEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+    return window.localStorage.getItem(CAPTIONS_STORAGE_KEY) !== "0";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CAPTIONS_STORAGE_KEY, captionsEnabled ? "1" : "0");
+    }
+  }, [captionsEnabled]);
+
+  // Captions overlay rendered over the bottom of the avatar viewport (the
+  // assistant's reply as the primary subtitle, the live transcript beneath it).
+  const captionsNode = captionsEnabled ? (
+    <div className="app-shell__captions" aria-live="polite">
+      {displayReplySnapshot.text ? (
+        <p className="app-shell__live-caption app-shell__live-caption--assistant" data-testid="assistant-caption">
+          {displayReplySnapshot.text}
+        </p>
+      ) : null}
+      {speechLifecycleSnapshot?.livePartialTranscript ? (
+        <p
+          className="app-shell__live-caption app-shell__live-caption--user"
+          role="status"
+          data-testid="live-caption"
+        >
+          {speechLifecycleSnapshot.livePartialTranscript}
+        </p>
+      ) : null}
+    </div>
+  ) : null;
 
   useEffect(() => {
     runtime.setAttentionDebugMarkerEnabled(attentionState.state.showTrackingDebugMarker);
@@ -247,32 +291,25 @@ export function DisplaySurfaceShell({
             selectedCharacter={selectedCharacter}
             variant="display"
             onSelectDisplayAnimationOverride={onSelectDevDisplayAnimation}
+            captionsSlot={captionsNode}
           />
-          {speechLifecycleSnapshot?.livePartialTranscript ? (
-            <p
-              className="app-shell__live-caption"
-              role="status"
-              aria-live="polite"
-              data-testid="live-caption"
-            >
-              {speechLifecycleSnapshot.livePartialTranscript}
-            </p>
-          ) : null}
         </div>
         <aside className="app-shell__display-rail">
           <DisplayPushToTalkControl />
+          <button
+            type="button"
+            className="app-shell__caption-toggle"
+            aria-pressed={captionsEnabled}
+            onClick={() => setCaptionsEnabled((value) => !value)}
+          >
+            {captionsEnabled ? "Captions: On" : "Captions: Off"}
+          </button>
           {isDevAnimationSwitcherEnabled ? (
-            <>
-              <DevDisplayProfilePanel
-                selectedProfileView={devDisplayProfileView}
-                onSelectProfileView={onSelectDevDisplayProfileView}
-              />
-              <DevDisplayRenderModePanel
-                rigOverlayEnabled={devDisplayRigOverlayEnabled}
-                controlsEnabled={isDisplayRuntimeReady}
-                onSetRigOverlayEnabled={onSetDevDisplayRigOverlayEnabled}
-              />
-            </>
+            <DevDisplayRenderModePanel
+              rigOverlayEnabled={devDisplayRigOverlayEnabled}
+              controlsEnabled={isDisplayRuntimeReady}
+              onSetRigOverlayEnabled={onSetDevDisplayRigOverlayEnabled}
+            />
           ) : null}
           <DisplaySurfaceStatusPanel
             selectedCharacter={selectedCharacter}
