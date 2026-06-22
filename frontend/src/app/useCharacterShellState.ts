@@ -136,7 +136,9 @@ function applyBackendBridge(
   catalog: CharacterCatalog,
   setLoadState: StateSetter<CatalogLoadState>,
   setSelectedCharacterId: StateSetter<CharacterId | null>,
-  setBackendSyncState: StateSetter<BackendSyncState>
+  setBackendSyncState: StateSetter<BackendSyncState>,
+  followBackendActiveCharacter: boolean,
+  assertSelectionToBackend: boolean
 ): void {
   void bridgeCharacterCatalogWithBackend(catalog).then((bridge) => {
     const nextMessages = [...bridge.messages];
@@ -154,6 +156,18 @@ function applyBackendBridge(
       error: null
     });
     setSelectedCharacterId((currentCharacterId) => {
+      // Follower surfaces (display / always-on-top stage) mirror the backend's
+      // active character rather than their own persisted pick, so switching the
+      // character on the control surface hot-swaps the model here.
+      if (
+        followBackendActiveCharacter &&
+        bridge.activeCharacterConnected &&
+        bridge.activeCharacterId &&
+        findCharacterEntry(bridge.catalog, bridge.activeCharacterId)
+      ) {
+        return bridge.activeCharacterId;
+      }
+
       return resolvePreferredCharacterId(
         bridge.catalog,
         currentCharacterId ?? persistedCharacterId,
@@ -167,10 +181,31 @@ function applyBackendBridge(
       sessionId: bridge.sessionId,
       message: nextMessages[0] ?? null
     });
+
+    // Control surface only: the backend's active character is in-memory and
+    // resets to the catalog default on restart, but the operator's last dropdown
+    // pick is retained in localStorage. Restore it to the backend on startup so
+    // follower surfaces (stage / display) open on the last-selected character
+    // instead of the default. Best-effort; the operator can re-pick on failure.
+    if (
+      assertSelectionToBackend &&
+      bridge.activeCharacterConnected &&
+      persistedCharacterId &&
+      persistedCharacterId !== bridge.activeCharacterId &&
+      findCharacterEntry(bridge.catalog, persistedCharacterId)
+    ) {
+      void syncActiveCharacterSelection(persistedCharacterId).catch(() => {
+        /* best-effort restore */
+      });
+    }
   });
 }
 
-export function useCharacterShellState(): UseCharacterShellStateResult {
+export function useCharacterShellState(
+  options: { followBackendActiveCharacter?: boolean; assertSelectionToBackend?: boolean } = {}
+): UseCharacterShellStateResult {
+  const followBackendActiveCharacter = options.followBackendActiveCharacter ?? false;
+  const assertSelectionToBackend = options.assertSelectionToBackend ?? false;
   const [loadState, setLoadState] = useState<CatalogLoadState>({
     status: "loading",
     catalog: null,
@@ -232,7 +267,7 @@ export function useCharacterShellState(): UseCharacterShellStateResult {
         setSelectedCharacterId((currentCharacterId) =>
           resolvePreferredCharacterId(catalog, currentCharacterId, readPersistedSelectedCharacterId())
         );
-        applyBackendBridge(catalog, setLoadState, setSelectedCharacterId, setBackendSyncState);
+        applyBackendBridge(catalog, setLoadState, setSelectedCharacterId, setBackendSyncState, followBackendActiveCharacter, assertSelectionToBackend);
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -256,8 +291,8 @@ export function useCharacterShellState(): UseCharacterShellStateResult {
       return;
     }
 
-    applyBackendBridge(loadState.catalog, setLoadState, setSelectedCharacterId, setBackendSyncState);
-  }, [backendBridgeRefreshKey, loadState.catalog, loadState.status]);
+    applyBackendBridge(loadState.catalog, setLoadState, setSelectedCharacterId, setBackendSyncState, followBackendActiveCharacter, assertSelectionToBackend);
+  }, [assertSelectionToBackend, backendBridgeRefreshKey, followBackendActiveCharacter, loadState.catalog, loadState.status]);
 
   useEffect(() => {
     if (

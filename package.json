@@ -1,0 +1,14 @@
+{
+  "name": "nikof-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tauri desktop shell hosting the NikoF avatar display surface.",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

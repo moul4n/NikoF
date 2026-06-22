@@ -512,6 +512,8 @@ def register_api_routes(
             session_service=services.session_service,
             character_service=services.character_service,
             session_event_factory=services.session_event_factory,
+            animation_service=services.animation_service,
+            session_animation_live_delivery=services.session_animation_live_delivery,
         ),
         build_active_character_response=build_active_character_response,
     )

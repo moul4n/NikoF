@@ -20,6 +20,10 @@ function resolveSurfaceModeFromPath(pathname: string): SurfaceMode | null {
     return "control";
   }
 
+  if (normalizedPath.endsWith("/stage")) {
+    return "stage";
+  }
+
   return null;
 }
 
@@ -45,7 +49,11 @@ function resolveSurfaceMode(): SurfaceMode {
 
   const declaredSurfaceMode = document.body.dataset.surfaceMode;
 
-  if (declaredSurfaceMode === "control" || declaredSurfaceMode === "display") {
+  if (
+    declaredSurfaceMode === "control" ||
+    declaredSurfaceMode === "display" ||
+    declaredSurfaceMode === "stage"
+  ) {
     return declaredSurfaceMode;
   }
 
@@ -59,6 +67,7 @@ if (canonicalSurfacePath) {
 } else {
   const surfaceMode = resolveSurfaceMode();
 
+  document.title = `NikoF · ${surfaceMode}`;
   document.body.dataset.surfaceMode = surfaceMode;
   rootElement.dataset.surfaceMode = surfaceMode;
 

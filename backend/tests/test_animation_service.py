@@ -156,6 +156,68 @@ class DefaultAnimationServiceTests(unittest.TestCase):
         self.assertEqual(command.playback.expected_duration_ms, 16633)
         self.assertEqual(command.parameters["session_state"], "speak")
 
+    def test_is_known_semantic_id_matches_shared_library(self) -> None:
+        service = DefaultAnimationService()
+
+        self.assertTrue(service.is_known_semantic_id("greet.wave.once"))
+        self.assertTrue(service.is_known_semantic_id("gesture.crazy.once"))
+        self.assertFalse(service.is_known_semantic_id("gesture.does-not-exist.once"))
+
+    def test_resolve_gesture_command_builds_selected_oneshot_for_known_gesture(self) -> None:
+        service = DefaultAnimationService()
+
+        command = service.resolve_gesture_command(
+            SessionSnapshot(
+                session_id="session-gesture-01",
+                active_character_id="test-vrm-01",
+                lifecycle_state="idle",
+            ),
+            "greet.wave.once",
+        )
+
+        self.assertEqual(command.semantic_id, "greet.wave.once")
+        self.assertEqual(command.resolution.selected_source, "shared_library")
+        self.assertFalse(command.resolution.fallback_applied)
+        self.assertEqual(command.resolved_state, "selected")
+        self.assertEqual(command.playback.mode, "oneshot")
+        self.assertFalse(command.playback.loop)
+        self.assertEqual(command.parameters["trigger"], "operator_animation")
+        self.assertTrue(command.intent_id.startswith("operator-animation:session-gesture-01:test-vrm-01:greet.wave.once:"))
+
+    def test_resolve_gesture_command_supports_looping_idle_and_motion_states(self) -> None:
+        service = DefaultAnimationService()
+        snapshot = SessionSnapshot(
+            session_id="session-loop-01",
+            active_character_id="test-vrm-01",
+            lifecycle_state="idle",
+        )
+
+        for semantic_id in ("idle.happy", "dance.hiphop.loop"):
+            with self.subTest(semantic_id=semantic_id):
+                command = service.resolve_gesture_command(snapshot, semantic_id)
+                self.assertEqual(command.semantic_id, semantic_id)
+                self.assertEqual(command.resolution.selected_source, "shared_library")
+                self.assertEqual(command.resolved_state, "selected")
+                self.assertEqual(command.playback.mode, "loop")
+                self.assertTrue(command.playback.loop)
+
+    def test_resolve_gesture_command_uses_unique_intent_ids_for_repeated_triggers(self) -> None:
+        service = DefaultAnimationService()
+        snapshot = SessionSnapshot(
+            session_id="session-gesture-02",
+            active_character_id="test-vrm-01",
+            lifecycle_state="idle",
+        )
+
+        first = service.resolve_gesture_command(snapshot, "greet.wave.once")
+        second = service.resolve_gesture_command(snapshot, "greet.wave.once")
+
+        # Distinct intent/command ids so a repeated click is not deduplicated by
+        # the live-delivery service and re-broadcasts (replays) on clients.
+        self.assertNotEqual(first.intent_id, second.intent_id)
+        self.assertNotEqual(first.command_id, second.command_id)
+
+
 class SessionAnimationContractSnapshotTests(unittest.TestCase):
     # Stale expectation: asserts the default active character is "maria", but
     # build_default_api_runtime_services now prefers "test-vrm-01" as the

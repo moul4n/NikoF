@@ -1,0 +1,28 @@
+[package]
+name = "nikof-display"
+version = "0.1.0"
+description = "NikoF standalone avatar display window"
+authors = ["NikoF"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# The library target lets Tauri share the app entry between desktop and any
+# future mobile target; the binary in src/main.rs just calls run().
+[lib]
+name = "nikof_display_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

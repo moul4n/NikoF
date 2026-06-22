@@ -40,6 +40,9 @@ interface UseSessionAnimationStateOptions {
   desiredLifecycleState: AnimationLifecycleState | null;
   desiredLifecycleReason: string | null;
   shouldReconcileLifecycle: boolean;
+  // Follower surfaces (display / always-on-top stage) mirror the backend's active
+  // character; the control surface keeps its own (locally chosen) selection.
+  followBackendActiveCharacter: boolean;
 }
 
 export function useSessionAnimationState({
@@ -51,7 +54,8 @@ export function useSessionAnimationState({
   externalRefreshKey,
   desiredLifecycleState,
   desiredLifecycleReason,
-  shouldReconcileLifecycle
+  shouldReconcileLifecycle,
+  followBackendActiveCharacter
 }: UseSessionAnimationStateOptions): SessionAnimationLoadState {
   const [sessionAnimationState, setSessionAnimationState] = useState<SessionAnimationLoadState>({
     status: "loading",
@@ -180,11 +184,19 @@ export function useSessionAnimationState({
           const reconciledCharacterId = resolveSelectedCharacterId(catalog, snapshot.characterId);
 
           if (reconciledCharacterId) {
-            setSelectedCharacterId((currentCharacterId) =>
-              currentCharacterId && resolveSelectedCharacterId(catalog, currentCharacterId) === currentCharacterId
-                ? currentCharacterId
-                : reconciledCharacterId
-            );
+            if (followBackendActiveCharacter) {
+              // Always adopt the backend's active character so a control-surface
+              // switch hot-swaps the model on the stage/display without a refresh.
+              setSelectedCharacterId(reconciledCharacterId);
+            } else {
+              // Control surface: keep the operator's locally chosen character so
+              // an in-flight snapshot doesn't override their pick mid round-trip.
+              setSelectedCharacterId((currentCharacterId) =>
+                currentCharacterId && resolveSelectedCharacterId(catalog, currentCharacterId) === currentCharacterId
+                  ? currentCharacterId
+                  : reconciledCharacterId
+              );
+            }
           }
         }
 
@@ -252,6 +264,7 @@ export function useSessionAnimationState({
     catalog,
     catalogLoadStatus,
     externalRefreshKey,
+    followBackendActiveCharacter,
     retryKey,
     setSelectedCharacterId
   ]);

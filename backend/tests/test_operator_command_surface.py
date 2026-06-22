@@ -43,6 +43,24 @@ class FakeResponse:
         self.status_code = 200
 
 
+class _RecordingAnimationLiveDelivery:
+    """Captures published session-animation snapshots so tests can assert that a
+    write seam broadcast over the live stream."""
+
+    def __init__(self) -> None:
+        self.published: list = []
+
+    def publish_snapshot(self, snapshot):
+        self.published.append(snapshot)
+        return snapshot
+
+    def read_updates(self, session_id, *, after_cursor=None):
+        return tuple()
+
+    def iter_live_updates(self, session_id, *, cursor=None, poll_interval_seconds=0.25):
+        return iter(())
+
+
 class FakeStreamingResponse:
     def __init__(self, body_iterator, media_type: str, headers: dict[str, str] | None = None) -> None:
         self.body_iterator = body_iterator
@@ -199,6 +217,9 @@ class OperatorCommandSurfaceTests(unittest.TestCase):
         self.assertIn(("/session/active-character", "PUT"), routes)
         self.assertIn(("/session/animation", "GET"), routes)
         self.assertIn(("/session/lifecycle-state", "PUT"), routes)
+        self.assertIn(("/session/animation/gesture", "POST"), routes)
+        self.assertIn(("/session/stage-background", "GET"), routes)
+        self.assertIn(("/session/stage-background", "PUT"), routes)
         self.assertIn(("/api/session/speech-artifacts/{event_id}/audio", "GET"), routes)
         self.assertIn(("/session/speech-artifacts/{event_id}/audio", "GET"), routes)
         self.assertEqual(
@@ -362,6 +383,72 @@ class OperatorCommandSurfaceTests(unittest.TestCase):
         self.assertEqual("test-vrm-02", refreshed_payload["selection"]["requested_character_id"])
         self.assertEqual("session.state", refreshed_payload["session_event"]["event_type"])
         self.assertEqual("idle", refreshed_payload["session_event"]["status"])
+
+    def test_active_character_switch_publishes_to_session_animation_stream(self) -> None:
+        # Switching the active character must broadcast over the session-animation
+        # stream so the always-on-top stage window (a separate WebView) reloads the
+        # model live, without a refresh. Assert the publish actually happens.
+        from app.api.active_character_routes import (
+            ActiveCharacterRouteServices,
+            register_active_character_routes,
+        )
+        from app.api.response_builders import build_active_character_response
+
+        default_services = build_default_api_runtime_services()
+        recording = _RecordingAnimationLiveDelivery()
+        router = FakeAPIRouter()
+        register_active_character_routes(
+            router,
+            services=ActiveCharacterRouteServices(
+                session_service=default_services.session_service,
+                character_service=default_services.character_service,
+                session_event_factory=default_services.session_event_factory,
+                animation_service=default_services.animation_service,
+                session_animation_live_delivery=recording,
+            ),
+            build_active_character_response=build_active_character_response,
+        )
+        put_route = get_route(router, path="/session/active-character", method="PUT")
+
+        invoke_endpoint(
+            put_route.endpoint,
+            selection=ActiveCharacterSelection(character_id="test-vrm-02", reason="user_selected"),
+            response=FakeResponse(),
+        )
+
+        self.assertEqual(1, len(recording.published))
+        self.assertEqual("test-vrm-02", recording.published[0].active_character_id)
+
+    def test_rejected_active_character_switch_does_not_publish(self) -> None:
+        from app.api.active_character_routes import (
+            ActiveCharacterRouteServices,
+            register_active_character_routes,
+        )
+        from app.api.response_builders import build_active_character_response
+
+        default_services = build_default_api_runtime_services()
+        recording = _RecordingAnimationLiveDelivery()
+        router = FakeAPIRouter()
+        register_active_character_routes(
+            router,
+            services=ActiveCharacterRouteServices(
+                session_service=default_services.session_service,
+                character_service=default_services.character_service,
+                session_event_factory=default_services.session_event_factory,
+                animation_service=default_services.animation_service,
+                session_animation_live_delivery=recording,
+            ),
+            build_active_character_response=build_active_character_response,
+        )
+        put_route = get_route(router, path="/session/active-character", method="PUT")
+
+        invoke_endpoint(
+            put_route.endpoint,
+            selection=ActiveCharacterSelection(character_id="missing-character", reason="user_selected"),
+            response=FakeResponse(),
+        )
+
+        self.assertEqual([], recording.published)
 
     def test_session_animation_route_preserves_snapshot_shape_and_negotiates_live_delivery(self) -> None:
         router = build_router_under_fake_fastapi()

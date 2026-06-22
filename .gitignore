@@ -42,6 +42,17 @@ frontend/dist/
 frontend/test-results/
 .vite/
 
+# Root tooling install for the Tauri desktop shell (@tauri-apps/cli, etc.)
+/node_modules/
+
+# Rust / Tauri build outputs
+/src-tauri/target/
+/src-tauri/gen/schemas/
+
+# Oversized VRM (~118MB) exceeds GitHub's 100MB push limit. Excluded from git
+# until migrated to Git LFS; re-add via LFS to restore it.
+assets/characters/flare/model.vrm
+
 # Machine-local scratch / temp working dirs
 # NOTE: Unity dir ignores are anchored to the repo root with a leading "/" so
 # they only match Unity's top-level cache — an unanchored "Library/" also

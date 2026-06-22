@@ -47,7 +47,8 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         control: fileURLToPath(new URL("./control/index.html", import.meta.url)),
-        display: fileURLToPath(new URL("./display/index.html", import.meta.url))
+        display: fileURLToPath(new URL("./display/index.html", import.meta.url)),
+        stage: fileURLToPath(new URL("./stage/index.html", import.meta.url))
       }
     }
   },

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
@@ -10,6 +11,26 @@ from typing import Any, AsyncIterator
 from app.api.router import RouteDefinition, build_api_contract_snapshot, build_api_router
 
 logger = logging.getLogger(__name__)
+
+# Local desktop/web clients allowed to call the API cross-origin. The web UI is
+# served same-origin via the Vite proxy; the Tauri shell and future native clients
+# load from their own origin and need an explicit allowlist.
+_DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
+    "http://tauri.localhost",
+    "tauri://localhost",
+    "https://tauri.localhost",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+)
+
+
+def _resolve_cors_origins() -> list[str]:
+    """Allowed CORS origins, with optional comma-separated env additions."""
+    origins = list(_DEFAULT_CORS_ORIGINS)
+    extra = os.environ.get("NIKOF_EXTRA_CORS_ORIGINS", "").strip()
+    if extra:
+        origins.extend(origin.strip() for origin in extra.split(",") if origin.strip())
+    return origins
 
 
 @dataclass(slots=True)
@@ -92,10 +113,24 @@ def create_app() -> Any:
 
     try:
         from fastapi import FastAPI
+        from fastapi.middleware.cors import CORSMiddleware
     except ImportError:
         return ApplicationShell(name="NikoF Backend", routes=router.routes)
 
     app = FastAPI(title="NikoF Backend", version="0.1.0", lifespan=_lifespan)
+    # Local-only origins. The web frontend reaches the backend same-origin through
+    # the Vite dev proxy, but the Tauri desktop shell (and the future Unity client)
+    # load from a different origin and call the API directly, so they need CORS.
+    # The WebView2 origin on Windows is http://tauri.localhost; other platforms use
+    # tauri://localhost. Extra origins can be appended via NIKOF_EXTRA_CORS_ORIGINS
+    # (comma-separated).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_resolve_cors_origins(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(router)
     return app
 

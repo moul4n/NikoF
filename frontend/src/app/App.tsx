@@ -12,6 +12,7 @@ import {
   ControlSurfaceShell,
   DisplaySurfaceShell
 } from "./surfaceShellPresentation";
+import { StageSurfaceShell } from "./StageSurfaceShell";
 
 import {
   resolvePreferredSpeechSynthesisEvent,
@@ -29,7 +30,7 @@ import {
 } from "../avatar/runtime/avatarRuntime";
 import type { BackendOperatorCommandResponseDocument } from "../shared/types/character";
 
-export type SurfaceMode = "control" | "display";
+export type SurfaceMode = "control" | "display" | "stage";
 
 interface AppProps {
   surfaceMode: SurfaceMode;
@@ -57,6 +58,10 @@ function resolveMoodDrivenIdleCommand(feelingName: string | null | undefined) {
 
 export function App({ surfaceMode }: AppProps): JSX.Element {
   const [runtime] = useState<AvatarRuntimeBridge>(() => createAvatarRuntime());
+  // The wrapperless "stage" surface behaves exactly like "display" for all
+  // runtime/playback logic (it renders + voices the avatar); only the rendered
+  // shell differs. Collapse it to "display" everywhere except the final branch.
+  const runtimeSurfaceMode: "control" | "display" = surfaceMode === "stage" ? "display" : surfaceMode;
   const [latestPublishedCommand, setLatestPublishedCommand] = useState<BackendOperatorCommandResponseDocument | null>(null);
   const {
     loadState,
@@ -69,8 +74,14 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     sessionAnimationRefreshKey,
     refreshSpeechLifecycle,
     handleSelectCharacter
-  } = useCharacterShellState();
-  const isDevAnimationSwitcherEnabled = import.meta.env.DEV;
+  } = useCharacterShellState({
+    followBackendActiveCharacter: runtimeSurfaceMode === "display",
+    assertSelectionToBackend: runtimeSurfaceMode === "control"
+  });
+  // The stage surface has no dev switcher UI and must stay purely backend-driven
+  // (so commands from the control surface play through), so never enable the dev
+  // animation override there even in a dev build.
+  const isDevAnimationSwitcherEnabled = import.meta.env.DEV && surfaceMode !== "stage";
   const speechLifecycleState = useSpeechLifecycleState({
     catalogLoadStatus: loadState.status,
     externalRefreshKey: speechLifecycleRefreshKey
@@ -82,7 +93,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   // Voice replies only on the surface that renders the avatar/animation
   // (the display surface). This both fixes duplicate audio across windows and
   // scopes the streamed-audio WebSocket consumer to the page with the avatar.
-  const isAvatarPlaybackSurface = surfaceMode === "display";
+  const isAvatarPlaybackSurface = runtimeSurfaceMode === "display";
   const speechAudioStream = useSpeechAudioStream({ enabled: isAvatarPlaybackSurface });
   const speechPlaybackStatus = useSpeechPlaybackBridge({
     runtime,
@@ -107,7 +118,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     desiredConversationAnimationLifecycleReason,
     handleCommandPublished
   } = useSurfaceShellOrchestration({
-    surfaceMode,
+    surfaceMode: runtimeSurfaceMode,
     catalog: loadState.catalog,
     catalogLoadStatus: loadState.status,
     selectedCharacter,
@@ -139,7 +150,8 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     externalRefreshKey: sessionAnimationRefreshKey,
     desiredLifecycleState: desiredConversationAnimationLifecycleState,
     desiredLifecycleReason: desiredConversationAnimationLifecycleReason,
-    shouldReconcileLifecycle: false
+    shouldReconcileLifecycle: false,
+    followBackendActiveCharacter: runtimeSurfaceMode === "display"
   });
   const {
     devDisplayAnimationActivationKey,
@@ -149,7 +161,7 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     shouldUseDevDisplayAnimationOverride,
     shouldUseOfflineIdleFallback
   } = useRuntimePlaybackSelection({
-    surfaceMode,
+    surfaceMode: runtimeSurfaceMode,
     isDevAnimationSwitcherEnabled,
     isDisplayRuntimeReady,
     devDisplayAnimationOverride,
@@ -202,6 +214,10 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     shouldUseOfflineIdleFallback,
     shouldWaitForDisplayRuntimeReady
   ]);
+
+  if (surfaceMode === "stage") {
+    return <StageSurfaceShell runtime={runtime} selectedCharacter={selectedCharacter} />;
+  }
 
   if (surfaceMode === "display") {
     return (

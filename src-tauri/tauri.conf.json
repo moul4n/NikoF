@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NikoF Display",
+  "version": "0.1.0",
+  "identifier": "dev.nikof.display",
+  "build": {
+    "beforeDevCommand": { "cwd": "../frontend", "script": "npm run dev" },
+    "devUrl": "http://127.0.0.1:5173/stage/",
+    "beforeBuildCommand": { "cwd": "../frontend", "script": "npm run build" },
+    "frontendDist": "../frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NikoF",
+        "label": "display",
+        "url": "stage/index.html",
+        "width": 540,
+        "height": 960,
+        "minWidth": 360,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -279,6 +279,24 @@ class SessionLifecycleUpdateRequest:
     reason: str = "frontend_animation_sync"
 
 
+@pydantic_dataclass(slots=True, frozen=True)
+class SessionGestureRequest:
+    """Operator-triggered one-shot gesture, broadcast over the session animation
+    stream so every avatar-rendering client (stage window, display) plays it."""
+
+    semantic_id: str
+    reason: str = "operator_gesture"
+
+
+@pydantic_dataclass(slots=True, frozen=True)
+class StageBackgroundUpdateRequest:
+    """Operator-selected backdrop for the stage / display window (plain,
+    transparent, or a future named scene). A presentation setting, not part of
+    the session animation/speech contracts."""
+
+    background_id: str
+
+
 @dataclass(slots=True, frozen=True)
 class OperatorCommandResponse:
     schema_version: int

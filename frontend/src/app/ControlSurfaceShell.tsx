@@ -21,6 +21,8 @@ import {
 } from "./useSpeechLifecycleState.js";
 import type { SpeechPlaybackState } from "./useSpeechPlaybackBridge";
 import { ControlSurfaceOperatorCommandPanel } from "./ControlSurfaceOperatorCommandPanel.js";
+import { ControlSurfaceGesturePanel } from "./ControlSurfaceGesturePanel.js";
+import { ControlSurfaceBackgroundPanel } from "./ControlSurfaceBackgroundPanel.js";
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
 
@@ -274,6 +276,8 @@ export function ControlSurfaceShell({
                 speechPlaybackStatus={speechPlaybackStatus}
                 onCommandPublished={onCommandPublished}
               />
+              <ControlSurfaceGesturePanel />
+              <ControlSurfaceBackgroundPanel />
               {speechPlaybackStatus.audioSource && (
                 <section className="surface-panel control-layout__audio-panel">
                   <div className="surface-panel__header">

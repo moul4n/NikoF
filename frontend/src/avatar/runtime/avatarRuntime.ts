@@ -29,6 +29,7 @@ import {
 } from "./animationPlayback";
 import { probeVrmaAsset } from "./vrmaAssetResolution";
 import { RenderQualityController } from "./renderQuality";
+import { applyStageBackground, DEFAULT_STAGE_BACKGROUND_ID } from "./backgroundController";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
 import { createPassiveBlinkController, type PassiveBlinkController } from "./passiveBlink";
 import { createPassiveMouthController, type PassiveMouthController } from "./passiveMouth";
@@ -384,6 +385,7 @@ export interface AvatarRuntimeBridge {
   setDebugProfileView: (profileView: AvatarDebugProfileView) => void;
   setRigOverlayEnabled: (enabled: boolean) => void;
   setEmotion: (emotion: AvatarRuntimeEmotionName | null) => void;
+  setBackground: (backgroundId: string) => void;
   setAttentionTarget: (target: { normalizedX: number; normalizedY: number; confidence?: number | null } | null) => void;
   setAttentionDebugMarkerEnabled: (enabled: boolean) => void;
   beginSpeechReaction: (input: AvatarSpeechReactionInput) => void;
@@ -496,6 +498,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let scene: THREE.Scene | null = null;
   let camera: THREE.PerspectiveCamera | null = null;
   let renderQuality: RenderQualityController | null = null;
+  let currentBackgroundId = DEFAULT_STAGE_BACKGROUND_ID;
   let orbitControls: OrbitControls | null = null;
   let viewportElement: HTMLElement | null = null;
   let animationFrameId: number | null = null;
@@ -516,6 +519,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   let activeLoadRequestId = 0;
   let activeLoadTargetKey: string | null = null;
   let activeLoadPromise: Promise<void> | null = null;
+  // Key of the avatar actually loaded into the scene (vs the snapshot, which
+  // loadCharacter optimistically overwrites before the load runs). Dedup must
+  // compare against this so a hot-swap to a different character isn't skipped.
+  let loadedCharacterTargetKey: string | null = null;
   let activeSpeechReaction: ActiveSpeechReactionState | null = null;
   let attentionTarget: { normalizedX: number; normalizedY: number; confidence: number | null } | null = null;
   let activeSpeechExpressionName: string | null = null;
@@ -2483,6 +2490,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   }
 
   function clearCurrentAvatar(): void {
+    loadedCharacterTargetKey = null;
     if (!scene || !currentAvatar) {
       removeRigOverlayHelper();
       removeGazeDebugMarkerHelper();
@@ -2533,8 +2541,10 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const height = Math.max(viewportElement.clientHeight, 1);
 
     const pixelRatioCap = renderQuality?.maxPixelRatio ?? 2;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelRatioCap));
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, pixelRatioCap);
+    renderer.setPixelRatio(pixelRatio);
     renderer.setSize(width, height, false);
+    renderQuality?.setSize(width, height, pixelRatio);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
 
@@ -2595,7 +2605,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       orbitControls?.update();
 
-      activeRenderer.render(activeScene, activeCamera);
+      // Display surface: render through the post chain (tone map + bloom + SMAA).
+      // Embedded preview has no renderQuality controller, so it renders plainly.
+      if (!renderQuality?.render()) {
+        activeRenderer.render(activeScene, activeCamera);
+      }
     };
 
     renderFrame();
@@ -2640,13 +2654,16 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Honour the selected stage background (plain by default; "transparent" makes
+    // the canvas see-through for a floating desktop avatar).
+    applyStageBackground(scene, renderer, currentBackgroundId);
 
     // The dedicated display surface (and the Tauri desktop shell that hosts it)
     // gets the higher-fidelity render stack — ground contact shadow, soft
     // self-shadowing, higher pixel-ratio cap. The embedded/operator preview keeps
     // the original lean pipeline, so this controller is display-only.
     if (mountPoints?.viewerVariant === "display") {
-      renderQuality = new RenderQualityController({ renderer, scene, keyLight });
+      renderQuality = new RenderQualityController({ renderer, scene, camera, keyLight });
       renderQuality.configure();
     }
 
@@ -2918,6 +2935,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         activateBaseAnimation(nextBaseAnimation);
       }
 
+      loadedCharacterTargetKey = createCharacterLoadTargetKey(character);
       updateSnapshot({
         loadState: "ready",
         appearanceControls: appearanceController?.getControls() ?? [],
@@ -2944,11 +2962,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     const requestedCharacter = currentCharacter;
     const requestedLoadTargetKey = createCharacterLoadTargetKey(requestedCharacter);
 
-    if (
-      snapshot.loadState === "ready" &&
-      snapshot.currentCharacterId === requestedCharacter.characterId &&
-      snapshot.currentModelUrl === requestedCharacter.assets.modelUrl
-    ) {
+    // Skip only when the avatar ACTUALLY loaded into the scene already matches
+    // the request. (snapshot.currentCharacterId/Url can't be used here: the
+    // loadCharacter bridge overwrites them optimistically before this runs, which
+    // would make every hot-swap look already-loaded and never reload the model.)
+    if (snapshot.loadState === "ready" && loadedCharacterTargetKey === requestedLoadTargetKey) {
       return Promise.resolve();
     }
 
@@ -3057,6 +3075,13 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     setEmotion(emotion) {
       setActiveEmotion(emotion);
+    },
+
+    setBackground(backgroundId) {
+      currentBackgroundId = backgroundId;
+      if (scene && renderer) {
+        applyStageBackground(scene, renderer, backgroundId);
+      }
     },
 
     setAttentionTarget(target) {

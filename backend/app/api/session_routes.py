@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.schemas.animation import SessionAnimationSnapshot
-from app.schemas.session import SessionLifecycleUpdateRequest, SpeechLifecycleTransportSnapshot
+from app.schemas.session import (
+    SessionGestureRequest,
+    SessionLifecycleUpdateRequest,
+    SpeechLifecycleTransportSnapshot,
+    StageBackgroundUpdateRequest,
+)
+from app.services.stage_view import get_stage_view_state, is_known_stage_background_id
 from app.services.animation import (
     AnimationService,
     SESSION_ANIMATION_STREAM,
@@ -153,6 +159,59 @@ def register_session_transport_routes(
         animation_snapshot = build_session_animation_response(snapshot, services.animation_service)
         services.session_animation_live_delivery.publish_snapshot(animation_snapshot)
         return animation_snapshot
+
+    @router.post(
+        "/session/animation/gesture",
+        response_model=SessionAnimationSnapshot,
+        response_model_exclude_none=True,
+    )
+    def trigger_session_gesture(request_body: SessionGestureRequest) -> SessionAnimationSnapshot:
+        # Operator/control write seam for one-shot gestures. It does NOT change the
+        # persisted lifecycle state (idle/listen/speak): it publishes a transient
+        # gesture snapshot over the same session-animation stream the lifecycle
+        # route uses, so every connected avatar client plays it once and settles
+        # back to its current idle. Distinct from the speech write seam
+        # (POST /session/operator-command).
+        semantic_id = request_body.semantic_id.strip()
+        if not semantic_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Gesture semantic id must not be blank.",
+            )
+        if not services.animation_service.is_known_semantic_id(semantic_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown gesture semantic id: {semantic_id}",
+            )
+
+        snapshot = services.session_service.get_snapshot()
+        command = services.animation_service.resolve_gesture_command(snapshot, semantic_id)
+        animation_snapshot = SessionAnimationSnapshot(
+            session_id=snapshot.session_id,
+            lifecycle_state=snapshot.lifecycle_state,
+            active_character_id=snapshot.active_character_id,
+            command=command,
+        )
+        services.session_animation_live_delivery.publish_snapshot(animation_snapshot)
+        return animation_snapshot
+
+    @router.get("/session/stage-background")
+    def get_stage_background() -> dict[str, str]:
+        # Presentation-only backdrop selection for the stage/display window.
+        # Polled by the stage window so a control-surface change reaches the
+        # separate Tauri window (which can't share browser state with it).
+        return {"background_id": get_stage_view_state().background_id}
+
+    @router.put("/session/stage-background")
+    def put_stage_background(update: StageBackgroundUpdateRequest) -> dict[str, str]:
+        background_id = update.background_id.strip()
+        if not is_known_stage_background_id(background_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown stage background id: {background_id}",
+            )
+        get_stage_view_state().set_background(background_id)
+        return {"background_id": background_id}
 
     def _build_session_speech_artifact_audio_response(event_id: str) -> Any:
         snapshot = services.session_service.get_snapshot()
