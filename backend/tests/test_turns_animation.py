@@ -96,6 +96,25 @@ class TurnsAnimationTests(unittest.TestCase):
         self.assertEqual(semantic_id, "greet.wave.small.once")
         self.assertEqual(source, "keyword_priority")
 
+    def test_bare_feeling_does_not_trigger_emote_gesture(self) -> None:
+        # The LLM reports a steady feeling (e.g. "excited") every turn; that must
+        # NOT fire a one-shot emote on every reply. Feeling drives the resting
+        # idle on the frontend, not a gesture here.
+        assistant = _assistant("Sure, here is the answer.", feeling="excited")
+        self.assertIsNone(turns_animation._resolve_animation_keyword_rule(assistant))
+        self.assertIsNone(turns_animation._resolve_assistant_animation_choice(assistant))
+
+    def test_action_word_in_reply_still_triggers_gesture(self) -> None:
+        # A genuine action word in the reply text still drives the gesture, even
+        # with a steady feeling present.
+        choice = turns_animation._resolve_assistant_animation_choice(
+            _assistant("Of course, let me wave hello!", feeling="excited")
+        )
+        self.assertIsNotNone(choice)
+        semantic_id, _layer, _intensity, _duration, source = choice
+        self.assertEqual(semantic_id, "greet.wave.once")
+        self.assertEqual(source, "keyword_priority")
+
     def test_explicit_llm_cue_still_wins_over_user_text(self) -> None:
         choice = turns_animation._resolve_assistant_animation_choice(
             _assistant("Sure.", cue="dance.hiphop.loop"),

@@ -179,11 +179,15 @@ def _match_keyword_rule(haystack: str) -> _AnimationCueKeywordRule | None:
 
 
 def _resolve_animation_keyword_rule(assistant: AssistantMessageContract) -> _AnimationCueKeywordRule | None:
+    # The bare feeling label is deliberately NOT part of the haystack: the
+    # frontend already maps feeling -> resting idle (resolveMoodDrivenIdleCommand),
+    # so folding it in here made a steady mood (e.g. the LLM reporting "excited"
+    # every turn) fire a one-shot emote gesture on every single reply. Gestures
+    # must come from an explicit cue or an action word in the reply/request.
     cue_text = assistant.animation_cues[0].cue if assistant.animation_cues else ""
-    feeling_name = assistant.feeling.name if assistant.feeling is not None else ""
     haystack = " ".join(
         segment.strip().lower()
-        for segment in (cue_text, assistant.thinking_summary or "", assistant.text, feeling_name)
+        for segment in (cue_text, assistant.thinking_summary or "", assistant.text)
         if segment and segment.strip()
     )
     return _match_keyword_rule(haystack)
