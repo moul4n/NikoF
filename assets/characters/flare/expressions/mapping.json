@@ -1,0 +1,23 @@
+{
+  "preset": "vrm-expression-baseline",
+  "required": {
+    "neutral": "neutral",
+    "happy": "happy",
+    "sad": "sad",
+    "angry": "angry",
+    "relaxed": "relaxed"
+  },
+  "fallback": {
+    "blink": "blink",
+    "aa": null,
+    "ih": null,
+    "ou": null,
+    "ee": null,
+    "oh": null
+  },
+  "lip_sync": {
+    "preferred_track_id": "advanced",
+    "source_model": "assets/characters/flare/model.vrm",
+    "notes": "Baseline VRM expression mapping. The runtime registers the model's actual VRM expression/viseme set on load; revise after asset review if Flare exposes non-standard mouth targets."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "character_id": "kokoa",
+  "display_name": "Kokoa",
+  "identity_source": "user-imported",
+  "asset_version": "1.0.3",
+  "vrm_spec_version": "1.0",
+  "model_file": "model.vrm",
+  "metadata_file": "metadata/identity.json",
+  "supported_states": [
+    "idle",
+    "listen",
+    "speak",
+    "emote"
+  ],
+  "shared_animation_set": "core-v1",
+  "voice_profile": {
+    "profile_id": "kokoa-default",
+    "path": "voice/profile.json"
+  },
+  "expression_map": "expressions/mapping.json"
+}

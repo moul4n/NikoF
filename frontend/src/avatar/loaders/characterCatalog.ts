@@ -20,6 +20,12 @@ import inspectionCharacterManifest from "../../../../assets/characters/test-vrm-
 import inspectionCharacterModelUrl from "../../../../assets/characters/test-vrm-04/model.vrm?url";
 import mariaCharacterManifest from "../../../../assets/characters/maria/manifest.json";
 import mariaCharacterModelUrl from "../../../../assets/characters/maria/model.vrm?url";
+import flareCharacterManifest from "../../../../assets/characters/flare/manifest.json";
+import flareCharacterModelUrl from "../../../../assets/characters/flare/model.vrm?url";
+import kohakuCharacterManifest from "../../../../assets/characters/kohaku/manifest.json";
+import kohakuCharacterModelUrl from "../../../../assets/characters/kohaku/model.vrm?url";
+import kokoaCharacterManifest from "../../../../assets/characters/kokoa/manifest.json";
+import kokoaCharacterModelUrl from "../../../../assets/characters/kokoa/model.vrm?url";
 import {
   createBackendCharacterCatalogBridge,
   type BackendCharacterCatalogBridge
@@ -59,6 +65,18 @@ const placeholderCharacterCatalog: CharacterCatalogSeed[] = [
   {
     characterId: "maria",
     manifestUrl: "/assets/characters/maria/manifest.json"
+  },
+  {
+    characterId: "flare",
+    manifestUrl: "/assets/characters/flare/manifest.json"
+  },
+  {
+    characterId: "kohaku",
+    manifestUrl: "/assets/characters/kohaku/manifest.json"
+  },
+  {
+    characterId: "kokoa",
+    manifestUrl: "/assets/characters/kokoa/manifest.json"
   }
 ];
 
@@ -67,7 +85,10 @@ const bundledManifestDocuments: Partial<Record<string, CharacterManifestDocument
   "test-vrm-02": secondaryCharacterManifest as CharacterManifestDocument,
   "test-vrm-03": tertiaryCharacterManifest as CharacterManifestDocument,
   "test-vrm-04": inspectionCharacterManifest as CharacterManifestDocument,
-  maria: mariaCharacterManifest as CharacterManifestDocument
+  maria: mariaCharacterManifest as CharacterManifestDocument,
+  flare: flareCharacterManifest as CharacterManifestDocument,
+  kohaku: kohakuCharacterManifest as CharacterManifestDocument,
+  kokoa: kokoaCharacterManifest as CharacterManifestDocument
 };
 
 const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverrides>> = {
@@ -85,6 +106,15 @@ const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverride
   },
   maria: {
     "model.vrm": mariaCharacterModelUrl
+  },
+  flare: {
+    "model.vrm": flareCharacterModelUrl
+  },
+  kohaku: {
+    "model.vrm": kohakuCharacterModelUrl
+  },
+  kokoa: {
+    "model.vrm": kokoaCharacterModelUrl
   }
 };
 

@@ -1,0 +1,12 @@
+{
+  "character_id": "kokoa",
+  "display_name": "Kokoa",
+  "identity_status": "imported",
+  "source_vrm": {
+    "file_name": "model.vrm",
+    "embedded_name": null,
+    "embedded_identifier": "import_file_name:Kokoa_VRM.vrm"
+  },
+  "review_required": true,
+  "notes": "User-imported optional character package created from the Kokoa 1.03 VRM drop."
+}

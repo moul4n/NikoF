@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "character_id": "kohaku",
+  "display_name": "Kohaku",
+  "identity_source": "user-imported",
+  "asset_version": "1.10.0",
+  "vrm_spec_version": "1.0",
+  "model_file": "model.vrm",
+  "metadata_file": "metadata/identity.json",
+  "supported_states": [
+    "idle",
+    "listen",
+    "speak",
+    "emote"
+  ],
+  "shared_animation_set": "core-v1",
+  "voice_profile": {
+    "profile_id": "kohaku-default",
+    "path": "voice/profile.json"
+  },
+  "expression_map": "expressions/mapping.json"
+}

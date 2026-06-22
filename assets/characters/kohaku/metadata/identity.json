@@ -1,0 +1,12 @@
+{
+  "character_id": "kohaku",
+  "display_name": "Kohaku",
+  "identity_status": "imported",
+  "source_vrm": {
+    "file_name": "model.vrm",
+    "embedded_name": null,
+    "embedded_identifier": "import_file_name:Kohaku_1.10_VRM.vrm"
+  },
+  "review_required": true,
+  "notes": "User-imported optional character package created from the NFD Kohaku Full Set V1.21 base VRM (non-dress variant)."
+}

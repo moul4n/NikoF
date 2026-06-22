@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "character_id": "flare",
+  "display_name": "Flare",
+  "identity_source": "user-imported",
+  "asset_version": "2.2.0",
+  "vrm_spec_version": "1.0",
+  "model_file": "model.vrm",
+  "metadata_file": "metadata/identity.json",
+  "supported_states": [
+    "idle",
+    "listen",
+    "speak",
+    "emote"
+  ],
+  "shared_animation_set": "core-v1",
+  "voice_profile": {
+    "profile_id": "flare-default",
+    "path": "voice/profile.json"
+  },
+  "expression_map": "expressions/mapping.json"
+}
