@@ -37,6 +37,7 @@ import {
   type PassiveEmotionController,
   type PassiveEmotionName
 } from "./passiveEmotion";
+import { synthesizeSurprisedExpression } from "./surprisedSynthesis";
 
 type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
 type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
@@ -2840,6 +2841,24 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       }
       if (vrm) {
         passiveEyeDrift = createPassiveEyeDriftController(vrm);
+      }
+
+      // Synthesize a "surprised" expression for models that ship without one
+      // (VRM 0.x has no surprised preset). Must run before the passive emotion
+      // controller is created so its getExpression("surprised") check passes.
+      // Isolated to ./surprisedSynthesis — toggle ENABLE_SURPRISED_SYNTHESIS
+      // there to disable.
+      if (vrm) {
+        const surprised = synthesizeSurprisedExpression(vrm);
+        if (surprised.registered) {
+          console.info(
+            `[avatar] Synthesized 'surprised' for ${character.characterId} from morphs: ${surprised.boundMorphNames.join(", ")}`
+          );
+        } else if (surprised.skippedReason === "no-matching-morphs") {
+          console.warn(
+            `[avatar] No surprised morphs available on ${character.characterId}; surprised channel stays inactive.`
+          );
+        }
       }
 
       // Create passive emotion controller for this VRM
