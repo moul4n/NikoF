@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from app.api.active_character_routes import ActiveCharacterRouteServices, register_active_character_routes
 from app.api.attention_routes import register_attention_routes
+from app.api.character_profile_routes import register_character_profile_routes
 from app.api.llm_routes import register_llm_routes
 from app.api.operator_routes import OperatorCommandRouteServices, register_operator_command_routes
 from app.api.read_routes import ReadRouteServices, register_read_routes
@@ -548,4 +549,5 @@ def register_api_routes(
     register_llm_routes(router)
     register_attention_routes(router)
     register_tts_settings_routes(router)
+    register_character_profile_routes(router, memory_service=services.memory_service)
     register_resource_routes(router)

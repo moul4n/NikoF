@@ -13,6 +13,32 @@ from typing import Any
 from app.services.companion_memory import CompanionMemoryContext
 
 
+def _character_profile_lines(memory_context: CompanionMemoryContext | None) -> list[str]:
+    """Render the operator-editable global character profile (personality, do's,
+    don'ts, response/TTS formatting) as labelled prompt blocks. Shared by the
+    lean and full planner prompts so behavioural rules apply on every turn."""
+    if memory_context is None:
+        return []
+
+    profile = getattr(memory_context, "character_profile", None)
+    if profile is None:
+        return []
+
+    sections = (
+        ("[PERSONALITY]", profile.personality),
+        ("[DO]", profile.directives_do),
+        ("[DON'T]", profile.directives_dont),
+        ("[RESPONSE_FORMATTING]", profile.response_formatting),
+    )
+    lines: list[str] = []
+    for label, body in sections:
+        text = (body or "").strip()
+        if text:
+            lines.append(label)
+            lines.append(text)
+    return lines
+
+
 def _build_lean_reply_prompt(
     text: str,
     *,
@@ -49,6 +75,7 @@ def _build_lean_reply_prompt(
         if retrieved:
             lines.append("Relevant memory:")
             lines.extend(retrieved)
+    lines.extend(_character_profile_lines(memory_context))
     if getattr(voice_profile, "style", None):
         lines.append(f"Delivery style: {voice_profile.style}.")
     lines.extend(["User message:", text])
@@ -141,6 +168,7 @@ def _build_spoken_reply_prompt(
                 f"summary: {memory_context.active_appearance.summary}",
             ]
         )
+    prompt_lines.extend(_character_profile_lines(memory_context))
     prompt_lines.extend(
         [
             "[CURRENT_INPUT]",

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { CharacterCatalogPanel } from "../avatar/components/CharacterCatalogPanel.js";
 import { ControlSurfaceSummaryPanel } from "./ControlSurfaceSummaryPanel.js";
 import { ControlSurfaceTtsSettingsPanel } from "./ControlSurfaceTtsSettingsPanel.js";
+import { ControlSurfaceCharacterProfilePanel } from "./ControlSurfaceCharacterProfilePanel.js";
 import { ResourceMonitorPanel } from "./ResourceMonitorPanel.js";
 import { useResourceMonitor } from "./useResourceMonitor.js";
 import type {
@@ -232,7 +233,7 @@ export function ControlSurfaceShell({
   speechLifecycleState,
   speechPlaybackStatus
 }: ControlSurfaceShellProps): JSX.Element {
-  const [activeSidebarTab, setActiveSidebarTab] = useState<"summary" | "tts">("summary");
+  const [activeSidebarTab, setActiveSidebarTab] = useState<"summary" | "profile" | "tts">("summary");
   const resourceState = useResourceMonitor();
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
   const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
@@ -309,6 +310,15 @@ export function ControlSurfaceShell({
                 <button
                   type="button"
                   role="tab"
+                  aria-selected={activeSidebarTab === "profile"}
+                  className={activeSidebarTab === "profile" ? "control-layout__settings-tab control-layout__settings-tab--active" : "control-layout__settings-tab"}
+                  onClick={() => setActiveSidebarTab("profile")}
+                >
+                  Profile
+                </button>
+                <button
+                  type="button"
+                  role="tab"
                   aria-selected={activeSidebarTab === "tts"}
                   className={activeSidebarTab === "tts" ? "control-layout__settings-tab control-layout__settings-tab--active" : "control-layout__settings-tab"}
                   onClick={() => setActiveSidebarTab("tts")}
@@ -328,6 +338,8 @@ export function ControlSurfaceShell({
                   speechPlaybackMessage={speechPlaybackStatus.playbackKey ? speechPlaybackStatus.message : null}
                   speechLifecycleNextCursor={speechLifecycleSnapshot?.nextCursor ?? null}
                 />
+              ) : activeSidebarTab === "profile" ? (
+                <ControlSurfaceCharacterProfilePanel />
               ) : (
                 <ControlSurfaceTtsSettingsPanel />
               )}

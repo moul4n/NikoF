@@ -184,6 +184,51 @@ class CompanionMemoryServiceTests(unittest.TestCase):
         self.assertEqual(("warm", "protective"), context.persona.core_traits)
         self.assertEqual("memory", context.retrieved_memories[0].namespace)
 
+    def test_character_profile_defaults_then_persist(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            service = SqliteCompanionMemoryService(Path(temp_dir) / "companion-memory.sqlite3")
+
+            # Unset -> sensible shipped defaults (incl. the no-emoji TTS guard).
+            default_profile = service.get_character_profile()
+            self.assertTrue(default_profile.personality.strip())
+            self.assertIn("emoji", default_profile.directives_dont.lower())
+
+            saved = service.set_character_profile(
+                personality="Calm archivist.",
+                directives_do="Answer briefly.",
+                directives_dont="No emojis.",
+                response_formatting="Say 1,000 as one thousand.",
+            )
+            self.assertEqual("Calm archivist.", saved.personality)
+            self.assertIsNotNone(saved.updated_at)
+
+            reloaded = service.get_character_profile()
+            self.assertEqual("Calm archivist.", reloaded.personality)
+            self.assertEqual("Say 1,000 as one thousand.", reloaded.response_formatting)
+
+    def test_prompt_context_carries_character_profile(self) -> None:
+        from app.services import turns_prompts
+
+        with TemporaryDirectory() as temp_dir:
+            service = SqliteCompanionMemoryService(Path(temp_dir) / "companion-memory.sqlite3")
+            service.ensure_persona_core(persona_id="niko", display_name="Niko")
+            service.set_character_profile(
+                personality="Playful.",
+                directives_do="Be warm.",
+                directives_dont="Never use emojis.",
+                response_formatting="Group large numbers into thousands.",
+            )
+            context = service.get_prompt_context(persona_id="niko", query_text="hi")
+
+        self.assertEqual("Never use emojis.", context.character_profile.directives_dont)
+        # The profile must reach the (active) lean planner prompt.
+        prompt = turns_prompts._build_lean_reply_prompt(
+            "hi", character_id="niko", voice_profile=None, memory_context=context
+        )
+        self.assertIn("[DON'T]", prompt)
+        self.assertIn("Never use emojis.", prompt)
+        self.assertIn("Group large numbers into thousands.", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

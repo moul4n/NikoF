@@ -175,6 +175,42 @@ class MemoryEntryRecord:
     created_at: str = field(default_factory=_utc_now_iso)
 
 
+# Operator-editable global character profile (set on the control page). One
+# shared profile applied to whichever character is active, stored as a singleton
+# row in the same companion-memory DB. Sensible defaults ship out of the box so
+# TTS behaves well (no emojis, spoken-friendly numbers) before any editing.
+GLOBAL_CHARACTER_PROFILE_ID = "global"
+DEFAULT_CHARACTER_PROFILE_PERSONALITY = (
+    "Warm, upbeat anime companion. Curious and playful, but concise. Speaks "
+    "naturally and conversationally, like a friend rather than an assistant."
+)
+DEFAULT_CHARACTER_PROFILE_DO = (
+    "Keep replies short and natural to say aloud (one to three sentences).\n"
+    "Stay in character and refer back to what the user has told you when relevant."
+)
+DEFAULT_CHARACTER_PROFILE_DONT = (
+    "Do not use emojis, emoticons, or kaomoji — they break the text-to-speech voice.\n"
+    "Do not use markdown, asterisks, bullet points, or stage directions like *waves*.\n"
+    "Do not read out raw URLs, file paths, or long code."
+)
+DEFAULT_CHARACTER_PROFILE_FORMATTING = (
+    "Write so it sounds right when spoken. Write large numbers in grouped word "
+    "form, e.g. 123,456 as \"one hundred twenty-three thousand, four hundred "
+    "fifty-six\", not digit by digit.\n"
+    "Spell out symbols and units (%, $, &, etc.) as words. Expand common "
+    "abbreviations. Use plain sentences, not lists."
+)
+
+
+@dataclass(slots=True, frozen=True)
+class CharacterProfileRecord:
+    personality: str = DEFAULT_CHARACTER_PROFILE_PERSONALITY
+    directives_do: str = DEFAULT_CHARACTER_PROFILE_DO
+    directives_dont: str = DEFAULT_CHARACTER_PROFILE_DONT
+    response_formatting: str = DEFAULT_CHARACTER_PROFILE_FORMATTING
+    updated_at: str | None = None
+
+
 @dataclass(slots=True, frozen=True)
 class CompanionMemoryContext:
     persona: PersonaCoreRecord
@@ -182,6 +218,7 @@ class CompanionMemoryContext:
     active_appearance: AppearanceRecord | None = None
     retrieved_memories: tuple[MemoryEntryRecord, ...] = field(default_factory=tuple)
     recent_memories: tuple[MemoryEntryRecord, ...] = field(default_factory=tuple)
+    character_profile: CharacterProfileRecord = field(default_factory=CharacterProfileRecord)
 
 
 class CompanionMemoryService(Protocol):
@@ -205,6 +242,19 @@ class CompanionMemoryService(Protocol):
         include_appearance_context: bool = False,
         limit: int = 4,
     ) -> CompanionMemoryContext:
+        raise NotImplementedError
+
+    def get_character_profile(self) -> CharacterProfileRecord:
+        raise NotImplementedError
+
+    def set_character_profile(
+        self,
+        *,
+        personality: str,
+        directives_do: str,
+        directives_dont: str,
+        response_formatting: str,
+    ) -> CharacterProfileRecord:
         raise NotImplementedError
 
     def append_memory(
@@ -400,6 +450,69 @@ class SqliteCompanionMemoryService:
             active_appearance=active_appearance,
             retrieved_memories=retrieved,
             recent_memories=recent,
+            character_profile=self.get_character_profile(),
+        )
+
+    def get_character_profile(self) -> CharacterProfileRecord:
+        with self._open_connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM character_profile WHERE profile_id = ?",
+                (GLOBAL_CHARACTER_PROFILE_ID,),
+            ).fetchone()
+        if row is None:
+            # No saved profile yet -> ship the sensible defaults.
+            return CharacterProfileRecord()
+        return CharacterProfileRecord(
+            personality=str(row["personality"] or ""),
+            directives_do=str(row["directives_do"] or ""),
+            directives_dont=str(row["directives_dont"] or ""),
+            response_formatting=str(row["response_formatting"] or ""),
+            updated_at=str(row["updated_at"]) if row["updated_at"] is not None else None,
+        )
+
+    def set_character_profile(
+        self,
+        *,
+        personality: str,
+        directives_do: str,
+        directives_dont: str,
+        response_formatting: str,
+    ) -> CharacterProfileRecord:
+        updated_at = _utc_now_iso()
+        with self._open_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO character_profile (
+                    profile_id,
+                    personality,
+                    directives_do,
+                    directives_dont,
+                    response_formatting,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(profile_id) DO UPDATE SET
+                    personality = excluded.personality,
+                    directives_do = excluded.directives_do,
+                    directives_dont = excluded.directives_dont,
+                    response_formatting = excluded.response_formatting,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    GLOBAL_CHARACTER_PROFILE_ID,
+                    personality.strip(),
+                    directives_do.strip(),
+                    directives_dont.strip(),
+                    response_formatting.strip(),
+                    updated_at,
+                ),
+            )
+        return CharacterProfileRecord(
+            personality=personality.strip(),
+            directives_do=directives_do.strip(),
+            directives_dont=directives_dont.strip(),
+            response_formatting=response_formatting.strip(),
+            updated_at=updated_at,
         )
 
     def append_memory(
@@ -645,6 +758,18 @@ class SqliteCompanionMemoryService:
                     mood TEXT NOT NULL DEFAULT 'calm',
                     energy_level REAL NOT NULL DEFAULT 0.45,
                     conversation_mode TEXT NOT NULL DEFAULT 'supportive',
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS character_profile (
+                    profile_id TEXT PRIMARY KEY,
+                    personality TEXT NOT NULL DEFAULT '',
+                    directives_do TEXT NOT NULL DEFAULT '',
+                    directives_dont TEXT NOT NULL DEFAULT '',
+                    response_formatting TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL
                 )
                 """
