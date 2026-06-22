@@ -18,21 +18,37 @@ MemorySource = Literal["player", "assistant", "system"]
 _TOKEN_PATTERN = re.compile(r"[a-z0-9']+")
 _IMPORTANT_TOKENS = frozenset(
     {
+        "allergic",
+        "allergy",
         "always",
         "anniversary",
         "birthday",
+        "born",
+        "brother",
         "consent",
+        "daughter",
         "dislike",
+        "family",
         "favorite",
+        "favourite",
         "hate",
+        "hometown",
+        "husband",
         "important",
         "love",
+        "married",
+        "name",
+        "named",
         "never",
+        "partner",
         "plan",
         "prefer",
         "preference",
         "promise",
         "remember",
+        "sister",
+        "son",
+        "wife",
     }
 )
 _APPEARANCE_HINT_TOKENS = frozenset({"appearance", "dress", "hair", "look", "outfit", "style", "wearing"})
@@ -43,6 +59,30 @@ DEFAULT_MEMORY_POLICY = (
 DEFAULT_PRIVACY_POLICY = (
     "Appearance stays separate from persona and episodic memory. Only store semantic appearance notes when the "
     "user explicitly makes them meaningful."
+)
+# A memory at/above this salience is treated as a durable fact and stays
+# recall-eligible even without token overlap with the current message; below it,
+# a memory is only recalled when it is topically relevant (see _score_memory_entries).
+_DURABLE_RECALL_SALIENCE = 0.6
+# Size of the recent-conversation candidate window, and a generous safety cap on
+# how many always-retained durable facts are pulled per turn (durable facts are
+# few next to chatter; this only bounds prompt-scoring cost, not what's stored).
+_RECENT_RECALL_WINDOW = 64
+_DURABLE_RECALL_CAP = 256
+# Function words excluded when measuring topical overlap, so a memory is not
+# pulled into the prompt just because it shares "the"/"about"/"is" with the
+# current message (that surfaced unrelated past topics for no reason).
+_RECALL_STOPWORDS = frozenset(
+    {
+        "a", "about", "after", "all", "am", "an", "and", "any", "are", "as", "at", "be",
+        "been", "but", "by", "can", "could", "did", "do", "does", "for", "from", "get",
+        "had", "has", "have", "he", "her", "him", "his", "how", "i", "if", "in", "into",
+        "is", "it", "its", "just", "know", "like", "me", "my", "no", "not", "now", "of",
+        "off", "on", "one", "or", "our", "out", "over", "please", "she", "should", "so",
+        "some", "tell", "that", "the", "their", "them", "then", "there", "they", "this",
+        "to", "up", "us", "want", "was", "we", "were", "what", "when", "where", "which",
+        "who", "why", "will", "with", "would", "you", "your",
+    }
 )
 
 
@@ -78,6 +118,11 @@ def estimate_memory_salience(text: str, *, explicit_tags: tuple[str, ...] = ()) 
     explicit_bonus = min(0.25, len(explicit_tags) * 0.05)
     length_bonus = min(0.2, len(tokens) / 60.0)
     score = 0.25 + important_hits * 0.15 + question_bonus + appearance_bonus + explicit_bonus + length_bonus
+    # Anything naming a durable life fact (birthday, where you were born, family,
+    # a stated preference/promise) is floored to durable salience so it qualifies
+    # for permanent, always-retained recall regardless of how it was phrased.
+    if important_hits:
+        score = max(score, _DURABLE_RECALL_SALIENCE)
     return max(0.0, min(score, 1.0))
 
 
@@ -292,16 +337,42 @@ class SqliteCompanionMemoryService:
                 "SELECT * FROM demeanor_state WHERE persona_id = ?",
                 (persona_id,),
             ).fetchone()
+            # Candidate set = the recent conversation window (for relevance/recency)
+            # UNION all durable facts regardless of age, so important facts
+            # (birthday, where you were born, preferences, promises) are NEVER
+            # aged out of recall even after thousands of later turns. Durable =
+            # high-salience and NOT a raw conversation turn (raw turns are tagged
+            # "dialog"; they only ever surface via topical overlap).
             memory_rows = connection.execute(
                 """
                 SELECT *
                 FROM memory_entries
                 WHERE persona_id = ?
                   AND namespace = 'memory'
+                  AND (
+                    entry_id IN (
+                      SELECT entry_id FROM memory_entries
+                      WHERE persona_id = ? AND namespace = 'memory'
+                      ORDER BY entry_id DESC LIMIT ?
+                    )
+                    OR entry_id IN (
+                      SELECT entry_id FROM memory_entries
+                      WHERE persona_id = ? AND namespace = 'memory'
+                        AND salience >= ?
+                        AND tags_json NOT LIKE '%"dialog"%'
+                      ORDER BY entry_id DESC LIMIT ?
+                    )
+                  )
                 ORDER BY entry_id DESC
-                LIMIT 64
                 """,
-                (persona_id,),
+                (
+                    persona_id,
+                    persona_id,
+                    _RECENT_RECALL_WINDOW,
+                    persona_id,
+                    _DURABLE_RECALL_SALIENCE,
+                    _DURABLE_RECALL_CAP,
+                ),
             ).fetchall()
 
             appearance_row = None
@@ -462,6 +533,10 @@ class SqliteCompanionMemoryService:
                 if isinstance(salience, (int, float))
                 else estimate_memory_salience(summary)
             )
+            # Never let an important life fact be under-rated below durable recall,
+            # even if the planner assigned it a low salience.
+            if any(token in _IMPORTANT_TOKENS for token in _normalize_text(summary).split()):
+                normalized_salience = max(normalized_salience, _DURABLE_RECALL_SALIENCE)
             tags = writeback.get("tags")
             source = str(writeback.get("source") or "assistant").strip().lower()
             if source not in {"assistant", "player", "system"}:
@@ -687,15 +762,30 @@ class SqliteCompanionMemoryService:
 
     @staticmethod
     def _score_memory_entries(entries: list[MemoryEntryRecord], *, query_text: str) -> list[tuple[float, MemoryEntryRecord]]:
-        query_tokens = set(_normalize_text(query_text).split())
+        # Relevance-gated recall, by entry kind:
+        #  - Raw conversation turns (tagged "dialog") are recalled ONLY when they
+        #    are topically relevant to the current message (token overlap). They
+        #    never surface on salience/recency alone.
+        #  - Durable writebacks (preferences/promises/plans) may also surface on
+        #    high salience even without overlap, so they persist across topics.
+        #
+        # Recency must NOT force a memory back into the prompt: previously we
+        # force-included the last few entries (offset < 3) plus a recency bonus,
+        # which made her resurface the immediately preceding topic for no reason
+        # (ask about the UK, then about SpaceX, and she'd loop back to the UK).
+        # Recency now only breaks ties between otherwise-eligible memories.
+        query_tokens = set(_normalize_text(query_text).split()) - _RECALL_STOPWORDS
         scored: list[tuple[float, MemoryEntryRecord]] = []
         for offset, entry in enumerate(entries):
-            memory_tokens = set(_normalize_text(f"{entry.summary} {entry.content}").split())
+            memory_tokens = set(_normalize_text(f"{entry.summary} {entry.content}").split()) - _RECALL_STOPWORDS
             overlap = len(query_tokens & memory_tokens)
-            recency_bonus = max(0.0, 0.3 - offset * 0.02)
-            score = entry.salience + overlap * 0.2 + recency_bonus
-            if overlap > 0 or entry.salience >= 0.6 or offset < 3:
-                scored.append((score, entry))
+            is_dialog_turn = "dialog" in entry.tags
+            salience_eligible = (not is_dialog_turn) and entry.salience >= _DURABLE_RECALL_SALIENCE
+            if overlap == 0 and not salience_eligible:
+                continue
+            recency_tiebreak = max(0.0, 0.05 - offset * 0.005)
+            score = entry.salience + overlap * 0.2 + recency_tiebreak
+            scored.append((score, entry))
 
         scored.sort(key=lambda item: item[0], reverse=True)
         return scored
