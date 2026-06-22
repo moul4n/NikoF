@@ -1407,6 +1407,125 @@ select {
   height: 100%;
 }
 
+/* Wrapperless "stage" surface (Tauri desktop window): the character fills the
+   whole window with no operator chrome. Future: transparent window + null scene
+   background for a see-through desktop overlay. */
+.stage-surface {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 16%, rgba(80, 136, 196, 0.22), transparent 60%),
+    linear-gradient(180deg, #0e1624, #070d18);
+}
+
+.stage-surface__viewport {
+  width: 100%;
+  height: 100%;
+}
+
+/* Transparent backdrop: clear the stage fill so the alpha canvas (and, with a
+   transparent Tauri window, the desktop) shows through. */
+.stage-surface--transparent {
+  background: transparent;
+}
+
+.stage-surface__message {
+  position: absolute;
+  left: 50%;
+  bottom: 7%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.4rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: rgba(220, 230, 245, 0.85);
+  background: rgba(10, 16, 26, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.stage-surface__message--error {
+  color: #ffb4b4;
+  background: rgba(60, 16, 16, 0.6);
+}
+
+/* Control surface: animation trigger buttons (idles / gestures / loops) broadcast to the avatar. */
+.control-gesture-panel__group {
+  margin-top: 0.75rem;
+}
+
+.control-gesture-panel__group-title {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #cdd8ea;
+}
+
+.control-gesture-panel__group-summary {
+  margin: 0.1rem 0 0;
+  font-size: 0.72rem;
+  color: rgba(190, 202, 222, 0.7);
+}
+
+.control-gesture-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.control-gesture-panel__button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(160, 175, 200, 0.28);
+  background: rgba(18, 28, 44, 0.85);
+  color: #e6edf7;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.control-gesture-panel__button-duration {
+  flex: none;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(198, 214, 236, 0.7);
+  background: rgba(134, 200, 255, 0.12);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
+.control-gesture-panel__button--active .control-gesture-panel__button-duration {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.control-gesture-panel__button:hover:not(:disabled) {
+  background: rgba(40, 64, 96, 0.9);
+  border-color: rgba(134, 200, 255, 0.55);
+}
+
+.control-gesture-panel__button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.control-gesture-panel__button--active,
+.control-gesture-panel__button--active:disabled {
+  background: rgba(134, 200, 255, 0.22);
+  border-color: rgba(134, 200, 255, 0.85);
+  color: #ffffff;
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px rgba(134, 200, 255, 0.45);
+}
+
 .avatar-stage__canvas--interactive {
   cursor: grab;
 }

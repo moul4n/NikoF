@@ -5,6 +5,7 @@ import {
 } from "../avatar/runtime/defaultBaseAnimation";
 import type { AvatarDebugProfileView } from "../avatar/runtime/avatarRuntime";
 import type { SemanticAnimationCommand, SemanticAnimationRuntimePayload } from "../shared/types/animation";
+import { formatSemanticAnimationLabel } from "../shared/animationLabels";
 
 type DevDisplayAnimationOptionBehavior = "backend" | "neutral" | "command";
 
@@ -31,14 +32,6 @@ const DEV_DISPLAY_ACTION_OPTIONS: ReadonlyArray<DevDisplayAnimationOption> = [
     behavior: "neutral"
   },
 ];
-
-function formatSemanticAnimationLabel(semanticId: string): string {
-  return semanticId
-    .split(/[._-]+/)
-    .filter((segment) => segment.length > 0)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
-}
 
 function buildSharedAnimationOption(payload: SemanticAnimationRuntimePayload): DevDisplayAnimationOption {
   const label = payload.semanticId === DEFAULT_BASE_ANIMATION_COMMAND.id ? "Idle Neutral" : formatSemanticAnimationLabel(payload.semanticId);

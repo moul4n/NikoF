@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import type { CharacterCatalogEntry } from "../../shared/types/character";
 import { listSharedSemanticAnimationPayloads } from "../runtime/defaultBaseAnimation";
+import { formatSemanticAnimationLabel, formatAnimationDurationBadge } from "../../shared/animationLabels";
 import type { AvatarRuntimeBridge } from "../runtime/avatarRuntime";
 import { getAvatarRuntimeMountPoints } from "../runtime/mountPoints";
 import { WardrobePanel } from "./WardrobePanel.js";
@@ -23,7 +24,7 @@ const DISPLAY_ANIMATION_OPTIONS = listSharedSemanticAnimationPayloads()
   .map((payload) => ({
     id: payload.semanticId,
     label: formatSemanticAnimationLabel(payload.semanticId),
-    playbackLabel: payload.playback === "loop" ? "Loop" : "Once",
+    playbackLabel: formatAnimationDurationBadge(payload.playback, payload.durationMs),
     command: {
       id: payload.semanticId,
       playback: payload.playback
@@ -48,14 +49,6 @@ interface AvatarStageProps {
   // Optional overlay (voice captions) rendered over the bottom of the avatar
   // viewport on the display surface, in place of the static "ready" message.
   captionsSlot?: JSX.Element | null;
-}
-
-function formatSemanticAnimationLabel(semanticId: string): string {
-  return semanticId
-    .split(/[._-]+/)
-    .filter((segment) => segment.length > 0)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
 }
 
 function describeOverlayChannel(channel: ReturnType<AvatarRuntimeBridge["snapshot"]>["overlayChannels"][number]): string {
