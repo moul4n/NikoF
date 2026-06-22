@@ -24,8 +24,9 @@ import flareCharacterManifest from "../../../../assets/characters/flare/manifest
 import flareCharacterModelUrl from "../../../../assets/characters/flare/model.vrm?url";
 import kohakuCharacterManifest from "../../../../assets/characters/kohaku/manifest.json";
 import kohakuCharacterModelUrl from "../../../../assets/characters/kohaku/model.vrm?url";
-import kokoaCharacterManifest from "../../../../assets/characters/kokoa/manifest.json";
-import kokoaCharacterModelUrl from "../../../../assets/characters/kokoa/model.vrm?url";
+// Kokoa is intentionally NOT registered: its VRM has no blendShape presets,
+// so it has no emotions and no viseme lip-sync (visual-only). The package
+// remains on disk under assets/characters/kokoa/ for future re-enable.
 import {
   createBackendCharacterCatalogBridge,
   type BackendCharacterCatalogBridge
@@ -73,10 +74,6 @@ const placeholderCharacterCatalog: CharacterCatalogSeed[] = [
   {
     characterId: "kohaku",
     manifestUrl: "/assets/characters/kohaku/manifest.json"
-  },
-  {
-    characterId: "kokoa",
-    manifestUrl: "/assets/characters/kokoa/manifest.json"
   }
 ];
 
@@ -87,8 +84,7 @@ const bundledManifestDocuments: Partial<Record<string, CharacterManifestDocument
   "test-vrm-04": inspectionCharacterManifest as CharacterManifestDocument,
   maria: mariaCharacterManifest as CharacterManifestDocument,
   flare: flareCharacterManifest as CharacterManifestDocument,
-  kohaku: kohakuCharacterManifest as CharacterManifestDocument,
-  kokoa: kokoaCharacterManifest as CharacterManifestDocument
+  kohaku: kohakuCharacterManifest as CharacterManifestDocument
 };
 
 const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverrides>> = {
@@ -112,9 +108,6 @@ const bundledAssetUrlOverrides: Partial<Record<string, CharacterAssetUrlOverride
   },
   kohaku: {
     "model.vrm": kohakuCharacterModelUrl
-  },
-  kokoa: {
-    "model.vrm": kokoaCharacterModelUrl
   }
 };
 
