@@ -182,6 +182,14 @@ def _serialize_runtime_tuning() -> dict[str, Any]:
         "llm_streaming_enabled": tuning.llm_streaming_enabled,
         "llm_lean_planner": tuning.llm_lean_planner,
         "llm_async_memory": tuning.llm_async_memory,
+        "llm_num_ctx": tuning.llm_num_ctx,
+        "llm_num_predict": tuning.llm_num_predict,
+        "memory_prompt_token_budget": tuning.memory_prompt_token_budget,
+        "memory_consolidation_enabled": tuning.memory_consolidation_enabled,
+        "memory_consolidation_idle_seconds": tuning.memory_consolidation_idle_seconds,
+        "memory_rollup_keep_recent": tuning.memory_rollup_keep_recent,
+        "memory_rollup_min_batch": tuning.memory_rollup_min_batch,
+        "memory_rollup_max_batch": tuning.memory_rollup_max_batch,
         "tts_engine": resolve_tts_engine_name(),
     }
 

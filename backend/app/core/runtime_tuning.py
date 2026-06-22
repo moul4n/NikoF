@@ -111,6 +111,30 @@ _DEFAULT_LLM_LEAN_PLANNER = False
 # LLM call — off the turn's latency path. Default on.
 _DEFAULT_LLM_ASYNC_MEMORY = True
 
+# Memory/context architecture Stage 1 (docs/MEMORY_ARCHITECTURE.md): make the
+# Ollama context window explicit instead of relying on the small provider default
+# (historically 2048/4096), which silently front-truncates a growing prompt.
+# num_ctx is the KV-cache size (context-size vs VRAM trade-off); num_predict caps
+# generated tokens (0 = use the model default / unbounded). The memory token
+# budget trims retrieved memory by estimated tokens, highest-scored first, so the
+# injected prompt stays bounded as recall breadth grows.
+_DEFAULT_LLM_NUM_CTX = 8192
+_DEFAULT_LLM_NUM_PREDICT = 0
+_DEFAULT_MEMORY_PROMPT_TOKEN_BUDGET = 1024
+
+# Memory/context architecture Stage 3 (docs/MEMORY_ARCHITECTURE.md): the idle
+# consolidation worker. OFF by default — it mutates the memory DB (merges
+# duplicate facts, rolls old raw dialog turns into episodic summaries) and uses
+# the idle LLM, so it is opt-in like the other behaviour-changing levers. It only
+# acts when the LLM has been idle for `idle_seconds` (no live turn competing).
+# keep_recent dialog turns stay verbatim; a rollup runs once at least `min_batch`
+# older turns have accumulated, summarizing up to `max_batch` of them per pass.
+_DEFAULT_MEMORY_CONSOLIDATION_ENABLED = False
+_DEFAULT_MEMORY_CONSOLIDATION_IDLE_SECONDS = 20.0
+_DEFAULT_MEMORY_ROLLUP_KEEP_RECENT = 40
+_DEFAULT_MEMORY_ROLLUP_MIN_BATCH = 20
+_DEFAULT_MEMORY_ROLLUP_MAX_BATCH = 40
+
 
 @dataclass(slots=True, frozen=True)
 class RuntimeTuning:
@@ -128,6 +152,14 @@ class RuntimeTuning:
     llm_streaming_enabled: bool
     llm_lean_planner: bool
     llm_async_memory: bool
+    llm_num_ctx: int
+    llm_num_predict: int
+    memory_prompt_token_budget: int
+    memory_consolidation_enabled: bool
+    memory_consolidation_idle_seconds: float
+    memory_rollup_keep_recent: int
+    memory_rollup_min_batch: int
+    memory_rollup_max_batch: int
 
 
 @lru_cache(maxsize=1)
@@ -164,4 +196,26 @@ def get_runtime_tuning() -> RuntimeTuning:
         llm_streaming_enabled=_bool_env("NIKOF_LLM_STREAMING", _DEFAULT_LLM_STREAMING_ENABLED),
         llm_lean_planner=_bool_env("NIKOF_LLM_LEAN_PLANNER", _DEFAULT_LLM_LEAN_PLANNER),
         llm_async_memory=_bool_env("NIKOF_LLM_ASYNC_MEMORY", _DEFAULT_LLM_ASYNC_MEMORY),
+        llm_num_ctx=_int_env("NIKOF_LLM_NUM_CTX", _DEFAULT_LLM_NUM_CTX, minimum=512),
+        llm_num_predict=_int_env("NIKOF_LLM_NUM_PREDICT", _DEFAULT_LLM_NUM_PREDICT, minimum=0),
+        memory_prompt_token_budget=_int_env(
+            "NIKOF_MEMORY_PROMPT_TOKEN_BUDGET", _DEFAULT_MEMORY_PROMPT_TOKEN_BUDGET, minimum=0
+        ),
+        memory_consolidation_enabled=_bool_env(
+            "NIKOF_MEMORY_CONSOLIDATION", _DEFAULT_MEMORY_CONSOLIDATION_ENABLED
+        ),
+        memory_consolidation_idle_seconds=_float_env(
+            "NIKOF_MEMORY_CONSOLIDATION_IDLE_SECONDS",
+            _DEFAULT_MEMORY_CONSOLIDATION_IDLE_SECONDS,
+            minimum=1.0,
+        ),
+        memory_rollup_keep_recent=_int_env(
+            "NIKOF_MEMORY_ROLLUP_KEEP_RECENT", _DEFAULT_MEMORY_ROLLUP_KEEP_RECENT, minimum=0
+        ),
+        memory_rollup_min_batch=_int_env(
+            "NIKOF_MEMORY_ROLLUP_MIN_BATCH", _DEFAULT_MEMORY_ROLLUP_MIN_BATCH, minimum=1
+        ),
+        memory_rollup_max_batch=_int_env(
+            "NIKOF_MEMORY_ROLLUP_MAX_BATCH", _DEFAULT_MEMORY_ROLLUP_MAX_BATCH, minimum=1
+        ),
     )

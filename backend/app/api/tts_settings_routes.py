@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.kokoro_voices import (
+    get_kokoro_lang,
+    get_selected_kokoro_voice,
+    list_female_voices,
+    set_selected_kokoro_voice,
+)
+from app.services.tts_engines import apply_kokoro_voice, resolve_tts_engine_name
 from app.services.tts_reference_settings import (
     TTSReferenceSettingsError,
     TTSReferenceSettingsSnapshot,
@@ -24,6 +31,31 @@ class TTSReferenceSettingsRequest:
 @dataclass(slots=True, frozen=True)
 class TTSControlRequest:
     action: str
+
+
+@dataclass(slots=True, frozen=True)
+class KokoroVoiceRequest:
+    voice: str
+
+
+def _serialize_kokoro_voices() -> dict[str, Any]:
+    voices = list_female_voices()
+    return {
+        "schema_version": 1,
+        "engine_active": resolve_tts_engine_name() == "kokoro",
+        "available": bool(voices),
+        "selected_voice": get_selected_kokoro_voice(),
+        "lang": get_kokoro_lang(),
+        "voices": [
+            {
+                "voice_id": voice.voice_id,
+                "label": voice.label,
+                "language": voice.language,
+                "english": voice.english,
+            }
+            for voice in voices
+        ],
+    }
 
 
 def _serialize_snapshot(snapshot: TTSReferenceSettingsSnapshot) -> dict[str, Any]:
@@ -80,6 +112,22 @@ def register_tts_settings_routes(router: Any) -> None:
             ) from exc
 
         return _serialize_snapshot(snapshot)
+
+    @router.get("/session/tts/kokoro-voices")
+    async def get_session_kokoro_voices() -> dict[str, Any]:
+        return _serialize_kokoro_voices()
+
+    @router.put("/session/tts/kokoro-voice")
+    async def put_session_kokoro_voice(update: KokoroVoiceRequest) -> dict[str, Any]:
+        try:
+            stored = set_selected_kokoro_voice(update.voice)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        # Persisted above; also push onto the running adapter so the change takes
+        # effect on the next synthesis without a restart.
+        apply_kokoro_voice(stored)
+        return _serialize_kokoro_voices()
 
     @router.post("/session/tts/control")
     async def post_session_tts_control(payload: TTSControlRequest) -> dict[str, Any]:

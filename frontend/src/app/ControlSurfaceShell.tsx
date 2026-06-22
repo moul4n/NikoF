@@ -24,6 +24,10 @@ import { ControlSurfaceOperatorCommandPanel } from "./ControlSurfaceOperatorComm
 import { ControlSurfaceGesturePanel } from "./ControlSurfaceGesturePanel.js";
 import { ControlSurfaceBackgroundPanel } from "./ControlSurfaceBackgroundPanel.js";
 import { ControlSurfaceDisplayPanel } from "./ControlSurfaceDisplayPanel.js";
+import { ControlSurfaceAttentionPanel } from "./ControlSurfaceAttentionPanel.js";
+import { ControlSurfaceSttPanel } from "./ControlSurfaceSttPanel.js";
+import { ControlSurfaceSpeechPlaybackPanel } from "./ControlSurfaceSpeechPlaybackPanel.js";
+import { ControlSurfaceKokoroVoicePanel } from "./ControlSurfaceKokoroVoicePanel.js";
 import type { UseDisplaySettingsResult } from "./useDisplaySettings";
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
@@ -227,6 +231,18 @@ interface ControlSurfaceShellProps {
   displaySettings: UseDisplaySettingsResult;
 }
 
+type ControlTabId = "character" | "tracking" | "llm" | "tts" | "stt" | "performance" | "advanced";
+
+const CONTROL_TABS: ReadonlyArray<{ id: ControlTabId; label: string; hint: string }> = [
+  { id: "character", label: "Character", hint: "Selector · wardrobe · motion · personality" },
+  { id: "tracking", label: "Tracking & Audio", hint: "Camera focus tracking · audio playback" },
+  { id: "llm", label: "LLM", hint: "Text questions · assistant relay" },
+  { id: "tts", label: "TTS", hint: "Voice reference · synthesis preview" },
+  { id: "stt", label: "STT", hint: "Hot mic · push-to-talk" },
+  { id: "performance", label: "Performance", hint: "GPU / CPU / memory monitor" },
+  { id: "advanced", label: "Other / Advanced", hint: "Lifecycle telemetry · session · background" }
+];
+
 export function ControlSurfaceShell({
   loadState,
   selectedCharacter,
@@ -239,7 +255,7 @@ export function ControlSurfaceShell({
   speechPlaybackStatus,
   displaySettings
 }: ControlSurfaceShellProps): JSX.Element {
-  const [activeSidebarTab, setActiveSidebarTab] = useState<"summary" | "profile" | "tts">("summary");
+  const [activeTab, setActiveTab] = useState<ControlTabId>("character");
   const resourceState = useResourceMonitor();
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
   const speechLifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
@@ -252,6 +268,19 @@ export function ControlSurfaceShell({
     resolveSpeechLifecycleCharacterId(speechLifecycleSnapshot) ?? selectedCharacter?.summary.characterId ?? "Unknown";
   const controlSurfaceHref = buildSurfaceHref("control");
   const displaySurfaceHref = buildSurfaceHref("display");
+
+  const audioPlaybackPanel = speechPlaybackStatus.audioSource ? (
+    <section className="surface-panel control-layout__audio-panel">
+      <div className="surface-panel__header">
+        <div>
+          <p className="eyebrow">Audio playback</p>
+          <h2>Debug player</h2>
+        </div>
+      </div>
+      <audio controls src={speechPlaybackStatus.audioSource} className="control-layout__audio-player" />
+      <p className="surface-panel__summary control-layout__audio-source">{speechPlaybackStatus.audioSource}</p>
+    </section>
+  ) : null;
 
   return (
     <div className="app-shell">
@@ -270,110 +299,130 @@ export function ControlSurfaceShell({
         />
       </header>
 
+      <nav className="control-tabs" role="tablist" aria-label="Control surface sections">
+        {CONTROL_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            id={`control-tab-${tab.id}`}
+            aria-selected={activeTab === tab.id}
+            aria-controls={`control-tabpanel-${tab.id}`}
+            className={activeTab === tab.id ? "control-tabs__tab control-tabs__tab--active" : "control-tabs__tab"}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <span className="control-tabs__tab-label">{tab.label}</span>
+            <span className="control-tabs__tab-hint">{tab.hint}</span>
+          </button>
+        ))}
+      </nav>
+
       <main className="app-shell__content app-shell__content--control">
-        <section className="control-layout" aria-label="Control surface workspace">
-          <div className="control-layout__workspace">
-            <div className="control-layout__workspace-main">
+        <section
+          className="control-tabpanel"
+          role="tabpanel"
+          id={`control-tabpanel-${activeTab}`}
+          aria-labelledby={`control-tab-${activeTab}`}
+        >
+          {activeTab === "character" ? (
+            <div className="control-tabpanel__grid control-tabpanel__grid--character">
+              <div className="control-tabpanel__column">
+                <CharacterCatalogPanel
+                  catalog={loadState.catalog}
+                  error={loadState.error}
+                  isLoading={loadState.status === "loading"}
+                  statusMessage={loadState.status === "ready" ? backendStatusMessage : null}
+                  selectedCharacterId={selectedCharacterId}
+                  onSelectCharacter={onSelectCharacter}
+                />
+                <ControlSurfaceCharacterProfilePanel />
+              </div>
+              <div className="control-tabpanel__column">
+                <ControlSurfaceDisplayPanel
+                  activeCharacterId={selectedCharacter?.summary.characterId ?? null}
+                  boneOverlayEnabled={displaySettings.boneOverlayEnabled}
+                  captionsEnabled={displaySettings.captionsEnabled}
+                  wardrobe={displaySettings.wardrobe}
+                  onSetBoneOverlay={displaySettings.setBoneOverlay}
+                  onSetCaptions={displaySettings.setCaptions}
+                  onSetWardrobeControl={displaySettings.setWardrobeControl}
+                />
+                <ControlSurfaceGesturePanel />
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === "tracking" ? (
+            <div className="control-tabpanel__grid">
+              <ControlSurfaceAttentionPanel />
+              {audioPlaybackPanel}
+            </div>
+          ) : null}
+
+          {activeTab === "llm" ? (
+            <div className="control-tabpanel__grid">
               <ControlSurfaceOperatorCommandPanel
+                variant="llm"
                 selectedCharacter={selectedCharacter}
                 speechLifecycleState={speechLifecycleState}
                 speechPlaybackStatus={speechPlaybackStatus}
                 onCommandPublished={onCommandPublished}
               />
-              <ControlSurfaceGesturePanel />
-              <ControlSurfaceBackgroundPanel />
-              <ControlSurfaceDisplayPanel
-                activeCharacterId={selectedCharacter?.summary.characterId ?? null}
-                boneOverlayEnabled={displaySettings.boneOverlayEnabled}
-                captionsEnabled={displaySettings.captionsEnabled}
-                wardrobe={displaySettings.wardrobe}
-                onSetBoneOverlay={displaySettings.setBoneOverlay}
-                onSetCaptions={displaySettings.setCaptions}
-                onSetWardrobeControl={displaySettings.setWardrobeControl}
-              />
-              {speechPlaybackStatus.audioSource && (
-                <section className="surface-panel control-layout__audio-panel">
-                  <div className="surface-panel__header">
-                    <div>
-                      <p className="eyebrow">Audio playback</p>
-                      <h2>Debug player</h2>
-                    </div>
-                  </div>
-                  <audio controls src={speechPlaybackStatus.audioSource} className="control-layout__audio-player" />
-                  <p className="surface-panel__summary control-layout__audio-source">{speechPlaybackStatus.audioSource}</p>
-                </section>
-              )}
             </div>
+          ) : null}
 
-            <aside className="control-layout__workspace-side">
-              <CharacterCatalogPanel
-                catalog={loadState.catalog}
-                error={loadState.error}
-                isLoading={loadState.status === "loading"}
-                statusMessage={loadState.status === "ready" ? backendStatusMessage : null}
-                selectedCharacterId={selectedCharacterId}
-                onSelectCharacter={onSelectCharacter}
+          {activeTab === "tts" ? (
+            <div className="control-tabpanel__grid">
+              <ControlSurfaceKokoroVoicePanel />
+              <ControlSurfaceTtsSettingsPanel />
+              <ControlSurfaceOperatorCommandPanel
+                variant="tts"
+                selectedCharacter={selectedCharacter}
+                speechLifecycleState={speechLifecycleState}
+                speechPlaybackStatus={speechPlaybackStatus}
+                onCommandPublished={onCommandPublished}
               />
-              <div className="control-layout__settings-tabs" role="tablist" aria-label="Control surface settings tabs">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSidebarTab === "summary"}
-                  className={activeSidebarTab === "summary" ? "control-layout__settings-tab control-layout__settings-tab--active" : "control-layout__settings-tab"}
-                  onClick={() => setActiveSidebarTab("summary")}
-                >
-                  Summary
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSidebarTab === "profile"}
-                  className={activeSidebarTab === "profile" ? "control-layout__settings-tab control-layout__settings-tab--active" : "control-layout__settings-tab"}
-                  onClick={() => setActiveSidebarTab("profile")}
-                >
-                  Profile
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSidebarTab === "tts"}
-                  className={activeSidebarTab === "tts" ? "control-layout__settings-tab control-layout__settings-tab--active" : "control-layout__settings-tab"}
-                  onClick={() => setActiveSidebarTab("tts")}
-                >
-                  TTS settings
-                </button>
-              </div>
-              {activeSidebarTab === "summary" ? (
-                <ControlSurfaceSummaryPanel
-                  selectedCharacter={selectedCharacter}
-                  backendStatusMessage={backendStatusMessage}
-                  sessionId={backendSyncState.sessionId}
-                  healthPayload={backendSyncState.healthPayload}
-                  speechDeliveryLabel={speechDeliveryLabel}
-                  speechPlaybackStatusLabel={speechPlaybackStatusLabel}
-                  speechPlaybackTransportLabel={speechPlaybackTransportLabel}
-                  speechPlaybackMessage={speechPlaybackStatus.playbackKey ? speechPlaybackStatus.message : null}
-                  speechLifecycleNextCursor={speechLifecycleSnapshot?.nextCursor ?? null}
-                />
-              ) : activeSidebarTab === "profile" ? (
-                <ControlSurfaceCharacterProfilePanel />
-              ) : (
-                <ControlSurfaceTtsSettingsPanel />
-              )}
-            </aside>
-          </div>
+              {audioPlaybackPanel}
+            </div>
+          ) : null}
 
-          <div className="control-layout__diagnostics">
-            <SpeechLifecyclePanel
-              state={speechLifecycleState}
-              snapshot={speechLifecycleSnapshot}
-              message={speechLifecycleMessage}
-              characterId={speechLifecycleCharacterId}
-              canonicalTranscription={canonicalTranscription}
-              canonicalSynthesis={canonicalSynthesis}
-            />
-            <ResourceMonitorPanel resourceState={resourceState} />
-          </div>
+          {activeTab === "stt" ? (
+            <div className="control-tabpanel__grid">
+              <ControlSurfaceSttPanel />
+            </div>
+          ) : null}
+
+          {activeTab === "performance" ? (
+            <div className="control-tabpanel__grid">
+              <ResourceMonitorPanel resourceState={resourceState} />
+            </div>
+          ) : null}
+
+          {activeTab === "advanced" ? (
+            <div className="control-tabpanel__grid control-tabpanel__grid--advanced">
+              <ControlSurfaceSummaryPanel
+                selectedCharacter={selectedCharacter}
+                backendStatusMessage={backendStatusMessage}
+                sessionId={backendSyncState.sessionId}
+                healthPayload={backendSyncState.healthPayload}
+                speechDeliveryLabel={speechDeliveryLabel}
+                speechPlaybackStatusLabel={speechPlaybackStatusLabel}
+                speechPlaybackTransportLabel={speechPlaybackTransportLabel}
+                speechPlaybackMessage={speechPlaybackStatus.playbackKey ? speechPlaybackStatus.message : null}
+                speechLifecycleNextCursor={speechLifecycleSnapshot?.nextCursor ?? null}
+              />
+              <SpeechLifecyclePanel
+                state={speechLifecycleState}
+                snapshot={speechLifecycleSnapshot}
+                message={speechLifecycleMessage}
+                characterId={speechLifecycleCharacterId}
+                canonicalTranscription={canonicalTranscription}
+                canonicalSynthesis={canonicalSynthesis}
+              />
+              <ControlSurfaceSpeechPlaybackPanel speechPlaybackStatus={speechPlaybackStatus} />
+              <ControlSurfaceBackgroundPanel />
+            </div>
+          ) : null}
         </section>
       </main>
     </div>

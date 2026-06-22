@@ -46,7 +46,8 @@ async def _lifespan(app: Any) -> AsyncIterator[None]:
     """Manage async services that need startup/shutdown hooks."""
     from app.core.runtime_tuning import get_runtime_tuning
     from app.services.attention_worker import get_attention_worker
-    from app.services.llm import get_text_generation_sidecar_manager
+    from app.services.llm import TextGenerationRequest, get_text_generation_sidecar_manager
+    from app.services.memory_consolidation import get_memory_consolidation_worker
     from app.services.stt_worker import get_stt_worker
     from app.services.tts_worker import get_tts_worker
 
@@ -55,6 +56,11 @@ async def _lifespan(app: Any) -> AsyncIterator[None]:
     llm_sidecar_manager = get_text_generation_sidecar_manager()
     stt_worker = get_stt_worker()
     tts_worker = get_tts_worker()
+    memory_consolidation_worker = get_memory_consolidation_worker(
+        text_generation_service=llm_sidecar_manager.resolve(
+            TextGenerationRequest(prompt="", locale="en-US")
+        )
+    )
     await attention_worker.start()
     logger.info("Attention worker started")
     llm_started = llm_sidecar_manager.start()
@@ -64,6 +70,8 @@ async def _lifespan(app: Any) -> AsyncIterator[None]:
     logger.info("STT worker sidecar started")
     await tts_worker.start()
     logger.info("TTS worker process loop started (model loads on first request)")
+    if memory_consolidation_worker.start():
+        logger.info("Memory consolidation worker started (idle-gated)")
 
     # Phase 0 warmups: pay the model lazy-load cost at startup instead of on the
     # first user turn. TTS warmup is already non-blocking; the LLM warmup sends a
@@ -96,6 +104,7 @@ async def _lifespan(app: Any) -> AsyncIterator[None]:
     if warm_llm_task is not None and not warm_llm_task.done():
         warm_llm_task.cancel()
 
+    memory_consolidation_worker.stop()
     await attention_worker.stop()
     logger.info("Attention worker shut down")
     llm_sidecar_manager.stop()

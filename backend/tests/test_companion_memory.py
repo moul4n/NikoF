@@ -184,6 +184,35 @@ class CompanionMemoryServiceTests(unittest.TestCase):
         self.assertEqual(("warm", "protective"), context.persona.core_traits)
         self.assertEqual("memory", context.retrieved_memories[0].namespace)
 
+    def test_prompt_token_budget_trims_retrieved_to_highest_scored(self) -> None:
+        # A tight token budget keeps the highest-scored durable fact and drops the
+        # rest, instead of injecting an unbounded block. The top entry is always
+        # admitted even when it alone is near the budget.
+        with TemporaryDirectory() as temp_dir:
+            service = SqliteCompanionMemoryService(Path(temp_dir) / "companion-memory.sqlite3")
+            service.ensure_persona_core(persona_id="niko", display_name="Niko")
+            for index in range(6):
+                service.append_memory(
+                    persona_id="niko",
+                    namespace="memory",
+                    source="player",
+                    role="user_turn",
+                    summary=f"User loves hobby number {index} a great deal indeed.",
+                    content=f"User loves hobby number {index} a great deal indeed.",
+                    salience=0.9,
+                    tags=("preference",),
+                )
+
+            generous = service.get_prompt_context(
+                persona_id="niko", query_text="hobby", prompt_token_budget=4096
+            )
+            tight = service.get_prompt_context(
+                persona_id="niko", query_text="hobby", prompt_token_budget=20
+            )
+
+        self.assertGreater(len(generous.retrieved_memories), len(tight.retrieved_memories))
+        self.assertGreaterEqual(len(tight.retrieved_memories), 1)
+
     def test_character_profile_defaults_then_persist(self) -> None:
         with TemporaryDirectory() as temp_dir:
             service = SqliteCompanionMemoryService(Path(temp_dir) / "companion-memory.sqlite3")

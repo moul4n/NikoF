@@ -4,6 +4,9 @@ import type { AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
 import { getAvatarRuntimeMountPoints } from "../avatar/runtime/mountPoints";
 import { DEFAULT_STAGE_BACKGROUND_ID } from "../avatar/runtime/backgroundController";
 import { getStageBackground } from "../avatar/loaders/stageBackground";
+import { useAttentionState } from "./useAttentionState";
+import { useAttentionCapture } from "../features/vision/useAttentionCapture.js";
+import { StageControls } from "./StageControls";
 
 const STAGE_BACKGROUND_POLL_MS = 2500;
 
@@ -27,12 +30,74 @@ export function StageSurfaceShell({ runtime, selectedCharacter }: StageSurfaceSh
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
   const [backgroundId, setBackgroundId] = useState<string>(DEFAULT_STAGE_BACKGROUND_ID);
 
+  // Camera attention (gaze/focus tracking + the debug tracking dot) is a
+  // backend-driven display concern, so it must run on the Tauri stage surface
+  // exactly as it does on the browser display surface. Without this the avatar
+  // never tracks the viewer here and the tracking marker never appears. The
+  // enabled/tracking/device intent comes from the control surface (persisted +
+  // reconciled in useAttentionState).
+  const attentionState = useAttentionState();
+  const attentionSnapshot = attentionState.state.snapshot;
+  useAttentionCapture({
+    enabled: attentionSnapshot?.enabled ?? false,
+    tracking: attentionSnapshot?.tracking ?? false,
+    selectedDeviceId: attentionSnapshot?.selected_device_id ?? null,
+    selectedDeviceLabel: attentionSnapshot?.selected_device_label ?? null,
+  });
+
+  // Camera-tracking on/off for the stage eye button. "On" means the backend is
+  // both enabled and tracking; turning it on enables first if needed. Uses the
+  // single attention hook above (no second polling loop). setEnabled/setTracking
+  // persist the operator intent.
+  const cameraTrackingOn = !!(attentionSnapshot?.enabled && attentionSnapshot?.tracking);
+  const cameraTrackingAvailable = attentionState.state.status === "ready" && !!attentionSnapshot?.available;
+  const toggleCameraTracking = (): void => {
+    if (cameraTrackingOn) {
+      void attentionState.setTracking(false);
+      return;
+    }
+    void (async () => {
+      if (!attentionSnapshot?.enabled) {
+        await attentionState.setEnabled(true);
+      }
+      await attentionState.setTracking(true);
+    })();
+  };
+
   useEffect(() => {
     setSnapshot(runtime.snapshot());
     return runtime.subscribe(() => {
       setSnapshot(runtime.snapshot());
     });
   }, [runtime]);
+
+  useEffect(() => {
+    runtime.setAttentionDebugMarkerEnabled(attentionState.state.showTrackingDebugMarker);
+  }, [attentionState.state.showTrackingDebugMarker, runtime]);
+
+  useEffect(() => {
+    const snapshot = attentionState.state.snapshot;
+
+    if (
+      attentionState.state.status !== "ready" ||
+      !snapshot?.enabled ||
+      !snapshot.tracking ||
+      !snapshot.subject
+    ) {
+      runtime.setAttentionTarget(null);
+      return;
+    }
+
+    runtime.setAttentionTarget({
+      normalizedX: snapshot.subject.normalized_x,
+      normalizedY: snapshot.subject.normalized_y,
+      confidence: snapshot.confidence ?? null,
+    });
+
+    return () => {
+      runtime.setAttentionTarget(null);
+    };
+  }, [attentionState.state.snapshot, attentionState.state.status, runtime]);
 
   useEffect(() => {
     runtime.mount(mountPoints);
@@ -113,6 +178,11 @@ export function StageSurfaceShell({ runtime, selectedCharacter }: StageSurfaceSh
           {statusMessage}
         </p>
       ) : null}
+      <StageControls
+        cameraTrackingOn={cameraTrackingOn}
+        cameraTrackingAvailable={cameraTrackingAvailable}
+        onToggleCameraTracking={toggleCameraTracking}
+      />
     </div>
   );
 }

@@ -13,7 +13,12 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.api.attention_routes import AttentionEnabledRequest, AttentionObservationRequest, register_attention_routes
+from app.api.attention_routes import (
+    AttentionDebugMarkerRequest,
+    AttentionEnabledRequest,
+    AttentionObservationRequest,
+    register_attention_routes,
+)
 from app.services.attention_worker import AttentionSubjectSnapshot, AttentionWorkerState, AttentionWorkerStatus
 
 
@@ -75,6 +80,7 @@ class FakeAttentionWorker:
             fps_target=8,
             frame_width=320,
             frame_height=240,
+            show_tracking_debug_marker=False,
             next_sequence=1,
         )
 
@@ -90,6 +96,10 @@ class FakeAttentionWorker:
             enabled=enabled,
             state=AttentionWorkerState.IDLE if enabled else AttentionWorkerState.DISABLED,
         )
+        return self._status
+
+    async def set_show_tracking_debug_marker(self, enabled: bool) -> AttentionWorkerStatus:
+        self._status = replace(self._status, show_tracking_debug_marker=enabled)
         return self._status
 
     async def record_observation(self, **kwargs) -> AttentionWorkerStatus:
@@ -133,6 +143,29 @@ class AttentionRouteTests(unittest.TestCase):
 
         self.assertTrue(response["enabled"])
         self.assertEqual("idle", response["state"])
+
+    def test_session_attention_default_response_includes_debug_marker_flag(self) -> None:
+        router = FakeAPIRouter()
+        worker = FakeAttentionWorker()
+
+        with patch("app.api.attention_routes.get_attention_worker", return_value=worker):
+            register_attention_routes(router)
+            response = invoke_endpoint(get_route(router, path="/session/attention", method="GET").endpoint)
+
+        self.assertFalse(response["show_tracking_debug_marker"])
+
+    def test_session_attention_debug_marker_route_updates_state(self) -> None:
+        router = FakeAPIRouter()
+        worker = FakeAttentionWorker()
+
+        with patch("app.api.attention_routes.get_attention_worker", return_value=worker):
+            register_attention_routes(router)
+            response = invoke_endpoint(
+                get_route(router, path="/session/attention/debug-marker", method="PUT").endpoint,
+                update=AttentionDebugMarkerRequest(enabled=True),
+            )
+
+        self.assertTrue(response["show_tracking_debug_marker"])
 
     def test_session_attention_observation_route_serializes_subject(self) -> None:
         router = FakeAPIRouter()

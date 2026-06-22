@@ -397,6 +397,7 @@ export interface BackendAttentionStateDocument {
   fps_target: number;
   frame_width: number;
   frame_height: number;
+  show_tracking_debug_marker?: boolean;
   next_sequence: number;
 }
 

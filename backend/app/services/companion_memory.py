@@ -69,6 +69,20 @@ _DURABLE_RECALL_SALIENCE = 0.6
 # few next to chatter; this only bounds prompt-scoring cost, not what's stored).
 _RECENT_RECALL_WINDOW = 64
 _DURABLE_RECALL_CAP = 256
+# Stage 1 (docs/MEMORY_ARCHITECTURE.md): cap the injected retrieved-memory block
+# by estimated tokens, highest-scored first, so the prompt stays bounded as recall
+# breadth grows instead of relying on a fixed entry count. The default is generous
+# enough not to trim today's small (limit≈4) recall; callers pass the operator
+# knob. ~4 chars/token is the usual rough estimate for English.
+_DEFAULT_MEMORY_PROMPT_TOKEN_BUDGET = 1024
+_CHARS_PER_TOKEN = 4
+# Per-entry prompt overhead (the "- [source] … (salience=…, at=…)" scaffold) so
+# the budget reflects what actually lands in the prompt, not just the summary.
+_ENTRY_PROMPT_OVERHEAD_TOKENS = 12
+
+
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(text) // _CHARS_PER_TOKEN)
 # Function words excluded when measuring topical overlap, so a memory is not
 # pulled into the prompt just because it shares "the"/"about"/"is" with the
 # current message (that surfaced unrelated past topics for no reason).
@@ -173,6 +187,11 @@ class MemoryEntryRecord:
     session_id: str | None = None
     locale: str | None = None
     created_at: str = field(default_factory=_utc_now_iso)
+    # Stage 3 consolidation (docs/MEMORY_ARCHITECTURE.md): how many duplicate
+    # facts merged into this one (1 = never reinforced). Superseded entries have
+    # been rolled up into an episodic summary and are excluded from recall.
+    reinforcement_count: int = 1
+    superseded: bool = False
 
 
 # Operator-editable global character profile (set on the control page). One
@@ -241,6 +260,7 @@ class CompanionMemoryService(Protocol):
         query_text: str,
         include_appearance_context: bool = False,
         limit: int = 4,
+        prompt_token_budget: int | None = None,
     ) -> CompanionMemoryContext:
         raise NotImplementedError
 
@@ -297,6 +317,30 @@ class CompanionMemoryService(Protocol):
         energy_level: float | None = None,
         conversation_mode: str | None = None,
     ) -> DemeanorRecord:
+        raise NotImplementedError
+
+    # Stage 3 consolidation primitives (docs/MEMORY_ARCHITECTURE.md).
+    def list_persona_ids(self) -> tuple[str, ...]:
+        raise NotImplementedError
+
+    def consolidate_durable_duplicates(self, *, persona_id: str) -> int:
+        raise NotImplementedError
+
+    def select_dialog_rollup_batch(
+        self, *, persona_id: str, keep_recent: int, max_batch: int
+    ) -> tuple[MemoryEntryRecord, ...]:
+        raise NotImplementedError
+
+    def store_dialog_rollup(
+        self,
+        *,
+        persona_id: str,
+        summary: str,
+        covered_entry_ids: tuple[int, ...],
+        session_id: str | None = None,
+        locale: str | None = None,
+        salience: float = 0.5,
+    ) -> MemoryEntryRecord | None:
         raise NotImplementedError
 
 
@@ -377,6 +421,7 @@ class SqliteCompanionMemoryService:
         query_text: str,
         include_appearance_context: bool = False,
         limit: int = 4,
+        prompt_token_budget: int | None = None,
     ) -> CompanionMemoryContext:
         with self._open_connection() as connection:
             persona_row = connection.execute(
@@ -399,15 +444,16 @@ class SqliteCompanionMemoryService:
                 FROM memory_entries
                 WHERE persona_id = ?
                   AND namespace = 'memory'
+                  AND superseded = 0
                   AND (
                     entry_id IN (
                       SELECT entry_id FROM memory_entries
-                      WHERE persona_id = ? AND namespace = 'memory'
+                      WHERE persona_id = ? AND namespace = 'memory' AND superseded = 0
                       ORDER BY entry_id DESC LIMIT ?
                     )
                     OR entry_id IN (
                       SELECT entry_id FROM memory_entries
-                      WHERE persona_id = ? AND namespace = 'memory'
+                      WHERE persona_id = ? AND namespace = 'memory' AND superseded = 0
                         AND salience >= ?
                         AND tags_json NOT LIKE '%"dialog"%'
                       ORDER BY entry_id DESC LIMIT ?
@@ -441,7 +487,14 @@ class SqliteCompanionMemoryService:
         demeanor = self._demeanor_from_row(demeanor_row) if demeanor_row is not None else DemeanorRecord(persona_id=persona_id)
         entries = [self._memory_from_row(row) for row in memory_rows]
         scored_entries = self._score_memory_entries(entries, query_text=query_text)
-        retrieved = tuple(entry for _, entry in scored_entries[: max(limit, 0)])
+        budget = (
+            _DEFAULT_MEMORY_PROMPT_TOKEN_BUDGET
+            if prompt_token_budget is None
+            else max(0, prompt_token_budget)
+        )
+        retrieved = self._select_within_token_budget(
+            scored_entries, max_entries=max(limit, 0), token_budget=budget
+        )
         recent = tuple(entries[: min(4, len(entries))])
         active_appearance = self._appearance_from_row(appearance_row) if appearance_row is not None else None
         return CompanionMemoryContext(
@@ -719,6 +772,145 @@ class SqliteCompanionMemoryService:
 
         return updated
 
+    # ------------------------------------------------------------------
+    # Stage 3 consolidation primitives (docs/MEMORY_ARCHITECTURE.md).
+    # Deterministic SQLite operations the idle worker orchestrates; no LLM and
+    # no model required for dedup. All are safe to run repeatedly (idempotent).
+    # ------------------------------------------------------------------
+
+    def list_persona_ids(self) -> tuple[str, ...]:
+        """Distinct personas that have any memory — the consolidation work-list."""
+        with self._open_connection() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT persona_id FROM memory_entries ORDER BY persona_id"
+            ).fetchall()
+        return tuple(str(row["persona_id"]) for row in rows)
+
+    def consolidate_durable_duplicates(self, *, persona_id: str) -> int:
+        """Merge durable facts whose normalized text is identical into one row.
+
+        Keeps the highest-salience row (oldest on a tie) as canonical, folds the
+        duplicates' count into ``reinforcement_count``, lifts canonical salience to
+        the max of the group, and deletes the duplicate rows. Only operates on
+        durable, non-dialog, non-superseded ``memory`` entries — raw conversation
+        turns are never merged. Returns the number of rows removed.
+        """
+        removed = 0
+        with self._open_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT entry_id, summary, content, salience, reinforcement_count
+                FROM memory_entries
+                WHERE persona_id = ?
+                  AND namespace = 'memory'
+                  AND superseded = 0
+                  AND salience >= ?
+                  AND tags_json NOT LIKE '%"dialog"%'
+                ORDER BY entry_id ASC
+                """,
+                (persona_id, _DURABLE_RECALL_SALIENCE),
+            ).fetchall()
+
+            groups: dict[str, list[sqlite3.Row]] = {}
+            for row in rows:
+                key = _normalize_text(f"{row['summary']} {row['content']}")
+                if key:
+                    groups.setdefault(key, []).append(row)
+
+            for members in groups.values():
+                if len(members) < 2:
+                    continue
+                canonical = max(members, key=lambda r: (float(r["salience"]), -int(r["entry_id"])))
+                duplicates = [r for r in members if int(r["entry_id"]) != int(canonical["entry_id"])]
+                merged_count = sum(int(r["reinforcement_count"]) for r in members)
+                merged_salience = max(float(r["salience"]) for r in members)
+                connection.execute(
+                    "UPDATE memory_entries SET reinforcement_count = ?, salience = ? WHERE entry_id = ?",
+                    (merged_count, merged_salience, int(canonical["entry_id"])),
+                )
+                connection.executemany(
+                    "DELETE FROM memory_entries WHERE entry_id = ?",
+                    [(int(r["entry_id"]),) for r in duplicates],
+                )
+                removed += len(duplicates)
+        return removed
+
+    def select_dialog_rollup_batch(
+        self,
+        *,
+        persona_id: str,
+        keep_recent: int,
+        max_batch: int,
+    ) -> tuple[MemoryEntryRecord, ...]:
+        """Oldest raw dialog turns eligible for episodic rollup.
+
+        Excludes the ``keep_recent`` most-recent dialog turns (the working window
+        stays verbatim) and anything already superseded. Returns up to
+        ``max_batch`` of the oldest remaining turns, oldest-first.
+        """
+        if max_batch <= 0:
+            return ()
+        with self._open_connection() as connection:
+            recent_ids = [
+                int(row["entry_id"])
+                for row in connection.execute(
+                    """
+                    SELECT entry_id FROM memory_entries
+                    WHERE persona_id = ? AND namespace = 'memory' AND superseded = 0
+                      AND tags_json LIKE '%"dialog"%'
+                    ORDER BY entry_id DESC LIMIT ?
+                    """,
+                    (persona_id, max(0, keep_recent)),
+                ).fetchall()
+            ]
+            placeholders = ",".join("?" for _ in recent_ids) or "NULL"
+            rows = connection.execute(
+                f"""
+                SELECT * FROM memory_entries
+                WHERE persona_id = ? AND namespace = 'memory' AND superseded = 0
+                  AND tags_json LIKE '%"dialog"%'
+                  AND entry_id NOT IN ({placeholders})
+                ORDER BY entry_id ASC LIMIT ?
+                """,
+                (persona_id, *recent_ids, max_batch),
+            ).fetchall()
+        return tuple(self._memory_from_row(row) for row in rows)
+
+    def store_dialog_rollup(
+        self,
+        *,
+        persona_id: str,
+        summary: str,
+        covered_entry_ids: tuple[int, ...],
+        session_id: str | None = None,
+        locale: str | None = None,
+        salience: float = 0.5,
+    ) -> MemoryEntryRecord | None:
+        """Persist an episodic rollup summarizing ``covered_entry_ids`` and mark
+        those raw turns superseded (excluded from recall). Returns the new entry,
+        or None when there is nothing to roll up / an empty summary."""
+        normalized_summary = summary.strip()
+        if not normalized_summary or not covered_entry_ids:
+            return None
+        rollup = self.append_memory(
+            persona_id=persona_id,
+            namespace="memory",
+            source="system",
+            role="rollup",
+            summary=normalized_summary[:160],
+            content=normalized_summary,
+            salience=max(0.0, min(float(salience), 1.0)),
+            tags=("episodic", "rollup"),
+            session_id=session_id,
+            locale=locale,
+        )
+        with self._open_connection() as connection:
+            connection.executemany(
+                "UPDATE memory_entries SET superseded = 1 WHERE entry_id = ?",
+                [(int(entry_id),) for entry_id in covered_entry_ids],
+            )
+        return rollup
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -803,9 +995,20 @@ class SqliteCompanionMemoryService:
                     appearance_id TEXT,
                     session_id TEXT,
                     locale TEXT,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    reinforcement_count INTEGER NOT NULL DEFAULT 1,
+                    superseded INTEGER NOT NULL DEFAULT 0
                 )
                 """
+            )
+            # Idempotent column adds for DBs created before Stage 3 consolidation.
+            self._ensure_columns(
+                connection,
+                "memory_entries",
+                (
+                    ("reinforcement_count", "INTEGER NOT NULL DEFAULT 1"),
+                    ("superseded", "INTEGER NOT NULL DEFAULT 0"),
+                ),
             )
             connection.execute(
                 """
@@ -813,6 +1016,19 @@ class SqliteCompanionMemoryService:
                 ON memory_entries (persona_id, namespace, entry_id DESC)
                 """
             )
+
+    @staticmethod
+    def _ensure_columns(
+        connection: sqlite3.Connection,
+        table: str,
+        columns: tuple[tuple[str, str], ...],
+    ) -> None:
+        """Add any missing columns to ``table`` (SQLite has no ADD COLUMN IF NOT
+        EXISTS). Existing rows take the column default; this never rewrites data."""
+        existing = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+        for name, definition in columns:
+            if name not in existing:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     @staticmethod
     def _decode_json_array(raw_value: object) -> tuple[str, ...]:
@@ -883,6 +1099,8 @@ class SqliteCompanionMemoryService:
             session_id=str(row["session_id"]) if row["session_id"] is not None else None,
             locale=str(row["locale"]) if row["locale"] is not None else None,
             created_at=str(row["created_at"]),
+            reinforcement_count=int(row["reinforcement_count"]) if "reinforcement_count" in row.keys() else 1,
+            superseded=bool(row["superseded"]) if "superseded" in row.keys() else False,
         )
 
     @staticmethod
@@ -914,6 +1132,30 @@ class SqliteCompanionMemoryService:
 
         scored.sort(key=lambda item: item[0], reverse=True)
         return scored
+
+    @staticmethod
+    def _select_within_token_budget(
+        scored_entries: list[tuple[float, MemoryEntryRecord]],
+        *,
+        max_entries: int,
+        token_budget: int,
+    ) -> tuple[MemoryEntryRecord, ...]:
+        # Walk highest-scored first, including entries until the estimated token
+        # cost would exceed the budget (or the entry cap is hit). The top entry is
+        # always admitted even if it alone exceeds the budget, so a single large
+        # durable fact is never silently dropped. A budget of 0 disables trimming
+        # and the entry cap alone applies.
+        selected: list[MemoryEntryRecord] = []
+        spent = 0
+        for _, entry in scored_entries:
+            if max_entries and len(selected) >= max_entries:
+                break
+            cost = _estimate_tokens(f"{entry.summary} {entry.content}") + _ENTRY_PROMPT_OVERHEAD_TOKENS
+            if token_budget and selected and spent + cost > token_budget:
+                continue
+            selected.append(entry)
+            spent += cost
+        return tuple(selected)
 
 
 def build_companion_memory_service(app_paths: AppPaths | None = None) -> CompanionMemoryService:

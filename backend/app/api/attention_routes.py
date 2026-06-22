@@ -35,6 +35,7 @@ class AttentionStateResponse:
     fps_target: int
     frame_width: int
     frame_height: int
+    show_tracking_debug_marker: bool
     next_sequence: int
 
 
@@ -51,6 +52,11 @@ class AttentionEnabledRequest:
 
 @dataclass(slots=True, frozen=True)
 class AttentionTrackingRequest:
+    enabled: bool
+
+
+@dataclass(slots=True, frozen=True)
+class AttentionDebugMarkerRequest:
     enabled: bool
 
 
@@ -92,6 +98,7 @@ def _serialize_status(status: AttentionWorkerStatus) -> AttentionStateResponse:
         fps_target=status.fps_target,
         frame_width=status.frame_width,
         frame_height=status.frame_height,
+        show_tracking_debug_marker=status.show_tracking_debug_marker,
         next_sequence=status.next_sequence,
     )
 
@@ -125,6 +132,7 @@ def _serialize_state_response(response: AttentionStateResponse) -> dict[str, Any
         "fps_target": response.fps_target,
         "frame_width": response.frame_width,
         "frame_height": response.frame_height,
+        "show_tracking_debug_marker": response.show_tracking_debug_marker,
         "next_sequence": response.next_sequence,
     }
 
@@ -206,6 +214,11 @@ def register_attention_routes(router: Any) -> None:
     @router.put("/session/attention/tracking")
     async def put_session_attention_tracking(update: AttentionTrackingRequest) -> dict[str, Any]:
         response = _serialize_status(await get_attention_worker().set_tracking(update.enabled))
+        return _serialize_state_response(response)
+
+    @router.put("/session/attention/debug-marker")
+    async def put_session_attention_debug_marker(update: AttentionDebugMarkerRequest) -> dict[str, Any]:
+        response = _serialize_status(await get_attention_worker().set_show_tracking_debug_marker(update.enabled))
         return _serialize_state_response(response)
 
     @router.post("/session/attention/observations")

@@ -7,6 +7,7 @@ export const ATTENTION_DEVICE_ROUTE_PATH = "/session/attention/device";
 export const ATTENTION_DEVICES_ROUTE_PATH = "/session/attention/devices";
 export const ATTENTION_ENABLED_ROUTE_PATH = "/session/attention/enabled";
 export const ATTENTION_TRACKING_ROUTE_PATH = "/session/attention/tracking";
+export const ATTENTION_DEBUG_MARKER_ROUTE_PATH = "/session/attention/debug-marker";
 const ATTENTION_DEBUG_MARKER_STORAGE_KEY = "nikof.attention.showTrackingDebugMarker";
 // Persist the operator's camera-attention intent (chosen on the control page) so
 // it survives reloads AND backend restarts, and is re-applied on every surface
@@ -167,7 +168,7 @@ export function useAttentionState(): {
   setSelectedDevice: (input: AttentionDeviceSelectionInput) => Promise<void>;
   setEnabled: (enabled: boolean) => Promise<void>;
   setTracking: (enabled: boolean) => Promise<void>;
-  setShowTrackingDebugMarker: (enabled: boolean) => void;
+  setShowTrackingDebugMarker: (enabled: boolean) => Promise<void>;
 } {
   const [state, setState] = useState<AttentionLoadState>({
     status: "loading",
@@ -360,8 +361,9 @@ export function useAttentionState(): {
     const persistedDeviceLabel = typeof window !== "undefined" ? window.localStorage.getItem(ATTENTION_DEVICE_LABEL_STORAGE_KEY) : null;
     const persistedEnabled = readPersistedBoolean(ATTENTION_ENABLED_STORAGE_KEY);
     const persistedTracking = readPersistedBoolean(ATTENTION_TRACKING_STORAGE_KEY);
+    const persistedDebugMarker = readPersistedAttentionDebugMarkerEnabled();
 
-    if (persistedDevice === null && persistedEnabled === null && persistedTracking === null) {
+    if (persistedDevice === null && persistedEnabled === null && persistedTracking === null && !persistedDebugMarker) {
       reconciledRef.current = true;
       return;
     }
@@ -381,6 +383,12 @@ export function useAttentionState(): {
       }
       if (persistedTracking !== null && persistedEnabled !== false && snapshot.tracking !== persistedTracking) {
         await setTracking(persistedTracking);
+      }
+      // Only restore an explicit "on" preference; the marker default is off and
+      // the persisted key is absent when disabled, so there is nothing to push
+      // when persistedDebugMarker is false.
+      if (persistedDebugMarker && snapshot.show_tracking_debug_marker !== true) {
+        await setShowTrackingDebugMarker(true);
       }
     })();
   }, [state.status, state.snapshot?.available, state.devices]);
@@ -465,16 +473,41 @@ export function useAttentionState(): {
     }
   }
 
-  function setShowTrackingDebugMarker(enabled: boolean): void {
+  // The tracking dot is rendered on whichever surface draws the avatar — now
+  // primarily the standalone front-end window, which is a separate webview and
+  // never sees this page's localStorage. Route the toggle through the backend so
+  // the shared attention snapshot carries it to every surface; persist locally
+  // too so the operator intent is restored after a backend restart.
+  async function setShowTrackingDebugMarker(enabled: boolean): Promise<void> {
     writePersistedAttentionDebugMarkerEnabled(enabled);
-    setState((currentState) => ({
-      ...currentState,
-      showTrackingDebugMarker: enabled
-    }));
+    setState((currentState) => ({ ...currentState, showTrackingDebugMarker: enabled }));
+    try {
+      const snapshot = await fetchJson<BackendAttentionStateDocument>(ATTENTION_DEBUG_MARKER_ROUTE_PATH, {
+        method: "PUT",
+        body: JSON.stringify({ enabled })
+      });
+      setState((currentState) => ({
+        ...currentState,
+        snapshot: pickNewerSnapshot(currentState.snapshot, snapshot)
+      }));
+    } catch (error: unknown) {
+      setState((currentState) => ({
+        ...currentState,
+        message: error instanceof Error ? error.message : "Backend attention debug marker update failed."
+      }));
+    }
   }
 
+  // Prefer the backend snapshot's marker flag (shared across surfaces) over the
+  // page-local persisted value, so the standalone front-end window and the
+  // control surface always agree on whether the dot is shown.
+  const effectiveShowTrackingDebugMarker =
+    typeof state.snapshot?.show_tracking_debug_marker === "boolean"
+      ? state.snapshot.show_tracking_debug_marker
+      : state.showTrackingDebugMarker;
+
   return {
-    state,
+    state: { ...state, showTrackingDebugMarker: effectiveShowTrackingDebugMarker },
     setSelectedDevice,
     setEnabled,
     setTracking,

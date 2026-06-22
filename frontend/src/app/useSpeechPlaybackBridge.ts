@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { registerAudioOutputElement } from "./audioOutputControl";
 import type {
   AvatarRuntimeBridge,
   AvatarSpeechReactionInput
@@ -429,7 +430,9 @@ export function useSpeechPlaybackBridge({
 
     const playbackAudio = new Audio(playbackBundle.audioSource);
     playbackAudio.volume = 1.0;
-    playbackAudio.muted = false;
+    // Honour the window's audio-out mute toggle (and keep this element in sync if
+    // it is toggled mid-utterance).
+    const unregisterAudioOutput = registerAudioOutputElement(playbackAudio);
     let settled = false;
     let playbackStarted = false;
 
@@ -449,6 +452,7 @@ export function useSpeechPlaybackBridge({
       playbackAudio.removeEventListener("timeupdate", handleTimeUpdate);
       playbackAudio.removeEventListener("ended", handleEnded);
       playbackAudio.removeEventListener("error", handleError);
+      unregisterAudioOutput();
       speechPlaybackBridge.cleanupActiveAudio = null;
 
       if (speechPlaybackBridge.activeAudio === playbackAudio) {

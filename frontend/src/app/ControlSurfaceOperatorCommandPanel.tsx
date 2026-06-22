@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import {
   OPERATOR_COMMAND_ROUTE_PATH,
   OperatorCommandSubmitError,
@@ -8,7 +8,6 @@ import type {
   BackendAssistantMessageDocument,
   BackendOperatorCommandResponseDocument,
   BackendOperatorCommandType,
-  BackendSttTranscriptChunkDocument,
   BackendSpeechSynthesisDocument,
   CharacterCatalogEntry
 } from "../shared/types/character";
@@ -19,19 +18,15 @@ import {
   resolveSpeechLifecycleDeliveryLabel,
   type SpeechLifecycleLoadState
 } from "./useSpeechLifecycleState.js";
-import { describeAttentionStateLine, useAttentionState } from "./useAttentionState.js";
-import { describeSttStateLine, useSttState } from "./useSttState.js";
-import { useAttentionCapture } from "../features/vision/useAttentionCapture.js";
-import {
-  formatPushToTalkBindingLabel,
-  isEditableKeyboardTarget,
-  isModifierOnlyKey,
-  matchesPushToTalkBinding,
-  normalizePushToTalkBinding,
-  readPersistedPushToTalkBinding,
-  writePersistedPushToTalkBinding,
-  type PushToTalkBinding
-} from "./pushToTalkBinding.js";
+
+/**
+ * Which operator-command form this instance renders. The control surface mounts
+ * one instance per tab: the "llm" variant drives text questions (conversation),
+ * the "tts" variant drives the TTS preview and shows synthesis/playback
+ * diagnostics. Each instance owns its own submission state; canonical results
+ * arrive via the shared speech.lifecycle snapshot.
+ */
+export type OperatorCommandPanelVariant = "llm" | "tts";
 
 type OperatorCommandSubmissionState = {
   status: "idle" | "submitting" | "ready" | "error";
@@ -42,6 +37,7 @@ type OperatorCommandSubmissionState = {
 };
 
 interface ControlSurfaceOperatorCommandPanelProps {
+  variant: OperatorCommandPanelVariant;
   selectedCharacter: CharacterCatalogEntry | null;
   speechLifecycleState: SpeechLifecycleLoadState;
   speechPlaybackStatus: SpeechPlaybackState;
@@ -221,43 +217,7 @@ function describeSpeechPlaybackTransport(playback: SpeechPlaybackState): string 
   return "none";
 }
 
-function formatSttChunkTimestamp(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return "time unavailable";
-  }
-
-  return new Date(value * 1000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-}
-
-function describeSttChunkDispatchState(chunk: BackendSttTranscriptChunkDocument): string {
-  if (chunk.dispatch_state === "submitted") {
-    return `sent to ${chunk.dispatch_target ?? "llm"}`;
-  }
-
-  if (chunk.dispatch_state === "stub-recorded") {
-    return "stored for stub dispatch";
-  }
-
-  if (chunk.dispatch_state === "queued") {
-    return `queued for ${chunk.dispatch_target ?? "llm"}`;
-  }
-
-  if (chunk.dispatch_state === "filtered") {
-    return "kept as debug-only";
-  }
-
-  if (chunk.dispatch_state === "error") {
-    return "dispatch error";
-  }
-
-  return chunk.dispatch_state;
-}
-
-function describeBackendCanonicalBundleReadiness(playback: SpeechPlaybackState): string | null {
+export function describeBackendCanonicalBundleReadiness(playback: SpeechPlaybackState): string | null {
   const bundle = playback.lastBundle;
   if (!bundle) {
     return null;
@@ -291,7 +251,7 @@ function describeBackendCanonicalBundleReadiness(playback: SpeechPlaybackState):
   return "Backend canonical bundle is incomplete: no playable audio and no timing metadata were published.";
 }
 
-function renderSpeechBundleTimeline(playback: SpeechPlaybackState): JSX.Element | null {
+export function renderSpeechBundleTimeline(playback: SpeechPlaybackState): JSX.Element | null {
   const bundle = playback.lastBundle;
   const lipSync = bundle?.lipSync;
   const totalMs = bundle?.utteranceDurationMs ?? null;
@@ -445,25 +405,16 @@ function buildFeedbackClassName(
 }
 
 export function ControlSurfaceOperatorCommandPanel({
+  variant,
   selectedCharacter,
   speechLifecycleState,
   speechPlaybackStatus,
   onCommandPublished
 }: ControlSurfaceOperatorCommandPanelProps): JSX.Element {
-  const {
-    state: attentionState,
-    setSelectedDevice: setSelectedAttentionDevice,
-    setEnabled: setAttentionEnabled,
-    setTracking: setAttentionTracking,
-    setShowTrackingDebugMarker,
-  } = useAttentionState();
-  const { state: sttState, setSelectedDevice, setListening } = useSttState();
+  const isLlmVariant = variant === "llm";
   const [operatorCommandLocale, setOperatorCommandLocale] = useState("en-US");
   const [textQuestionDraft, setTextQuestionDraft] = useState("");
   const [ttsPreviewDraft, setTtsPreviewDraft] = useState("");
-  const [pushToTalkBinding, setPushToTalkBinding] = useState<PushToTalkBinding>(() => readPersistedPushToTalkBinding());
-  const [isCapturingPushToTalkKey, setIsCapturingPushToTalkKey] = useState(false);
-  const [isPushToTalkActive, setIsPushToTalkActive] = useState(false);
   const [operatorCommandState, setOperatorCommandState] = useState<OperatorCommandSubmissionState>({
     status: "idle",
     activeCommandType: null,
@@ -471,8 +422,6 @@ export function ControlSurfaceOperatorCommandPanel({
     response: null,
     error: null
   });
-  const pushToTalkHeldRef = useRef(false);
-  const pushToTalkStartedListeningRef = useRef(false);
 
   function handleOperatorCommandSubmit(commandType: BackendOperatorCommandType, text: string): void {
     const locale = operatorCommandLocale.trim() || "en-US";
@@ -541,26 +490,13 @@ export function ControlSurfaceOperatorCommandPanel({
   const speechLifecycleSnapshot = speechLifecycleState.snapshot;
   const lifecycleMessage = describeSpeechLifecycleStateMessage(speechLifecycleState);
   const isSubmitting = operatorCommandState.status === "submitting";
-  const isBlockingTtsPreviewResult =
-    operatorCommandState.activeCommandType === "tts_preview" &&
-    (operatorCommandState.status === "submitting" || operatorCommandState.status === "error");
   const isBlockingTextQuestionResult =
     operatorCommandState.activeCommandType === "text_question" &&
     (operatorCommandState.status === "submitting" || operatorCommandState.status === "error");
-  const lastPublishedEvent =
-    (isSubmitting ? "operator-command.pending" : null) ??
-    (operatorCommandState.status === "error" ? "operator-command.error" : null) ??
-    speechLifecycleSnapshot?.latestEvent?.event_type ??
-    operatorCommandState.response?.speech_lifecycle_events.at(-1)?.event.event_type ??
-    "No command submitted yet";
   const assistantReply = isBlockingTextQuestionResult
     ? null
     : resolvePreferredAssistantReply(operatorCommandState.response, speechLifecycleSnapshot);
   const textQuestionVoiceDispatch = isBlockingTextQuestionResult ? null : getTextQuestionVoiceDispatch(operatorCommandState.response);
-  const synthesisPreview = isBlockingTtsPreviewResult
-    ? null
-    : resolvePreferredSynthesisPreview(operatorCommandState.response, speechLifecycleSnapshot);
-  const speechLifecycleCharacterId = resolveSpeechLifecycleCharacterId(speechLifecycleSnapshot);
   const canonicalCatchUpLabel = isSubmitting
     ? "awaiting operator response"
     : operatorCommandState.status === "error"
@@ -577,11 +513,6 @@ export function ControlSurfaceOperatorCommandPanel({
   const operatorPreviewSummaryClassName = buildFeedbackClassName("surface-panel__summary", operatorFeedbackTone);
   const submitTextQuestionDisabled = isSubmitting || textQuestionDraft.trim().length === 0;
   const submitTtsPreviewDisabled = isSubmitting || ttsPreviewDraft.trim().length === 0;
-  const canReplayLastBundle =
-    speechPlaybackStatus.lastBundle !== null &&
-    (speechPlaybackStatus.lastBundle.audioSource !== null ||
-      (typeof speechPlaybackStatus.lastBundle.utteranceDurationMs === "number" &&
-        speechPlaybackStatus.lastBundle.utteranceDurationMs > 0));
   const latestTextQuestion = operatorCommandState.submittedText?.trim() ?? "";
   const textQuestionRelaySourceLabel = isBlockingTextQuestionResult
     ? isSubmitting
@@ -595,181 +526,13 @@ export function ControlSurfaceOperatorCommandPanel({
       ? "Submitting"
       : "Error"
     : assistantReply?.status ?? "Idle";
-  const sttSnapshot = sttState.snapshot;
-  const attentionSnapshot = attentionState.snapshot;
-  const attentionStatusLine = describeAttentionStateLine(attentionState);
-  const sttStatusLine = describeSttStateLine(sttState);
-  const sttTranscriptChunks = sttSnapshot?.transcript_chunks ?? [];
-  const sttLatestTranscript = sttTranscriptChunks[0]?.transcript ?? sttSnapshot?.latest_confirmed_text ?? "Awaiting a queued transcript from the STT sidecar.";
-  const sttListeningButtonLabel = sttSnapshot?.listening ? "Stop listening" : "Start listening";
-  const sttControlsDisabled = sttState.action !== "idle" || sttState.status === "loading";
-  const sttPushToTalkDisabled = sttState.action === "device" || sttState.status === "loading" || !sttSnapshot?.available;
-  const pushToTalkKeyLabel = formatPushToTalkBindingLabel(pushToTalkBinding);
-  const pushToTalkButtonLabel = isCapturingPushToTalkKey ? "Press a key..." : `Push-to-talk key: ${pushToTalkKeyLabel}`;
-  const pushToTalkStatusLine = isCapturingPushToTalkKey
-    ? "Press any non-modifier key to bind push-to-talk. Press Escape to cancel."
-    : isPushToTalkActive
-      ? `Holding ${pushToTalkKeyLabel} keeps STT capture open until release.`
-      : `Hold ${pushToTalkKeyLabel} anywhere on the control surface to talk. Focused text fields are ignored.`;
-  const attentionEnabledButtonLabel = attentionSnapshot?.enabled ? "Disable attention" : "Enable attention";
-  const attentionTrackingButtonLabel = attentionSnapshot?.tracking ? "Stop tracking" : "Start tracking";
-  const attentionControlsDisabled = attentionState.action !== "idle" || attentionState.status === "loading";
-  const attentionSubject = attentionSnapshot?.subject ?? null;
-  const attentionCaptureState = useAttentionCapture({
-    enabled: attentionSnapshot?.enabled ?? false,
-    tracking: attentionSnapshot?.tracking ?? false,
-    selectedDeviceId: attentionSnapshot?.selected_device_id ?? null,
-    selectedDeviceLabel: attentionSnapshot?.selected_device_label ?? null,
-  });
-  const attentionDevices = attentionCaptureState.devices.length > 0 ? attentionCaptureState.devices : attentionState.devices;
-
-  useEffect(() => {
-    writePersistedPushToTalkBinding(pushToTalkBinding);
-  }, [pushToTalkBinding]);
-
-  useEffect(() => {
-    function releasePushToTalk(): void {
-      if (!pushToTalkHeldRef.current) {
-        return;
-      }
-
-      pushToTalkHeldRef.current = false;
-      setIsPushToTalkActive(false);
-
-      const shouldStopListening = pushToTalkStartedListeningRef.current;
-      pushToTalkStartedListeningRef.current = false;
-      if (shouldStopListening) {
-        void setListening(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (isCapturingPushToTalkKey) {
-        if (event.repeat) {
-          return;
-        }
-
-        event.preventDefault();
-        if (event.key === "Escape") {
-          setIsCapturingPushToTalkKey(false);
-          return;
-        }
-
-        if (isModifierOnlyKey(event.key)) {
-          return;
-        }
-
-        setPushToTalkBinding(
-          normalizePushToTalkBinding({
-            code: event.code || null,
-            key: event.key || null
-          })
-        );
-        setIsCapturingPushToTalkKey(false);
-        return;
-      }
-
-      if (!matchesPushToTalkBinding(event, pushToTalkBinding) || isEditableKeyboardTarget(event.target)) {
-        return;
-      }
-
-      event.preventDefault();
-      if (event.repeat || pushToTalkHeldRef.current || sttPushToTalkDisabled) {
-        return;
-      }
-
-      pushToTalkHeldRef.current = true;
-      setIsPushToTalkActive(true);
-      pushToTalkStartedListeningRef.current = !(sttSnapshot?.listening ?? false);
-      if (pushToTalkStartedListeningRef.current) {
-        void setListening(true);
-      }
-    }
-
-    function handleKeyUp(event: KeyboardEvent): void {
-      if (isCapturingPushToTalkKey || !matchesPushToTalkBinding(event, pushToTalkBinding)) {
-        return;
-      }
-
-      event.preventDefault();
-      releasePushToTalk();
-    }
-
-    function handleWindowBlur(): void {
-      setIsCapturingPushToTalkKey(false);
-      releasePushToTalk();
-    }
-
-    function handleVisibilityChange(): void {
-      if (!document.hidden) {
-        return;
-      }
-
-      setIsCapturingPushToTalkKey(false);
-      releasePushToTalk();
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", handleWindowBlur);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", handleWindowBlur);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [isCapturingPushToTalkKey, pushToTalkBinding, setListening, sttPushToTalkDisabled, sttSnapshot?.listening]);
-
-  function formatAttentionCoordinate(value: number | null | undefined): string {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return "n/a";
-    }
-
-    return value.toFixed(2);
-  }
-
-  function handleSelectedDeviceChange(event: { target: { value: string } }): void {
-    const nextDeviceId = event.target.value.trim() || null;
-    void setSelectedDevice(nextDeviceId);
-  }
-
-  function handleSelectedAttentionDeviceChange(event: { target: { value: string } }): void {
-    const nextDeviceId = event.target.value.trim() || null;
-    const nextDevice = attentionDevices.find((device) => {
-      if ("device_id" in device) {
-        return device.device_id === nextDeviceId;
-      }
-
-      return device.deviceId === nextDeviceId;
-    });
-    const nextDeviceLabel = nextDevice ? ("label" in nextDevice ? nextDevice.label : null) : null;
-    void setSelectedAttentionDevice({ deviceId: nextDeviceId, deviceLabel: nextDeviceLabel });
-  }
-
-  function handleListeningToggle(): void {
-    void setListening(!(sttSnapshot?.listening ?? false));
-  }
-
-  function handleAttentionEnabledToggle(): void {
-    void setAttentionEnabled(!(attentionSnapshot?.enabled ?? false));
-  }
-
-  function handleAttentionTrackingToggle(): void {
-    void setAttentionTracking(!(attentionSnapshot?.tracking ?? false));
-  }
-
-  function handleAttentionDebugMarkerToggle(event: { target: { checked: boolean } }): void {
-    setShowTrackingDebugMarker(event.target.checked);
-  }
 
   return (
     <section className="surface-panel operator-panel" aria-labelledby="operator-command-panel-title">
       <div className="surface-panel__header">
         <div>
-          <p className="eyebrow">Operator commands</p>
-          <h2 id="operator-command-panel-title">Backend command seam</h2>
+          <p className="eyebrow">{isLlmVariant ? "Conversation" : "Voice synthesis"}</p>
+          <h2 id="operator-command-panel-title">{isLlmVariant ? "Text question relay" : "TTS preview"}</h2>
         </div>
       </div>
 
@@ -782,310 +545,7 @@ export function ControlSurfaceOperatorCommandPanel({
       </p>
       {lifecycleMessage ? <p className={operatorPreviewSummaryClassName}>{lifecycleMessage}</p> : null}
 
-      <dl className="surface-panel__facts">
-        <div>
-          <dt>Target character</dt>
-          <dd>
-            {speechLifecycleCharacterId ??
-              operatorCommandState.response?.character_id ??
-              selectedCharacter?.summary.characterId ??
-              "Awaiting backend confirmation"}
-          </dd>
-        </div>
-        <div>
-          <dt>Write path</dt>
-          <dd>{OPERATOR_COMMAND_ROUTE_PATH}</dd>
-        </div>
-        <div>
-          <dt>Locale</dt>
-          <dd>{operatorCommandLocale.trim() || "en-US"}</dd>
-        </div>
-        <div>
-          <dt>Speech delivery</dt>
-          <dd>{resolveSpeechLifecycleDeliveryLabel(speechLifecycleState)}</dd>
-        </div>
-        <div>
-          <dt>Last published event</dt>
-          <dd>{lastPublishedEvent}</dd>
-        </div>
-        <div>
-          <dt>Next speech cursor</dt>
-          <dd>{speechLifecycleSnapshot?.nextCursor ?? operatorCommandState.response?.next_speech_cursor ?? "Unchanged"}</dd>
-        </div>
-        <div>
-          <dt>Lifecycle catch-up</dt>
-          <dd>{canonicalCatchUpLabel}</dd>
-        </div>
-        <div>
-          <dt>Result source</dt>
-          <dd>{resultSourceLabel}</dd>
-        </div>
-        <div>
-          <dt>Assistant status</dt>
-          <dd>{assistantReply?.status ?? "Awaiting assistant reply"}</dd>
-        </div>
-        <div>
-          <dt>Synthesis status</dt>
-          <dd>{synthesisPreview?.status ?? "Awaiting synthesis result"}</dd>
-        </div>
-        <div>
-          <dt>Playback bridge</dt>
-          <dd>{describeSpeechPlaybackStatus(speechPlaybackStatus)}</dd>
-        </div>
-        <div>
-          <dt>Playback transport</dt>
-          <dd>{describeSpeechPlaybackTransport(speechPlaybackStatus)}</dd>
-        </div>
-        <div>
-          <dt>STT state</dt>
-          <dd>{sttSnapshot?.state ?? sttState.status}</dd>
-        </div>
-        <div>
-          <dt>STT device</dt>
-          <dd>{sttSnapshot?.selected_device_label ?? "Awaiting backend device list"}</dd>
-        </div>
-        <div>
-          <dt>Attention state</dt>
-          <dd>{attentionSnapshot?.state ?? attentionState.status}</dd>
-        </div>
-        <div>
-          <dt>Camera source</dt>
-          <dd>{attentionSnapshot?.selected_device_label ?? "Awaiting backend camera list"}</dd>
-        </div>
-      </dl>
-
-      <section className="operator-panel__stt" aria-labelledby="operator-attention-title">
-        <div className="operator-panel__stt-header">
-          <div>
-            <p className="eyebrow">Camera attention</p>
-            <h3 id="operator-attention-title">Attention tracking scaffold</h3>
-          </div>
-          <p className="operator-panel__stt-status">{attentionStatusLine}</p>
-        </div>
-
-        <label className="operator-panel__field" htmlFor="operator-attention-device">
-          <span className="operator-panel__field-label">Camera source</span>
-          <select
-            id="operator-attention-device"
-            className="operator-panel__input"
-            value={attentionSnapshot?.selected_device_id ?? ""}
-            onChange={handleSelectedAttentionDeviceChange}
-            disabled={attentionControlsDisabled}
-          >
-            {attentionDevices.length === 0 ? <option value="">No browser camera sources detected</option> : null}
-            {attentionDevices.map((device) => (
-              <option key={("device_id" in device ? device.device_id : device.deviceId)} value={"device_id" in device ? device.device_id : device.deviceId}>
-                {device.label}
-                {device.default ? " (default)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="operator-panel__actions">
-          <button
-            className="operator-panel__button"
-            type="button"
-            onClick={handleAttentionEnabledToggle}
-            disabled={attentionControlsDisabled || !attentionSnapshot?.available}
-          >
-            {attentionState.action === "enabled" ? "Updating attention state..." : attentionEnabledButtonLabel}
-          </button>
-          <button
-            className="operator-panel__button"
-            type="button"
-            onClick={handleAttentionTrackingToggle}
-            disabled={attentionControlsDisabled || !attentionSnapshot?.enabled}
-          >
-            {attentionState.action === "tracking" ? "Updating tracking state..." : attentionTrackingButtonLabel}
-          </button>
-        </div>
-
-        <label className="operator-panel__checkbox" htmlFor="operator-attention-debug-marker">
-          <input
-            id="operator-attention-debug-marker"
-            type="checkbox"
-            checked={attentionState.showTrackingDebugMarker}
-            onChange={handleAttentionDebugMarkerToggle}
-          />
-          <span>Show display tracking dot</span>
-        </label>
-
-        <div className="operator-panel__stt-transcript" aria-live="polite">
-          <div className="operator-panel__stt-transcript-header">
-            <p className="operator-panel__stt-transcript-label">Attention snapshot</p>
-            <p className="operator-panel__stt-transcript-meta">
-              {attentionSubject ? `${((attentionSnapshot?.confidence ?? 0) * 100).toFixed(0)}% confidence` : "No tracked subject"}
-            </p>
-          </div>
-          <p className="operator-panel__stt-transcript-text">
-            {attentionSubject
-              ? `x ${formatAttentionCoordinate(attentionSubject.normalized_x)} · y ${formatAttentionCoordinate(attentionSubject.normalized_y)}`
-              : "Waiting for normalized attention observations from the live browser camera capture path."}
-          </p>
-          <div className="operator-panel__stt-log" role="list" aria-label="Current attention metrics">
-            <article className="operator-panel__stt-log-entry" role="listitem">
-              <div className="operator-panel__stt-log-entry-header">
-                <p className="operator-panel__stt-log-entry-title">Backend attention state</p>
-                <p className="operator-panel__stt-log-entry-meta">{attentionSnapshot?.fps_target ?? 8} fps target</p>
-              </div>
-              <p className="operator-panel__stt-log-entry-text">
-                Enabled: {attentionSnapshot?.enabled ? "yes" : "no"} · Tracking: {attentionSnapshot?.tracking ? "yes" : "no"}
-              </p>
-              <p className="operator-panel__stt-log-entry-detail">
-                Frame: {attentionSnapshot?.frame_width ?? 320} x {attentionSnapshot?.frame_height ?? 240}
-              </p>
-            </article>
-          </div>
-        </div>
-
-        <p className="operator-panel__hint">
-          Browser camera capture now runs in this operator surface, while device selection, enabled state, tracking state, and the canonical attention snapshot stay backend-owned.
-        </p>
-        {attentionCaptureState.message ? <p className="surface-panel__summary">{attentionCaptureState.message}</p> : null}
-        {attentionState.message ? <p className="surface-panel__summary">{attentionState.message}</p> : null}
-      </section>
-
-      <section className="operator-panel__stt" aria-labelledby="operator-stt-title">
-        <div className="operator-panel__stt-header">
-          <div>
-            <p className="eyebrow">Speech-to-text</p>
-            <h3 id="operator-stt-title">Hot mic sidecar</h3>
-          </div>
-          <p className="operator-panel__stt-status">{sttStatusLine}</p>
-        </div>
-
-        <label className="operator-panel__field" htmlFor="operator-stt-device">
-          <span className="operator-panel__field-label">Audio input</span>
-          <select
-            id="operator-stt-device"
-            className="operator-panel__input"
-            value={sttSnapshot?.selected_device_id ?? ""}
-            onChange={handleSelectedDeviceChange}
-            disabled={sttControlsDisabled}
-          >
-            {sttState.devices.length === 0 ? <option value="">No backend input devices detected</option> : null}
-            {sttState.devices.map((device) => (
-              <option key={device.device_id} value={device.device_id}>
-                {device.label}
-                {device.default ? " (default)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="operator-panel__actions">
-          <button
-            className="operator-panel__button"
-            type="button"
-            onClick={handleListeningToggle}
-            disabled={sttControlsDisabled || !sttSnapshot?.available}
-          >
-            {sttState.action === "listening" ? "Updating microphone state..." : sttListeningButtonLabel}
-          </button>
-          <button
-            className={isCapturingPushToTalkKey || isPushToTalkActive ? "operator-panel__button operator-panel__button--active" : "operator-panel__button"}
-            type="button"
-            onClick={() => {
-              setIsCapturingPushToTalkKey((currentValue) => !currentValue);
-            }}
-            aria-pressed={isCapturingPushToTalkKey}
-          >
-            {pushToTalkButtonLabel}
-          </button>
-        </div>
-
-        <p className="operator-panel__hint">{pushToTalkStatusLine}</p>
-
-        <div className="operator-panel__stt-transcript" aria-live="polite">
-          <div className="operator-panel__stt-transcript-header">
-            <p className="operator-panel__stt-transcript-label">STT output window</p>
-            <p className="operator-panel__stt-transcript-meta">{sttTranscriptChunks.length} stored chunks</p>
-          </div>
-          <p className="operator-panel__stt-transcript-text">{sttLatestTranscript}</p>
-          <div className="operator-panel__stt-log" role="list" aria-label="Recent STT transcript chunks">
-            {sttTranscriptChunks.length === 0 ? (
-              <p className="operator-panel__stt-log-empty">Waiting for confirmed speech chunks from the hot-mic sidecar.</p>
-            ) : (
-              sttTranscriptChunks.map((chunk) => (
-                <article key={chunk.chunk_id} className="operator-panel__stt-log-entry" role="listitem">
-                  <div className="operator-panel__stt-log-entry-header">
-                    <p className="operator-panel__stt-log-entry-title">{describeSttChunkDispatchState(chunk)}</p>
-                    <p className="operator-panel__stt-log-entry-meta">
-                      {formatSttChunkTimestamp(chunk.captured_at)} · {(chunk.duration_ms / 1000).toFixed(2)}s
-                      {typeof chunk.confidence === "number" ? ` · ${(chunk.confidence * 100).toFixed(0)}% conf` : ""}
-                    </p>
-                  </div>
-                  <p className="operator-panel__stt-log-entry-text">{chunk.transcript}</p>
-                  {chunk.dispatch_detail ? (
-                    <p className="operator-panel__stt-log-entry-detail">{chunk.dispatch_detail}</p>
-                  ) : null}
-                </article>
-              ))
-            )}
-          </div>
-        </div>
-
-        <p className="operator-panel__hint">
-          Browser controls stay backend-owned here: input selection updates the sidecar through the backend, confirmed chunks are stored in the backend STT buffer for debugging, and accepted chunks are marked for stub or live downstream dispatch.
-        </p>
-        {sttState.message ? <p className="surface-panel__summary">{sttState.message}</p> : null}
-      </section>
-
-      {synthesisPreview ? <p className="surface-panel__message">{synthesisPreview.text}</p> : null}
-      {synthesisPreview ? (
-        <p className="surface-panel__summary">
-          {synthesisPreview.profile_id} in {synthesisPreview.locale} · {describeSynthesisTiming(synthesisPreview)} · {synthesisPreview.audio_reference ?? "audio reference pending"}
-        </p>
-      ) : null}
-      {isBlockingTtsPreviewResult && operatorCommandState.submittedText ? (
-        <p className="surface-panel__message">{operatorCommandState.submittedText}</p>
-      ) : null}
-      {isBlockingTtsPreviewResult ? (
-        <p
-          className={buildFeedbackClassName(
-            "surface-panel__summary",
-            isSubmitting ? "pending" : "error"
-          )}
-        >
-          {isSubmitting ? "Waiting for the backend TTS preview response." : "The control surface did not receive an accepted backend TTS preview response, so no new synthesis result is available here yet."}
-        </p>
-      ) : null}
-      {speechPlaybackStatus.playbackKey ? (
-        <p className="surface-panel__summary">{speechPlaybackStatus.message}</p>
-      ) : null}
-      {speechPlaybackStatus.audioReference ? (
-        <p className="surface-panel__summary">
-          Playback source: {speechPlaybackStatus.audioSource ?? speechPlaybackStatus.audioReference}
-        </p>
-      ) : null}
-      {speechPlaybackStatus.error ? (
-        <p className="surface-panel__summary">Playback note: {speechPlaybackStatus.error}</p>
-      ) : null}
-      {speechPlaybackStatus.lastBundle ? (
-        <div className="operator-panel__actions">
-          <button
-            className="operator-panel__button"
-            type="button"
-            onClick={() => speechPlaybackStatus.replayLastBundle()}
-            disabled={!canReplayLastBundle}
-          >
-            Replay last backend canonical bundle
-          </button>
-        </div>
-      ) : null}
-      {speechPlaybackStatus.lastBundle ? (
-        <p className="surface-panel__summary">
-          Backend canonical bundle · default track {speechPlaybackStatus.lipSyncDefaultTrackId ?? "none"} · tracks {speechPlaybackStatus.lipSyncTrackIds.join(", ") || "none"} · source {speechPlaybackStatus.lipSyncTimingSource ?? "unspecified"}
-          {speechPlaybackStatus.lipSyncSourceSlotType ? ` / ${speechPlaybackStatus.lipSyncSourceSlotType}` : ""}
-        </p>
-      ) : null}
-      {describeBackendCanonicalBundleReadiness(speechPlaybackStatus) ? (
-        <p className="surface-panel__summary">{describeBackendCanonicalBundleReadiness(speechPlaybackStatus)}</p>
-      ) : null}
-      {renderSpeechBundleTimeline(speechPlaybackStatus)}
-
-      <label className="operator-panel__field" htmlFor="operator-command-locale">
+      <label className="operator-panel__field operator-panel__field--inline" htmlFor="operator-command-locale">
         <span className="operator-panel__field-label">Command locale</span>
         <input
           id="operator-command-locale"
@@ -1098,6 +558,7 @@ export function ControlSurfaceOperatorCommandPanel({
       </label>
 
       <div className="operator-panel__forms">
+        {isLlmVariant ? (
         <form className="operator-panel__form" onSubmit={handleSubmitTextQuestion}>
           <label className="operator-panel__field" htmlFor="operator-text-question">
             <span className="operator-panel__field-label">Text question</span>
@@ -1156,7 +617,9 @@ export function ControlSurfaceOperatorCommandPanel({
             <p className="operator-panel__result-detail">Lifecycle: {canonicalCatchUpLabel}</p>
           </div>
         </form>
+        ) : null}
 
+        {!isLlmVariant ? (
         <form className="operator-panel__form" onSubmit={handleSubmitTtsPreview}>
           <label className="operator-panel__field" htmlFor="operator-tts-preview">
             <span className="operator-panel__field-label">TTS preview</span>
@@ -1178,6 +641,7 @@ export function ControlSurfaceOperatorCommandPanel({
             </button>
           </div>
         </form>
+        ) : null}
       </div>
     </section>
   );

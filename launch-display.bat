@@ -54,6 +54,20 @@ if defined PORTPID (
   ping -n 2 127.0.0.1 >nul
 )
 
+REM The control surface (operator UI + gesture/character controls) is a SEPARATE
+REM frontend on 5173, owned by the ops dashboard (Start-Frontend) or `npm run dev`.
+REM This launcher only serves the stage on 5174. Warn if the control isn't up, or
+REM commands fired from it will fail to reach the backend.
+netstat -ano | findstr "LISTENING" | findstr ":5173 " >nul 2>nul
+if errorlevel 1 (
+  echo.
+  echo [NikoF] NOTE: the control surface frontend ^(port 5173^) is not running.
+  echo         Start it from the ops dashboard ^(http://127.0.0.1:8765^) or run
+  echo         "npm run dev" in the frontend folder, or control-surface buttons
+  echo         ^(gestures, character switch^) will fail to reach the backend.
+  echo.
+)
+
 echo [NikoF] Launching desktop display window...
 call npm run tauri:dev
 

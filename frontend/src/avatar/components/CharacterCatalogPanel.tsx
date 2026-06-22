@@ -56,24 +56,10 @@ export function CharacterCatalogPanel({
           </label>
 
           {selectedEntry ? (
-            <dl className="catalog-panel__details">
-              <div>
-                <dt>Name</dt>
-                <dd>{selectedEntry.summary.displayName}</dd>
-              </div>
-              <div>
-                <dt>Character id</dt>
-                <dd>{selectedEntry.summary.characterId}</dd>
-              </div>
-              <div>
-                <dt>Shared animation set</dt>
-                <dd>{selectedEntry.summary.sharedAnimationSet}</dd>
-              </div>
-              <div>
-                <dt>Supported states</dt>
-                <dd>{selectedEntry.summary.supportedStates.join(", ")}</dd>
-              </div>
-            </dl>
+            <p className="catalog-panel__meta">
+              <span className="catalog-panel__meta-item">Animations: {selectedEntry.summary.sharedAnimationSet}</span>
+              <span className="catalog-panel__meta-item">States: {selectedEntry.summary.supportedStates.join(", ")}</span>
+            </p>
           ) : null}
         </div>
       ) : null}

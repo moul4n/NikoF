@@ -134,6 +134,7 @@ def run_user_text_turn(
                 persona_id=active_character.character_id,
                 query_text=turn_input_text,
                 include_appearance_context=_should_include_appearance_context(turn_input_text),
+                prompt_token_budget=get_runtime_tuning().memory_prompt_token_budget,
             )
         except Exception:
             logger.exception("User turn memory context preparation failed")

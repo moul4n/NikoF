@@ -105,6 +105,12 @@ def _ensure_onnx_cuda_dll_path() -> None:
     + cudnn64_9 on the DLL search path. They ship with torch (cu12 build) and the
     nvidia-*-cu12 pip wheels. find_spec locates those packages without importing
     them (no heavy torch import). Best-effort: a no-op when none are present.
+
+    The CUDA execution provider DLL is delay-loaded and resolves its dependent
+    CUDA/cuDNN DLLs through the process PATH, not through add_dll_directory — so
+    we must prepend the discovered directories to PATH as well. With only
+    add_dll_directory the provider fails to initialise and onnxruntime silently
+    falls back to the CPU EP.
     """
     if os.name != "nt":
         return
@@ -118,12 +124,19 @@ def _ensure_onnx_cuda_dll_path() -> None:
     if nvidia_spec and nvidia_spec.submodule_search_locations:
         base = Path(list(nvidia_spec.submodule_search_locations)[0])
         candidates.extend(base.glob("*/bin"))
+    path_additions: list[str] = []
     for directory in candidates:
         try:
             if directory.is_dir():
                 os.add_dll_directory(str(directory))
+                path_additions.append(str(directory))
         except OSError:
             pass
+    if path_additions:
+        existing_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = os.pathsep.join(
+            [*path_additions, existing_path] if existing_path else path_additions
+        )
 
 
 class ParakeetTranscriptionEngine:

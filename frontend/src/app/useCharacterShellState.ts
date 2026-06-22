@@ -323,10 +323,12 @@ export function useCharacterShellState(
     writePersistedSelectedCharacterId(characterId);
     setSelectedCharacterId(characterId);
 
-    if (!backendSyncState.activeCharacterConnected) {
-      return;
-    }
-
+    // Always push the selection to the backend (the source of truth that the
+    // stage/display follow). We intentionally do NOT gate on the cached
+    // activeCharacterConnected flag: it can be stale-false (e.g. the control tab
+    // loaded while the backend was briefly down), which would silently swallow
+    // the model switch. If the backend is genuinely unreachable the catch below
+    // surfaces it and the shell stays on the local selection.
     setBackendSyncState((currentState) => ({
       ...currentState,
       message: `Syncing ${characterId} to the backend active-character session...`

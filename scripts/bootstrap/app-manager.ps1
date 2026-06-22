@@ -250,7 +250,10 @@ function Start-Backend {
     # legacy config, set these to the empty string / gpt-sovits before launching.
     $perfDefaults = [ordered]@{
         NIKOF_TTS_ENGINE        = 'kokoro'      # fast TTS, frees VRAM (preset voice)
+        NIKOF_KOKORO_VOICE      = 'jf_gongitsune' # higher-pitched timbre; English stays via NIKOF_KOKORO_LANG=en-us
+        NIKOF_KOKORO_LANG       = 'en-us'       # keep English phonemizer regardless of voice timbre
         NIKOF_STT_ENGINE        = 'parakeet'    # Parakeet TDT v2: 0 WER vs Whisper-medium, ~2x faster (GPU)
+        NIKOF_STT_ALLOW_GPU     = '1'           # run Parakeet on the RTX 4070 (CUDA EP via torch-bundled cuDNN/CUDA)
         NIKOF_STT_PARTIALS      = '1'           # interim transcripts -> live captions on the avatar surface
         NIKOF_LLM_MODEL         = 'qwen3:4b'    # ~2x faster than llama3.2:3b
         NIKOF_LLM_THINK         = 'false'       # qwen3 reasoning off -> fast clean JSON

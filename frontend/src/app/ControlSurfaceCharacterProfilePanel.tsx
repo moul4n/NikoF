@@ -51,10 +51,17 @@ export function ControlSurfaceCharacterProfilePanel(): JSX.Element {
     directives_dont: "",
     response_formatting: ""
   });
+  // Once the operator starts editing, the draft is authoritative. The profile
+  // GET resolves a few seconds after mount (the backend is warming models on
+  // startup), so without this guard that late response would overwrite text the
+  // operator is mid-way through typing — looking like the page "refreshed".
+  const [isDirty, setIsDirty] = useState(false);
 
-  // Hydrate the editor from the backend once it loads (and on external refresh).
+  // Hydrate the editor from the backend when it loads, but never clobber edits
+  // already in progress. Reset to clean after a save so a future external
+  // refresh can hydrate again.
   useEffect(() => {
-    if (state.snapshot) {
+    if (state.snapshot && !isDirty) {
       setDraft({
         personality: state.snapshot.personality,
         directives_do: state.snapshot.directives_do,
@@ -62,7 +69,7 @@ export function ControlSurfaceCharacterProfilePanel(): JSX.Element {
         response_formatting: state.snapshot.response_formatting
       });
     }
-  }, [state.snapshot]);
+  }, [state.snapshot, isDirty]);
 
   const saving = state.action === "saving";
 
@@ -91,9 +98,10 @@ export function ControlSurfaceCharacterProfilePanel(): JSX.Element {
             value={draft[field.key]}
             rows={field.rows}
             disabled={saving}
-            onChange={(event: { currentTarget: { value: string } }) =>
-              setDraft((current) => ({ ...current, [field.key]: event.currentTarget.value }))
-            }
+            onChange={(event: { currentTarget: { value: string } }) => {
+              setIsDirty(true);
+              setDraft((current) => ({ ...current, [field.key]: event.currentTarget.value }));
+            }}
           />
         </label>
       ))}
@@ -103,7 +111,7 @@ export function ControlSurfaceCharacterProfilePanel(): JSX.Element {
         className="surface-panel__button character-profile-panel__save"
         disabled={saving}
         onClick={() => {
-          void saveProfile(draft);
+          void saveProfile(draft).then(() => setIsDirty(false));
         }}
       >
         {saving ? "Saving…" : "Save profile"}

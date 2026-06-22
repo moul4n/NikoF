@@ -100,12 +100,31 @@ class KokoroSynthesisAdapter:
 
     profile_id = "tts.kokoro.2026"
 
-    def __init__(self, *, app_paths: AppPaths | None = None, voice: str = "af_heart") -> None:
+    def __init__(self, *, app_paths: AppPaths | None = None, voice: str | None = None, lang: str | None = None) -> None:
+        from app.services.kokoro_voices import get_kokoro_lang, get_selected_kokoro_voice
+
         self._app_paths = app_paths or get_app_paths()
-        self._voice = voice
+        # Voice timbre and phonemizer language are independent: keep ``lang`` at
+        # ``en-us`` to render English text intelligibly while picking any of the
+        # installed voice embeddings (incl. non-English ones) for the timbre. The
+        # selected voice persists across restarts and can be changed live from the
+        # control surface (see ``apply_kokoro_voice``).
+        self._voice = (voice or get_selected_kokoro_voice(self._app_paths)).strip()
+        self._lang = (lang or get_kokoro_lang(self._app_paths)).strip()
         self._engine: Any | None = None
         self._load_error: str | None = None
         self._lock = threading.Lock()
+
+    @property
+    def voice(self) -> str:
+        return self._voice
+
+    def set_voice(self, voice: str) -> None:
+        """Swap the active voice embedding in place. The ONNX model is unchanged
+        (voices are just embeddings), so no reload is needed."""
+        normalized = voice.strip()
+        if normalized:
+            self._voice = normalized
 
     def _model_dir(self) -> Path:
         return self._app_paths.tts_models_root / "kokoro"
@@ -144,7 +163,7 @@ class KokoroSynthesisAdapter:
             return _unavailable(self.profile_id, request, self._load_error or "unavailable")
         try:
             samples, sample_rate = engine.create(
-                request.text, voice=self._voice, speed=1.0, lang="en-us"
+                request.text, voice=self._voice, speed=1.0, lang=self._lang
             )
         except Exception as exc:
             return _unavailable(self.profile_id, request, f"synthesis failed: {exc}")
@@ -248,6 +267,20 @@ def resolve_tts_engine_name() -> str:
 
 _alternate_services: dict[str, Any] = {}
 _alternate_lock = threading.Lock()
+
+
+def apply_kokoro_voice(voice: str) -> bool:
+    """Push a new voice onto the live (cached) Kokoro adapter, if one exists.
+
+    Returns True when a live adapter was updated. When no adapter is cached yet,
+    the persisted selection (written by ``kokoro_voices.set_selected_kokoro_voice``)
+    is picked up the next time the adapter is constructed."""
+    with _alternate_lock:
+        service = _alternate_services.get("kokoro")
+    if service is None or not hasattr(service, "set_voice"):
+        return False
+    service.set_voice(voice)
+    return True
 
 
 def build_alternate_synthesis_service(

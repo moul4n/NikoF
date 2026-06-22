@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -26,6 +27,23 @@ class StageViewStateTests(unittest.TestCase):
         self.assertTrue(is_known_stage_background_id("plain"))
         self.assertTrue(is_known_stage_background_id("transparent"))
         self.assertFalse(is_known_stage_background_id("nebula"))
+
+    def test_selection_persists_and_restores_across_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "session" / "stage-view.json"
+            first = StageViewState(state_path=state_path)
+            first.set_background("transparent")
+            # A fresh instance (simulating a restart) restores from disk.
+            restored = StageViewState(state_path=state_path)
+            self.assertEqual(restored.background_id, "transparent")
+
+    def test_restore_ignores_unknown_stored_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "session" / "stage-view.json"
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text('{"background_id": "nebula"}', encoding="utf-8")
+            restored = StageViewState(state_path=state_path)
+            self.assertEqual(restored.background_id, DEFAULT_STAGE_BACKGROUND_ID)
 
 
 if __name__ == "__main__":

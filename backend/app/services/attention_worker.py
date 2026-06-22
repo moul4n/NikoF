@@ -57,6 +57,7 @@ class AttentionWorkerStatus:
     fps_target: int
     frame_width: int
     frame_height: int
+    show_tracking_debug_marker: bool
     next_sequence: int
 
 
@@ -76,6 +77,12 @@ class AttentionWorker:
         self._fps_target = DEFAULT_ATTENTION_FPS_TARGET
         self._frame_width = DEFAULT_ATTENTION_FRAME_WIDTH
         self._frame_height = DEFAULT_ATTENTION_FRAME_HEIGHT
+        # Operator preference (set on the control surface) for rendering the
+        # gaze-target debug dot on whichever surface renders the avatar. Lives in
+        # the shared backend state so it reaches the standalone front-end window,
+        # which is a separate webview and cannot see the control page's
+        # localStorage.
+        self._show_tracking_debug_marker = False
         self._next_sequence = 1
         self._lock = threading.Lock()
 
@@ -106,6 +113,7 @@ class AttentionWorker:
                 fps_target=self._fps_target,
                 frame_width=self._frame_width,
                 frame_height=self._frame_height,
+                show_tracking_debug_marker=self._show_tracking_debug_marker,
                 next_sequence=self._next_sequence,
             )
 
@@ -149,6 +157,13 @@ class AttentionWorker:
                 self._confidence = None
                 self._subject = None
                 self._last_observed_at = None
+            self._bump_sequence_locked()
+            self._refresh_state_locked()
+        return self.status()
+
+    async def set_show_tracking_debug_marker(self, enabled: bool) -> AttentionWorkerStatus:
+        with self._lock:
+            self._show_tracking_debug_marker = bool(enabled)
             self._bump_sequence_locked()
             self._refresh_state_locked()
         return self.status()

@@ -42,7 +42,6 @@ from app.services.character import CharacterService, FileSystemCharacterManifest
 from app.services.llm import TextGenerationRequest, get_text_generation_sidecar_manager
 from app.services.session import InMemorySessionService
 from app.services.session import InMemorySessionEventStore
-from app.services.memory import SqliteSessionMemoryService
 from app.services.speech import (
     BackendTurnRequest,
     DefaultSessionEventFactory,

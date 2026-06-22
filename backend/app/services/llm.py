@@ -14,6 +14,7 @@ from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from app.core.settings import AppPaths, get_app_paths
+from app.core.runtime_tuning import get_runtime_tuning
 from app.services.streaming_reply import ReplyTextStreamExtractor
 from app.schemas.session import (
     AssistantMessageContract,
@@ -124,13 +125,29 @@ class TextGenerationSidecarStatus:
 
 
 def _optional_generate_params() -> dict[str, Any]:
-    """Optional Ollama /api/generate params from env. NIKOF_LLM_THINK toggles a
-    reasoning model's thinking (e.g. qwen3) — set it false for fast, clean JSON
-    planner output during speed testing."""
+    """Optional top-level Ollama /api/generate params from env. NIKOF_LLM_THINK
+    toggles a reasoning model's thinking (e.g. qwen3) — set it false for fast,
+    clean JSON planner output during speed testing."""
     raw = os.environ.get("NIKOF_LLM_THINK")
     if raw is None or not raw.strip():
         return {}
     return {"think": raw.strip().lower() in {"1", "true", "yes", "on"}}
+
+
+def _generation_options() -> dict[str, Any]:
+    """Ollama `options` block (KV-cache + sampling controls).
+
+    Sets `num_ctx` explicitly so the provider default (historically 2048/4096)
+    cannot silently front-truncate a growing persona/memory prompt — this is the
+    explicit context-size vs KV-cache-VRAM knob (Stage 1,
+    docs/MEMORY_ARCHITECTURE.md). `num_predict` is only sent when configured
+    (> 0); 0 leaves the model default / unbounded generation in place.
+    """
+    tuning = get_runtime_tuning()
+    options: dict[str, Any] = {"num_ctx": tuning.llm_num_ctx}
+    if tuning.llm_num_predict > 0:
+        options["num_predict"] = tuning.llm_num_predict
+    return options
 
 
 @dataclass(slots=True)
@@ -247,6 +264,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
                 {
                     "model": binding.model_name,
                     "prompt": request.prompt,
+                    "options": _generation_options(),
                     **({"format": "json"} if request.expect_structured_output else {}),
                     **_optional_generate_params(),
                     "stream": False,
@@ -349,6 +367,7 @@ class OllamaTextGenerationAdapter(StubTextGenerationService):
             "model": binding.model_name,
             "prompt": request.prompt,
             "stream": True,
+            "options": _generation_options(),
             **({"format": "json"} if request.expect_structured_output else {}),
             **_optional_generate_params(),
         }

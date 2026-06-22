@@ -109,5 +109,35 @@ class OptionalGenerateParamsTests(unittest.TestCase):
             self.assertEqual(llm._optional_generate_params(), {"think": True})
 
 
+class GenerationOptionsTests(unittest.TestCase):
+    """Stage 1: num_ctx is always set explicitly; num_predict only when > 0."""
+
+    @staticmethod
+    def _options(env: dict[str, str]) -> dict[str, object]:
+        from app.core.runtime_tuning import get_runtime_tuning
+
+        get_runtime_tuning.cache_clear()
+        try:
+            with patch.dict("os.environ", env, clear=True):
+                return llm._generation_options()
+        finally:
+            get_runtime_tuning.cache_clear()
+
+    def test_default_sets_num_ctx_without_num_predict(self) -> None:
+        options = self._options({})
+        self.assertEqual(options.get("num_ctx"), 8192)
+        self.assertNotIn("num_predict", options)
+
+    def test_env_overrides_num_ctx_and_num_predict(self) -> None:
+        options = self._options({"NIKOF_LLM_NUM_CTX": "4096", "NIKOF_LLM_NUM_PREDICT": "256"})
+        self.assertEqual(options.get("num_ctx"), 4096)
+        self.assertEqual(options.get("num_predict"), 256)
+
+    def test_num_ctx_floored_to_minimum(self) -> None:
+        # A misconfigured tiny value is floored, never passed through verbatim.
+        options = self._options({"NIKOF_LLM_NUM_CTX": "16"})
+        self.assertGreaterEqual(options.get("num_ctx"), 512)
+
+
 if __name__ == "__main__":
     unittest.main()
