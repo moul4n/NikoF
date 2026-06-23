@@ -49,6 +49,16 @@
             )
         }
         @{
+            id = 'preflight-surface'
+            name = 'Preflight doctor surface snapshot'
+            harness = 'preflight-surface'
+            baseline = 'baselines/preflight-surface.json'
+            tracked_inputs = @(
+                'scripts/testing/Invoke-StabilitySuite.ps1'
+                'scripts/bootstrap/Invoke-Preflight.ps1'
+            )
+        }
+        @{
             id = 'backend-stage1-contracts'
             name = 'Backend Stage 1 contract snapshot'
             harness = 'backend-stage1-contracts'

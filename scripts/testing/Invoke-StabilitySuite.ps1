@@ -2453,6 +2453,98 @@ declare module "react" {
     }
 }
 
+function Get-PreflightSourceValue {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Source,
+        [Parameter(Mandatory)]
+        [string]$Pattern
+    )
+
+    $match = [regex]::Match($Source, $Pattern)
+    if ($match.Success) {
+        return $match.Groups['value'].Value
+    }
+    return $null
+}
+
+function Invoke-PreflightSurfaceSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory)]
+        [hashtable]$Scenario,
+        [Parameter(Mandatory)]
+        [string]$RunRoot
+    )
+
+    # Source-parsed so the baseline is portable (no machine-specific verdicts). Guards
+    # that the preflight's checks, status vocabulary, and canonical defaults do not
+    # silently change. Dynamic provider-* check ids derive from bootstrap.targets and
+    # are covered by the bootstrap-prerequisites scenario, so they are excluded here.
+    $scriptPath = Join-Path $RepoRoot 'scripts\bootstrap\Invoke-Preflight.ps1'
+    $source = Get-Content -LiteralPath $scriptPath -Raw
+
+    $checkIds = @(
+        [regex]::Matches($source, "Add-Check\s+-Id\s+'(?<id>[^']+)'") |
+            ForEach-Object { $_.Groups['id'].Value } |
+            Sort-Object -Unique
+    )
+    $categories = @(
+        [regex]::Matches($source, "-Category\s+'(?<category>[^']+)'") |
+            ForEach-Object { $_.Groups['category'].Value } |
+            Sort-Object -Unique
+    )
+    $literalStatuses = @(
+        [regex]::Matches($source, "-Status\s+'(?<status>[^']+)'") |
+            ForEach-Object { $_.Groups['status'].Value } |
+            Sort-Object -Unique
+    )
+
+    $statusVocabulary = @()
+    $validateMatch = [regex]::Match($source, "\[ValidateSet\((?<set>[^)]*)\)\]")
+    if ($validateMatch.Success) {
+        $statusVocabulary = @(
+            [regex]::Matches($validateMatch.Groups['set'].Value, "'(?<value>[^']+)'") |
+                ForEach-Object { $_.Groups['value'].Value } |
+                Sort-Object -Unique
+        )
+    }
+
+    $nodeMajorsRaw = Get-PreflightSourceValue -Source $source -Pattern "\`$NodeSupportedMajors\s*=\s*@\((?<value>[^)]*)\)"
+    $nodeMajors = @()
+    if ($nodeMajorsRaw) {
+        $nodeMajors = @(
+            $nodeMajorsRaw -split ',' |
+                ForEach-Object { ($_ -replace '\D', '').Trim() } |
+                Where-Object { $_ } |
+                ForEach-Object { [int]$_ }
+        )
+    }
+    $minVramRaw = Get-PreflightSourceValue -Source $source -Pattern "\`$MinVramGb\s*=\s*(?<value>\d+)"
+
+    return [ordered]@{
+        scenario_id = $Scenario.id
+        scenario_name = $Scenario.name
+        tracked_inputs = @($Scenario.tracked_inputs)
+        preflight_surface = [ordered]@{
+            static_check_ids = @($checkIds)
+            categories = @($categories)
+            status_vocabulary = @($statusVocabulary)
+            literal_statuses_used = @($literalStatuses)
+            default_ranges = [ordered]@{
+                python_min = Get-PreflightSourceValue -Source $source -Pattern "\`$PythonMinVersion\s*=\s*'(?<value>[^']+)'"
+                python_max = Get-PreflightSourceValue -Source $source -Pattern "\`$PythonMaxVersion\s*=\s*'(?<value>[^']+)'"
+                node_supported_majors = @($nodeMajors)
+                min_vram_gb = $(if ($minVramRaw) { [int]$minVramRaw } else { $null })
+                tts_engine = Get-PreflightSourceValue -Source $source -Pattern "\`$TtsEngine\s*=[^,]*?else\s*\{\s*'(?<value>[^']+)'"
+                stt_engine = Get-PreflightSourceValue -Source $source -Pattern "\`$SttEngine\s*=[^,]*?else\s*\{\s*'(?<value>[^']+)'"
+                baseline_ollama_model = Get-PreflightSourceValue -Source $source -Pattern "\`$BaselineOllamaModel\s*=[^,]*?else\s*\{\s*'(?<value>[^']+)'"
+            }
+        }
+    }
+}
+
 function Invoke-ScenarioSnapshot {
     param(
         [Parameter(Mandatory)]
@@ -2464,6 +2556,9 @@ function Invoke-ScenarioSnapshot {
     )
 
     switch ($Scenario.harness) {
+        'preflight-surface' {
+            return Invoke-PreflightSurfaceSnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
+        }
         'animation-contract-boundaries' {
             return Invoke-AnimationContractBoundarySnapshot -RepoRoot $RepoRoot -Scenario $Scenario -RunRoot $RunRoot
         }

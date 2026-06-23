@@ -1,0 +1,55 @@
+{
+    "scenario_id":  "preflight-surface",
+    "scenario_name":  "Preflight doctor surface snapshot",
+    "tracked_inputs":  [
+                           "scripts/testing/Invoke-StabilitySuite.ps1",
+                           "scripts/bootstrap/Invoke-Preflight.ps1"
+                       ],
+    "preflight_surface":  {
+                              "static_check_ids":  [
+                                                       "engine-stt",
+                                                       "engine-tts",
+                                                       "env-frontend",
+                                                       "env-venv",
+                                                       "env-venv-deps",
+                                                       "env-venv-version",
+                                                       "gpu-vram",
+                                                       "ollama-daemon",
+                                                       "tool-git",
+                                                       "tool-node",
+                                                       "tool-python"
+                                                   ],
+                              "categories":  [
+                                                 "Active engines",
+                                                 "Environment",
+                                                 "Hardware",
+                                                 "Providers",
+                                                 "Toolchain"
+                                             ],
+                              "status_vocabulary":  [
+                                                        "auto-fixable",
+                                                        "manual-handoff",
+                                                        "ready",
+                                                        "warn"
+                                                    ],
+                              "literal_statuses_used":  [
+                                                            "auto-fixable",
+                                                            "manual-handoff",
+                                                            "ready",
+                                                            "warn"
+                                                        ],
+                              "default_ranges":  {
+                                                     "python_min":  "3.10",
+                                                     "python_max":  "3.12",
+                                                     "node_supported_majors":  [
+                                                                                   20,
+                                                                                   22,
+                                                                                   24
+                                                                               ],
+                                                     "min_vram_gb":  10,
+                                                     "tts_engine":  "kokoro",
+                                                     "stt_engine":  "parakeet",
+                                                     "baseline_ollama_model":  "qwen3:4b"
+                                                 }
+                          }
+}
