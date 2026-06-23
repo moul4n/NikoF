@@ -13,7 +13,13 @@ from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from app.core.settings import AppPaths, _has_faster_whisper_payload_proof, get_app_paths
+from app.core.settings import (
+    AppPaths,
+    _has_faster_whisper_payload_proof,
+    _has_non_scaffold_payload_proof,
+    get_app_paths,
+)
+from app.providers.stt_engines import PARAKEET_MODEL_DIRNAME, resolve_stt_engine_name
 from app.services.process_supervision import find_listening_pid, process_exists, terminate_process_tree, terminate_process_tree_by_pid
 
 
@@ -21,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 8767
+FASTER_WHISPER_MODEL_DIRNAME = "faster-whisper-medium"
 SERVER_STARTUP_TIMEOUT_SECONDS = 45.0
 SERVER_POLL_INTERVAL_SECONDS = 0.5
 HEALTH_CHECK_TIMEOUT_SECONDS = 2.0
@@ -96,6 +103,7 @@ class FasterWhisperServerConfig:
     model_root: Path = Path(".")
     provider_root: Path = Path(".")
     log_root: Path = Path(".")
+    engine: str = "faster-whisper"
 
     @property
     def base_url(self) -> str:
@@ -136,7 +144,12 @@ class FasterWhisperServerConfig:
 
 def load_server_config(app_paths: AppPaths | None = None) -> FasterWhisperServerConfig:
     paths = app_paths or get_app_paths()
-    model_root = paths.stt_models_root / "faster-whisper-medium"
+    # The single STT sidecar runs whichever engine NIKOF_STT_ENGINE selects; point its
+    # model root at that engine's payload so a perf-stack-only machine (Parakeet, no
+    # legacy Faster-Whisper) is not gated on the Faster-Whisper model existing.
+    engine = resolve_stt_engine_name()
+    model_dirname = PARAKEET_MODEL_DIRNAME if engine == "parakeet" else FASTER_WHISPER_MODEL_DIRNAME
+    model_root = paths.stt_models_root / model_dirname
     provider_root = paths.providers_root / "stt" / "faster-whisper"
     _ensure_runtime_files(provider_root)
 
@@ -165,6 +178,7 @@ def load_server_config(app_paths: AppPaths | None = None) -> FasterWhisperServer
         model_root=model_root,
         provider_root=provider_root,
         log_root=_default_log_root(paths),
+        engine=engine,
     )
 
 
@@ -233,9 +247,13 @@ class FasterWhisperServerManager:
     @property
     def server_configured(self) -> bool:
         script_path = self.config.provider_root / self.config.server_script
+        if self.config.engine == "parakeet":
+            payload_ready = _has_non_scaffold_payload_proof(self.config.model_root, frozenset())
+        else:
+            payload_ready = _has_faster_whisper_payload_proof(self.config.model_root)
         return (
             self.config.provider_root.exists()
-            and _has_faster_whisper_payload_proof(self.config.model_root)
+            and payload_ready
             and script_path.exists()
         )
 
