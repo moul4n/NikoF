@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { computeReconnectDelayMs } from "../shared/reconnectBackoff";
 import {
   ActiveCharacterSyncError,
   bridgeCharacterCatalogWithBackend,
@@ -55,7 +56,6 @@ export interface UseCharacterShellStateResult {
 }
 
 const SHARED_SELECTED_CHARACTER_STORAGE_KEY = "nikof.selectedCharacterId";
-const backendRecoveryRetryIntervalMs = 3000;
 
 type StateSetter<TValue> = (value: TValue | ((currentValue: TValue) => TValue)) => void;
 
@@ -219,6 +219,7 @@ export function useCharacterShellState(
     message: null
   });
   const [backendBridgeRefreshKey, setBackendBridgeRefreshKey] = useState(0);
+  const backendReconnectAttemptRef = useRef(0);
   const [speechLifecycleRefreshKey, setSpeechLifecycleRefreshKey] = useState(0);
   const [sessionAnimationRefreshKey, setSessionAnimationRefreshKey] = useState(0);
   const [selectedCharacterId, setSelectedCharacterId] = useState<CharacterId | null>(() => readPersistedSelectedCharacterId());
@@ -295,21 +296,36 @@ export function useCharacterShellState(
   }, [assertSelectionToBackend, backendBridgeRefreshKey, followBackendActiveCharacter, loadState.catalog, loadState.status]);
 
   useEffect(() => {
-    if (
-      loadState.status !== "ready" ||
-      (backendSyncState.summariesConnected && backendSyncState.activeCharacterConnected)
-    ) {
+    if (loadState.status !== "ready") {
       return;
     }
 
+    if (backendSyncState.summariesConnected && backendSyncState.activeCharacterConnected) {
+      // Fully reconnected — reset the backoff so the next outage starts fast again.
+      backendReconnectAttemptRef.current = 0;
+      return;
+    }
+
+    // Exponential backoff with jitter instead of a fixed interval, so a recovering
+    // backend isn't hammered in lockstep by every reconnecting surface. The refresh
+    // key is in the deps so each attempt re-runs this effect and schedules the next
+    // (larger) delay until the bridge reconnects.
+    const delayMs = computeReconnectDelayMs(backendReconnectAttemptRef.current);
+    backendReconnectAttemptRef.current += 1;
+
     const timeoutId = window.setTimeout(() => {
       setBackendBridgeRefreshKey((currentKey) => currentKey + 1);
-    }, backendRecoveryRetryIntervalMs);
+    }, delayMs);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [backendSyncState.activeCharacterConnected, backendSyncState.summariesConnected, loadState.status]);
+  }, [
+    backendBridgeRefreshKey,
+    backendSyncState.activeCharacterConnected,
+    backendSyncState.summariesConnected,
+    loadState.status
+  ]);
 
   function refreshSpeechLifecycle(): void {
     setSpeechLifecycleRefreshKey((currentKey) => currentKey + 1);
