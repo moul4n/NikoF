@@ -49,6 +49,20 @@ parakeet = [
 	"onnx-asr>=0.11,<1.0",
 	"onnxruntime-gpu>=1.20,<1.23",
 ]
+# GPU runtime for Parakeet's CUDA EP. onnxruntime-gpu does NOT bundle the CUDA 12 /
+# cuDNN 9 runtime DLLs (cublasLt64_12.dll, cudnn64_9.dll); without them the CUDA EP
+# fails to load and Parakeet silently falls back to CPU. These pip wheels provide
+# those DLLs under site-packages/nvidia/*/bin, which stt_engines._ensure_onnx_cuda_dll_path
+# adds to the DLL search path at load. No CUDA toolkit install required. Only worth
+# installing on cards with VRAM headroom beyond the LLM (~12GB+); on ~8GB keep STT on CPU.
+parakeet-gpu = [
+	"nvidia-cublas-cu12>=12.1",
+	"nvidia-cudnn-cu12>=9,<10",
+	"nvidia-cufft-cu12>=11",
+	"nvidia-curand-cu12>=10",
+	"nvidia-cuda-runtime-cu12>=12.1",
+	"nvidia-cuda-nvrtc-cu12>=12.1",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

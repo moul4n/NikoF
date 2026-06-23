@@ -16,6 +16,7 @@ param(
     # Parakeet STT + qwen3:4b LLM. -AllSafe installs these.
     [switch]$InstallKokoro,
     [switch]$InstallParakeet,
+    [switch]$InstallParakeetGpuRuntime,
     [switch]$PullQwen3,
     # Opt-in legacy fallback stack: GPT-SoVITS / Faster-Whisper Medium / llama3.1:8b.
     [switch]$InstallLegacyStack,
@@ -817,6 +818,74 @@ function Install-NikoFParakeetEngine {
     Install-NikoFHuggingFaceSnapshotPayload -PythonExe $PythonExe -RepoId $ParakeetRepoId -DestinationRoot $parakeetModelRoot -Label 'Parakeet TDT 0.6B v2 ONNX model'
 }
 
+function Install-NikoFParakeetGpuRuntime {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PythonExe
+    )
+
+    # CUDA 12 / cuDNN 9 runtime DLLs for Parakeet's onnxruntime CUDA EP. pip-only,
+    # no CUDA toolkit needed. Worth installing only on GPUs with headroom beyond the
+    # LLM (~12GB+); on ~8GB keep STT on CPU (start-all defaults NIKOF_STT_ALLOW_GPU
+    # by VRAM). The DLLs land under site-packages/nvidia/*/bin and the engine adds
+    # them to the DLL search path at load.
+    Write-NikoFStep -Message 'Installing Parakeet GPU runtime (nvidia CUDA 12 / cuDNN 9 wheels)'
+    & $PythonExe -m pip install -e ("{0}[parakeet-gpu]" -f $backendRoot)
+    Assert-NikoFLastExitCode -Action 'Install Parakeet GPU runtime extra'
+
+    Write-NikoFStep -Message 'Verifying Parakeet CUDA execution provider'
+    Push-Location $backendRoot
+    try {
+        # Real check: actually load the Parakeet model on CUDA (if present) and confirm
+        # the CUDA EP wins. onnxruntime's CUDA EP silently falls back to CPU when a
+        # dependent DLL is missing, so only an active-provider check is conclusive.
+        $verifyScript = @"
+import os
+os.environ['NIKOF_STT_ALLOW_GPU'] = '1'
+from app.providers.stt_engines import _ensure_onnx_cuda_dll_path, resolve_parakeet_model_root
+_ensure_onnx_cuda_dll_path()
+import onnxruntime as ort
+print('ORT available providers:', ort.get_available_providers())
+root = resolve_parakeet_model_root()
+if not root.exists():
+    print('NOTE: Parakeet model not present yet; install it with -InstallParakeet to run the full GPU check.')
+    raise SystemExit(0)
+import onnx_asr
+model = onnx_asr.load_model('nemo-parakeet-tdt-0.6b-v2', str(root), providers=['CUDAExecutionProvider','CPUExecutionProvider'])
+# onnx_asr nests its ORT sessions (encoder/decoder/joint) several attributes deep,
+# so walk the object graph to find every session and check its active providers.
+seen = set(); sessions = []
+def walk(obj, depth=0):
+    if depth > 4 or id(obj) in seen: return
+    seen.add(id(obj))
+    if hasattr(obj, 'get_providers') and callable(obj.get_providers):
+        try: sessions.append(obj.get_providers())
+        except Exception: pass
+    d = getattr(obj, '__dict__', None)
+    if d:
+        for value in d.values():
+            if hasattr(value, '__dict__') or hasattr(value, 'get_providers'):
+                walk(value, depth + 1)
+walk(model)
+print('Parakeet session providers:', sessions)
+on_gpu = any('CUDAExecutionProvider' in providers for providers in sessions)
+print('PARAKEET_ON_GPU=' + ('1' if on_gpu else '0'))
+raise SystemExit(0 if on_gpu else 2)
+"@
+        & $PythonExe -c $verifyScript
+        $verifyExit = $LASTEXITCODE
+        if ($verifyExit -eq 2) {
+            Write-Warning 'CUDA runtime installed but Parakeet still ran on CPU (a dependent CUDA DLL may be missing or the GPU/driver is unsupported). Review the onnxruntime errors above; STT will work on CPU regardless.'
+        }
+        elseif ($verifyExit -ne 0) {
+            Write-Warning 'Could not verify the Parakeet CUDA execution provider. STT will fall back to CPU if the GPU path is unavailable.'
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Install-NikoFQwen3Model {
     Ensure-NikoFOllamaInstalled
     $resolvedOllama = Resolve-NikoFCommandPath -Command 'ollama'
@@ -887,7 +956,7 @@ if ($InstallBaseToolchain) {
 }
 
 $resolvedPythonExe = $null
-if ($InstallRepoDependencies -or $InstallFasterWhisperMedium -or $InstallFasterWhisperSmall -or $InstallBgeSmallEmbeddings -or $InstallMiniLmEmbeddings -or $InstallKokoro -or $InstallParakeet -or $Validate) {
+if ($InstallRepoDependencies -or $InstallFasterWhisperMedium -or $InstallFasterWhisperSmall -or $InstallBgeSmallEmbeddings -or $InstallMiniLmEmbeddings -or $InstallKokoro -or $InstallParakeet -or $InstallParakeetGpuRuntime -or $Validate) {
     $resolvedPythonExe = Ensure-NikoFBackendVirtualEnv
 }
 
@@ -956,6 +1025,14 @@ if ($InstallParakeet) {
     }
 
     Install-NikoFParakeetEngine -PythonExe $resolvedPythonExe
+}
+
+if ($InstallParakeetGpuRuntime) {
+    if (-not $resolvedPythonExe) {
+        $resolvedPythonExe = Ensure-NikoFBackendVirtualEnv
+    }
+
+    Install-NikoFParakeetGpuRuntime -PythonExe $resolvedPythonExe
 }
 
 if ($InstallGptSovitsV2Pro) {

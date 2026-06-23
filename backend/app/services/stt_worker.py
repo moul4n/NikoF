@@ -23,7 +23,10 @@ from app.services.turns import UserTurnRequest, UserTurnServices, run_user_text_
 
 logger = logging.getLogger(__name__)
 
-MODEL_ESTIMATED_VRAM_MB = 2200.0
+# Measured: Parakeet TDT 0.6B v2 on the onnxruntime CUDA EP loads ~3.4 GB of VRAM
+# (all four encoder/decoder/joint sessions). The gate must reserve at least this much
+# or it will green-light a GPU load that then contends with the LLM on small cards.
+MODEL_ESTIMATED_VRAM_MB = 3500.0
 
 
 class STTWorkerState(str, Enum):

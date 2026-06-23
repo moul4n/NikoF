@@ -185,6 +185,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisit
 
 After it finishes, confirm the machine is actually ready with the [preflight](#check-your-machine-preflight) (`Invoke-Preflight.ps1`). It checks the configured engines (Kokoro / Parakeet / qwen3:4b by default).
 
+**Optional GPU STT (≥12 GB VRAM only):** by default Parakeet runs on CPU — on ~8 GB the LLM needs the VRAM, and Parakeet on the GPU measures ~3.4 GB which would overload an 8 GB card alongside the LLM. On a card with headroom, add the CUDA runtime (pip wheels — no CUDA Toolkit or manual download) and `start-all` will enable GPU STT automatically (its `NIKOF_STT_ALLOW_GPU` default is VRAM-gated to ≥12 GB):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -InstallParakeetGpuRuntime
+```
+
 If `huggingface.co` is blocked on the current machine, pass an HF mirror so the model downloads use it (the installer also falls back to direct per-file downloads when the Hub's resolve API is unreachable):
 
 ```powershell
