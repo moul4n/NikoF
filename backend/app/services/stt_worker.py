@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import json
 import logging
 import re
 import threading
 import time
 from collections import deque
+from pathlib import Path
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
@@ -95,8 +97,14 @@ def _should_submit_transcript(transcript: str) -> bool:
 
 
 class STTWorker:
-    def __init__(self, *, app_paths: AppPaths | None = None) -> None:
+    def __init__(self, *, app_paths: AppPaths | None = None, state_path: Path | None = None) -> None:
         self._app_paths = app_paths or get_app_paths()
+        # Durable "last used microphone" preference so the chosen input device
+        # survives a backend restart and is served to every front-end surface on
+        # load (the sidecar itself resets its selection on restart). None =
+        # in-memory only (tests). Mirrors stage_view.py persistence.
+        self._state_path = state_path
+        self._persisted_device_id: str | None = None
         self._manager: FasterWhisperServerManager = get_server_manager(self._app_paths)
         self._tracker: SubsystemTracker = get_resource_monitor().tracker("stt")
         self._state = STTWorkerState.IDLE
@@ -120,6 +128,47 @@ class STTWorker:
         self._poll_interval_seconds = get_runtime_tuning().stt_poll_interval_seconds
         self._partials_enabled = get_runtime_tuning().stt_partials_enabled
         self._lock = threading.Lock()
+        self._restore_device_pref()
+
+    def _restore_device_pref(self) -> None:
+        if self._state_path is None:
+            return
+        try:
+            raw = self._state_path.read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError):
+            return
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(data, dict):
+            return
+        device_id = data.get("selected_device_id")
+        if isinstance(device_id, str) and device_id:
+            # The sidecar owns the live selection and resets on restart; stash the
+            # desired id so start() can re-apply it once the sidecar is healthy.
+            self._persisted_device_id = device_id
+            self._selected_device_id = device_id
+        device_label = data.get("selected_device_label")
+        if isinstance(device_label, str) and device_label:
+            self._selected_device_label = device_label
+
+    def _persist_device_pref(self) -> None:
+        if self._state_path is None:
+            return
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_path.write_text(
+                json.dumps(
+                    {
+                        "selected_device_id": self._selected_device_id,
+                        "selected_device_label": self._selected_device_label,
+                    }
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.warning("Failed to persist STT device preference to %s", self._state_path, exc_info=True)
 
     def _ensure_dispatch_executor(self) -> None:
         if self._dispatch_executor is not None:
@@ -170,7 +219,21 @@ class STTWorker:
             return
 
         await self._refresh_state()
+        await self._reapply_persisted_device()
         self._poll_task = asyncio.create_task(self._poll_loop())
+
+    async def _reapply_persisted_device(self) -> None:
+        """Re-select the saved microphone once the sidecar is healthy. The sidecar
+        forgets its selection across restarts, so without this the saved device
+        would only take effect after the operator re-picked it. Best-effort: a
+        failure here must never block startup."""
+        if not self._persisted_device_id or self._selected_device_id == self._persisted_device_id:
+            return
+        try:
+            self._manager.set_device(self._persisted_device_id)
+            await self._refresh_state()
+        except FasterWhisperServerError:
+            logger.warning("Failed to re-apply persisted STT device %s on start", self._persisted_device_id, exc_info=True)
 
     async def stop(self) -> None:
         self._state = STTWorkerState.SHUTDOWN
@@ -213,6 +276,11 @@ class STTWorker:
         try:
             self._manager.set_device(device_id)
             await self._refresh_state()
+            # Remember the operator's explicit choice so it is restored after a
+            # restart; _refresh_state has just synced _selected_device_id/label
+            # from the sidecar.
+            self._persisted_device_id = device_id
+            self._persist_device_pref()
         except FasterWhisperServerError as exc:
             self._last_error = str(exc)
             self._state = STTWorkerState.ERROR
@@ -548,13 +616,19 @@ def get_stt_worker(app_paths: AppPaths | None = None) -> STTWorker:
     resolved_paths = app_paths or get_app_paths()
     with _stt_worker_lock:
         if _stt_worker is None:
-            _stt_worker = STTWorker(app_paths=resolved_paths)
+            _stt_worker = STTWorker(
+                app_paths=resolved_paths,
+                state_path=resolved_paths.local_data_root / "session" / "stt-prefs.json",
+            )
         elif app_paths is not None and (
             _stt_worker._app_paths.providers_root != resolved_paths.providers_root
             or _stt_worker._app_paths.stt_models_root != resolved_paths.stt_models_root
         ):
             _retire_stt_worker(_stt_worker)
-            _stt_worker = STTWorker(app_paths=resolved_paths)
+            _stt_worker = STTWorker(
+                app_paths=resolved_paths,
+                state_path=resolved_paths.local_data_root / "session" / "stt-prefs.json",
+            )
     return _stt_worker
 
 

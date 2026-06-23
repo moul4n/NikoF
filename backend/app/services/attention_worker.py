@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from app.core.settings import AppPaths, get_app_paths
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_ATTENTION_DEVICE_ID = "camera-default"
@@ -62,8 +68,13 @@ class AttentionWorkerStatus:
 
 
 class AttentionWorker:
-    def __init__(self, *, app_paths: AppPaths | None = None) -> None:
+    def __init__(self, *, app_paths: AppPaths | None = None, state_path: Path | None = None) -> None:
         self._app_paths = app_paths or get_app_paths()
+        # Durable operator preferences (camera on/off, tracking, selected device,
+        # debug marker) so the saved state survives a backend restart and is served
+        # to every front-end surface on load — not just cached in one page's
+        # localStorage. None = in-memory only (tests). Mirrors stage_view.py.
+        self._state_path = state_path
         self._state = AttentionWorkerState.DISABLED
         self._available = False
         self._enabled = False
@@ -85,6 +96,53 @@ class AttentionWorker:
         self._show_tracking_debug_marker = False
         self._next_sequence = 1
         self._lock = threading.Lock()
+        self._restore_prefs()
+
+    def _restore_prefs(self) -> None:
+        if self._state_path is None:
+            return
+        try:
+            raw = self._state_path.read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError):
+            return
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(data, dict):
+            return
+        if isinstance(data.get("enabled"), bool):
+            self._enabled = data["enabled"]
+        # Tracking only makes sense while enabled; never restore a "tracking on"
+        # state that would resume the camera while attention is off.
+        if isinstance(data.get("tracking"), bool):
+            self._tracking_requested = data["tracking"] and self._enabled
+        if isinstance(data.get("selected_device_id"), str) and data["selected_device_id"]:
+            self._selected_device_id = data["selected_device_id"]
+        if isinstance(data.get("selected_device_label"), str) and data["selected_device_label"]:
+            self._selected_device_label = data["selected_device_label"]
+        if isinstance(data.get("show_tracking_debug_marker"), bool):
+            self._show_tracking_debug_marker = data["show_tracking_debug_marker"]
+
+    def _persist_prefs_locked(self) -> None:
+        if self._state_path is None:
+            return
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_path.write_text(
+                json.dumps(
+                    {
+                        "enabled": self._enabled,
+                        "tracking": self._tracking_requested,
+                        "selected_device_id": self._selected_device_id,
+                        "selected_device_label": self._selected_device_label,
+                        "show_tracking_debug_marker": self._show_tracking_debug_marker,
+                    }
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.warning("Failed to persist attention preferences to %s", self._state_path, exc_info=True)
 
     async def start(self) -> None:
         with self._lock:
@@ -98,24 +156,30 @@ class AttentionWorker:
 
     def status(self) -> AttentionWorkerStatus:
         with self._lock:
-            self._refresh_state_locked()
-            return AttentionWorkerStatus(
-                state=self._state,
-                available=self._available,
-                enabled=self._enabled,
-                tracking=self._tracking_requested,
-                selected_device_id=self._selected_device_id,
-                selected_device_label=self._selected_device_label,
-                confidence=self._confidence,
-                subject=self._subject,
-                last_observed_at=self._last_observed_at,
-                last_error=self._last_error,
-                fps_target=self._fps_target,
-                frame_width=self._frame_width,
-                frame_height=self._frame_height,
-                show_tracking_debug_marker=self._show_tracking_debug_marker,
-                next_sequence=self._next_sequence,
-            )
+            return self._status_locked()
+
+    def _status_locked(self) -> AttentionWorkerStatus:
+        # Caller must already hold self._lock. record_observation needs to build a
+        # snapshot mid-update without re-acquiring the (non-reentrant) lock — a
+        # plain self.status() call there would deadlock.
+        self._refresh_state_locked()
+        return AttentionWorkerStatus(
+            state=self._state,
+            available=self._available,
+            enabled=self._enabled,
+            tracking=self._tracking_requested,
+            selected_device_id=self._selected_device_id,
+            selected_device_label=self._selected_device_label,
+            confidence=self._confidence,
+            subject=self._subject,
+            last_observed_at=self._last_observed_at,
+            last_error=self._last_error,
+            fps_target=self._fps_target,
+            frame_width=self._frame_width,
+            frame_height=self._frame_height,
+            show_tracking_debug_marker=self._show_tracking_debug_marker,
+            next_sequence=self._next_sequence,
+        )
 
     async def list_devices(self) -> tuple[AttentionInputDevice, ...]:
         return (
@@ -135,6 +199,7 @@ class AttentionWorker:
             self._selected_device_label = device_label or DEFAULT_ATTENTION_DEVICE_LABEL
             self._bump_sequence_locked()
             self._refresh_state_locked()
+            self._persist_prefs_locked()
         return self.status()
 
     async def set_enabled(self, enabled: bool) -> AttentionWorkerStatus:
@@ -148,6 +213,7 @@ class AttentionWorker:
                 self._last_error = None
             self._bump_sequence_locked()
             self._refresh_state_locked()
+            self._persist_prefs_locked()
         return self.status()
 
     async def set_tracking(self, enabled: bool) -> AttentionWorkerStatus:
@@ -159,6 +225,7 @@ class AttentionWorker:
                 self._last_observed_at = None
             self._bump_sequence_locked()
             self._refresh_state_locked()
+            self._persist_prefs_locked()
         return self.status()
 
     async def set_show_tracking_debug_marker(self, enabled: bool) -> AttentionWorkerStatus:
@@ -166,6 +233,7 @@ class AttentionWorker:
             self._show_tracking_debug_marker = bool(enabled)
             self._bump_sequence_locked()
             self._refresh_state_locked()
+            self._persist_prefs_locked()
         return self.status()
 
     async def record_observation(
@@ -179,18 +247,25 @@ class AttentionWorker:
         subject: dict[str, Any] | None,
     ) -> AttentionWorkerStatus:
         with self._lock:
-            if device_id:
+            # Capture the device the browser is actually using as the "last used"
+            # device, but only persist when it changes — observations arrive at the
+            # camera frame rate and must not thrash the prefs file.
+            device_changed = False
+            if device_id and device_id != self._selected_device_id:
                 self._selected_device_id = device_id
-            if device_label:
+                device_changed = True
+            if device_label and device_label != self._selected_device_label:
                 self._selected_device_label = device_label
+                device_changed = True
+            if device_changed:
+                self._persist_prefs_locked()
             if frame_width and frame_width > 0:
                 self._frame_width = frame_width
             if frame_height and frame_height > 0:
                 self._frame_height = frame_height
 
             if not self._enabled or not self._tracking_requested:
-                self._refresh_state_locked()
-                return self.status()
+                return self._status_locked()
 
             tracked = bool(subject.get("tracked")) if isinstance(subject, dict) else False
             confidence = _coerce_optional_float(subject.get("confidence")) if isinstance(subject, dict) else None
@@ -286,5 +361,8 @@ def get_attention_worker(app_paths: AppPaths | None = None) -> AttentionWorker:
     if _attention_worker is None:
         with _attention_worker_lock:
             if _attention_worker is None:
-                _attention_worker = AttentionWorker(app_paths=resolved_paths)
+                _attention_worker = AttentionWorker(
+                    app_paths=resolved_paths,
+                    state_path=resolved_paths.local_data_root / "session" / "attention-prefs.json",
+                )
     return _attention_worker

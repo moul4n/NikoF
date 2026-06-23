@@ -25,6 +25,7 @@ import { ControlSurfaceGesturePanel } from "./ControlSurfaceGesturePanel.js";
 import { ControlSurfaceBackgroundPanel } from "./ControlSurfaceBackgroundPanel.js";
 import { ControlSurfaceDisplayPanel } from "./ControlSurfaceDisplayPanel.js";
 import { ControlSurfaceAttentionPanel } from "./ControlSurfaceAttentionPanel.js";
+import { ControlSurfaceAudioOutputPanel } from "./ControlSurfaceAudioOutputPanel.js";
 import { ControlSurfaceSttPanel } from "./ControlSurfaceSttPanel.js";
 import { ControlSurfaceSpeechPlaybackPanel } from "./ControlSurfaceSpeechPlaybackPanel.js";
 import { ControlSurfaceKokoroVoicePanel } from "./ControlSurfaceKokoroVoicePanel.js";
@@ -355,6 +356,7 @@ export function ControlSurfaceShell({
           {activeTab === "tracking" ? (
             <div className="control-tabpanel__grid">
               <ControlSurfaceAttentionPanel />
+              <ControlSurfaceAudioOutputPanel />
               {audioPlaybackPanel}
             </div>
           ) : null}

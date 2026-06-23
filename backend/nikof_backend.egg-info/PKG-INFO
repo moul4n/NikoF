@@ -6,10 +6,28 @@ Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: fastapi<1.0,>=0.115
 Requires-Dist: uvicorn<1.0,>=0.34
+Requires-Dist: websockets<16,>=12
 Requires-Dist: faster-whisper<2.0,>=1.1
 Requires-Dist: numpy<3.0,>=1.26
 Requires-Dist: psutil<7.0,>=5.9
 Requires-Dist: sounddevice<1.0,>=0.4.6
+Provides-Extra: kokoro
+Requires-Dist: kokoro-onnx<1.0,>=0.5; extra == "kokoro"
+Provides-Extra: xtts
+Requires-Dist: coqui-tts<0.28,>=0.27; extra == "xtts"
+Requires-Dist: torch<2.9,>=2.6; extra == "xtts"
+Requires-Dist: torchaudio<2.9,>=2.6; extra == "xtts"
+Requires-Dist: transformers<4.58,>=4.57; extra == "xtts"
+Provides-Extra: parakeet
+Requires-Dist: onnx-asr<1.0,>=0.11; extra == "parakeet"
+Requires-Dist: onnxruntime-gpu<1.23,>=1.20; extra == "parakeet"
+Provides-Extra: parakeet-gpu
+Requires-Dist: nvidia-cublas-cu12>=12.1; extra == "parakeet-gpu"
+Requires-Dist: nvidia-cudnn-cu12<10,>=9; extra == "parakeet-gpu"
+Requires-Dist: nvidia-cufft-cu12>=11; extra == "parakeet-gpu"
+Requires-Dist: nvidia-curand-cu12>=10; extra == "parakeet-gpu"
+Requires-Dist: nvidia-cuda-runtime-cu12>=12.1; extra == "parakeet-gpu"
+Requires-Dist: nvidia-cuda-nvrtc-cu12>=12.1; extra == "parakeet-gpu"
 
 # Backend Scaffold
 
@@ -43,6 +61,8 @@ implemented.
 
 - `app/services/llm.py` resolves the Ollama-backed LLaMA lane only from `NIKOF_LLM_MODELS_ROOT` and `NIKOF_PROVIDERS_ROOT`. The default binding expects `NIKOF_PROVIDERS_ROOT/llm/ollama/` plus `NIKOF_LLM_MODELS_ROOT/ollama-llama3.1-8b/` to exist.
 - The Ollama adapter uses `http://127.0.0.1:11434/api/generate` by default and `llama3.1:8b` as the default model tag. If a local machine needs a different tag or endpoint, place a machine-local `runtime.json` under the model root or provider root instead of adding new repo-tracked settings.
+- The LLM sidecar manager can now backend-own the Ollama server lifecycle when the local `runtime.json` opts in with `manage_process: true`. The current machine-local fields are `endpoint`, optional `health_url`, optional `serve_command`, plus optional startup and health timeout overrides.
+- When `manage_process: true` is enabled, the backend starts the sidecar lazily on the first LLM request, attempts an eager start during app lifespan startup, stops any owned child process during backend shutdown, and reports process health and owned-log paths through `/system/resources`.
 - When the local Ollama roots are present but the runtime is unreachable, the adapter returns the existing normalized `unavailable` or `error` assistant contract instead of leaking the raw Ollama payload or transport failure.
 
 - `app/services/speech.py` resolves speech runtimes only from the bootstrap-managed local roots in `NIKOF_STT_MODELS_ROOT`, `NIKOF_TTS_MODELS_ROOT`, and `NIKOF_PROVIDERS_ROOT`.
@@ -66,6 +86,8 @@ Set-Location backend
 ```
 
 `..\.venv\Scripts\python.exe -m app.dev_server` is the canonical backend dev start command and binds the API to `http://127.0.0.1:8000`.
+
+For full-stack local work, do not start the backend in isolation by default. The preferred user, developer, and agent workflow is to run `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1` from the repo root and let that supervisor own frontend plus backend startup and shutdown. Use `app.dev_server` directly only for backend-only investigation.
 
 If port `8000` is already occupied, `app.dev_server` now fails fast with a specific message that distinguishes an already-healthy backend from a stale listener that is holding the port without answering `/health`.
 

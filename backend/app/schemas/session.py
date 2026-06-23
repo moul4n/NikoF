@@ -309,6 +309,18 @@ class DisplaySettingsUpdateRequest:
     wardrobe: dict[str, dict[str, float]] | None = None
 
 
+@pydantic_dataclass(slots=True, frozen=True)
+class AudioOutputUpdateRequest:
+    """Operator-selected audio output device (speaker/headphones) for avatar
+    speech playback. ``device_id`` null means the system default. Browsers apply
+    it via HTMLAudioElement.setSinkId; the backend only persists the choice so it
+    survives a restart. A presentation setting, not part of the session
+    animation/speech contracts."""
+
+    device_id: str | None = None
+    device_label: str | None = None
+
+
 @dataclass(slots=True, frozen=True)
 class OperatorCommandResponse:
     schema_version: int

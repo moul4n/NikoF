@@ -9,9 +9,11 @@ from app.schemas.session import (
     DisplaySettingsUpdateRequest,
     SessionGestureRequest,
     SessionLifecycleUpdateRequest,
+    AudioOutputUpdateRequest,
     SpeechLifecycleTransportSnapshot,
     StageBackgroundUpdateRequest,
 )
+from app.services.audio_output_settings import get_audio_output_settings_state
 from app.services.display_settings import get_display_settings_state
 from app.services.stage_view import get_stage_view_state, is_known_stage_background_id
 from app.services.animation import (
@@ -230,6 +232,19 @@ def register_session_transport_routes(
             captions=update.captions,
             wardrobe=update.wardrobe,
         )
+
+    @router.get("/session/audio-output")
+    def get_audio_output() -> dict:
+        # Presentation-only "last used output device" choice for speech playback.
+        # Polled by every surface that plays audio (incl. the separate display
+        # window) so a control-surface change reaches them and survives restarts.
+        return get_audio_output_settings_state().snapshot()
+
+    @router.put("/session/audio-output")
+    def put_audio_output(update: AudioOutputUpdateRequest) -> dict:
+        device_id = update.device_id.strip() if isinstance(update.device_id, str) else None
+        device_label = update.device_label.strip() if isinstance(update.device_label, str) else None
+        return get_audio_output_settings_state().set_device(device_id or None, device_label or None)
 
     def _build_session_speech_artifact_audio_response(event_id: str) -> Any:
         snapshot = services.session_service.get_snapshot()

@@ -8,6 +8,7 @@ import {
   useSpeechPlaybackBridge,
 } from "./useSpeechPlaybackBridge";
 import { useSpeechAudioStream } from "./useSpeechAudioStream";
+import { useAudioOutputSink } from "./useAudioOutputState";
 import {
   ControlSurfaceShell,
   DisplaySurfaceShell
@@ -95,6 +96,10 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   // (the display surface). This both fixes duplicate audio across windows and
   // scopes the streamed-audio WebSocket consumer to the page with the avatar.
   const isAvatarPlaybackSurface = runtimeSurfaceMode === "display";
+  // Route avatar speech playback to the backend-saved output device on whichever
+  // surface voices the avatar, so the display window follows a control-surface
+  // change and a reload restores the same speakers.
+  useAudioOutputSink();
   const speechAudioStream = useSpeechAudioStream({ enabled: isAvatarPlaybackSurface });
   const speechPlaybackStatus = useSpeechPlaybackBridge({
     runtime,
