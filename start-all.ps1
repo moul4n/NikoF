@@ -49,6 +49,29 @@ function Start-InWindow([string]$Title, [string]$Command) {
     Start-Process -FilePath $shell -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-Command', "`$Host.UI.RawUI.WindowTitle='$Title'; $Command") | Out-Null
 }
 
+function Get-TotalVramMb {
+    $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+    if (-not $smi) { return $null }
+    try {
+        $line = (& $smi.Source --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1)
+        if ($line) { return [int]($line.Trim()) }
+    }
+    catch {}
+    return $null
+}
+
+# Parakeet STT can run on the GPU (CUDA EP) or CPU. On a ~8GB card the LLM already
+# needs most of the VRAM, and Parakeet's CUDA EP only initialises if the CUDA-12 /
+# cuDNN-9 runtime DLLs are present (they ship with torch-cu12, not the parakeet
+# extra). Default GPU STT on only for cards with comfortable headroom (>=12GB);
+# otherwise run Parakeet on CPU by design — it leaves the GPU for the LLM and skips
+# a doomed CUDA-init attempt. Override by setting NIKOF_STT_ALLOW_GPU before launch.
+$totalVramMb = Get-TotalVramMb
+$sttAllowGpuDefault = if ($totalVramMb -and $totalVramMb -ge 11264) { '1' } else { '0' }
+if ($totalVramMb) {
+    Write-Host ("[start-all] Detected {0} MB VRAM; default NIKOF_STT_ALLOW_GPU={1} (Parakeet on {2})." -f $totalVramMb, $sttAllowGpuDefault, $(if ($sttAllowGpuDefault -eq '1') { 'GPU' } else { 'CPU' }))
+}
+
 # Performance runtime profile — keep in sync with scripts/bootstrap/app-manager.ps1
 # (see docs/TTS_ENGINE_BENCHMARK.md). This is the canonical stack; without it the
 # backend falls back to the legacy GPT-SoVITS / faster-whisper / llama3.1 defaults.
@@ -62,8 +85,8 @@ $perfDefaults = [ordered]@{
     NIKOF_TTS_ENGINE        = 'kokoro'      # fast TTS, frees VRAM (preset voice), runs on CPU
     NIKOF_KOKORO_VOICE      = 'jf_gongitsune' # higher-pitched timbre; English stays via NIKOF_KOKORO_LANG=en-us
     NIKOF_KOKORO_LANG       = 'en-us'       # keep English phonemizer regardless of voice timbre
-    NIKOF_STT_ENGINE        = 'parakeet'    # Parakeet TDT v2: 0 WER vs Whisper-medium, ~2x faster (GPU)
-    NIKOF_STT_ALLOW_GPU     = '1'           # run Parakeet on the local NVIDIA GPU (CUDA EP). On <~8GB VRAM, watch for contention with the LLM; set to 0 to force CPU.
+    NIKOF_STT_ENGINE        = 'parakeet'    # Parakeet TDT v2: lower WER than Whisper-medium, fast on CPU too
+    NIKOF_STT_ALLOW_GPU     = $sttAllowGpuDefault  # VRAM-aware (see above): GPU only on >=12GB cards, else CPU to leave the GPU for the LLM
     NIKOF_STT_PARTIALS      = '1'           # interim transcripts -> live captions on the avatar surface
     NIKOF_LLM_MODEL         = 'qwen3:4b'    # small, fast local planner model
     NIKOF_LLM_THINK         = 'false'       # qwen3 reasoning off -> fast clean JSON
