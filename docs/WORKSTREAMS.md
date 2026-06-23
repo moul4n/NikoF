@@ -186,7 +186,7 @@ This is the active scaffold board for the current stages. It assumes the three t
 - Mouse stays on the critical path for seam hardening: extend backend-first regression coverage for canonical assistant reply publication and degraded local-LLM outcomes without inventing frontend-only assertions.
 - Trinity keeps debug and operator-control expansion deferred: preserve active-character selection as the only selection control and keep `wave`, provider switching, and diagnostics growth in the backlog.
 - Switch treats the current control-surface assistant reply readout as sufficient until the backend proves a real read-model gap; the display surface remains read-only over canonical backend state.
-- Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with `.squad/identity/now.md` after each landed batch.
+- Trinity owns queue hygiene alongside portability and continuity: keep `docs/NEXT_STEPS.md`, this handoff section, and the setup docs aligned with each other after each landed batch. (The `.squad/` state, including `.squad/identity/now.md`, is legacy Copilot-era continuity — historical context only, not an active source to keep in sync.)
 
 ## Deferred Work
 

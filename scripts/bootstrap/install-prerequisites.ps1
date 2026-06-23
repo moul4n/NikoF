@@ -12,6 +12,13 @@ param(
     [switch]$InstallGptSovitsV2Pro,
     [switch]$InstallBgeSmallEmbeddings,
     [switch]$InstallMiniLmEmbeddings,
+    # Canonical performance stack (see docs/TTS_ENGINE_BENCHMARK.md): Kokoro TTS +
+    # Parakeet STT + qwen3:4b LLM. -AllSafe installs these.
+    [switch]$InstallKokoro,
+    [switch]$InstallParakeet,
+    [switch]$PullQwen3,
+    # Opt-in legacy fallback stack: GPT-SoVITS / Faster-Whisper Medium / llama3.1:8b.
+    [switch]$InstallLegacyStack,
     [string]$SttModelSourcePath,
     [switch]$StageRepoTtsServer,
     [string]$TtsProviderSourcePath,
@@ -27,6 +34,13 @@ param(
     [string]$FasterWhisperSmallRepoId = 'Systran/faster-whisper-small',
     [string]$BgeSmallEmbeddingsRepoId = 'BAAI/bge-small-en-v1.5',
     [string]$MiniLmEmbeddingsRepoId = 'sentence-transformers/all-MiniLM-L6-v2',
+    [string]$Qwen3Model = 'qwen3:4b',
+    [string]$ParakeetRepoId = 'istupakov/parakeet-tdt-0.6b-v2-onnx',
+    # Optional Hugging Face endpoint override (sets HF_ENDPOINT for huggingface_hub).
+    # Use when huggingface.co is blocked on the machine, e.g. -HfEndpoint https://hf-mirror.com.
+    [string]$HfEndpoint,
+    [string]$KokoroModelUrl = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx',
+    [string]$KokoroVoicesUrl = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin',
     [string]$GptSovitsPackageUrl = 'https://huggingface.co/lj1995/GPT-SoVITS-windows-package/resolve/main/GPT-SoVITS-v2pro-20250604.7z?download=true',
     [string]$GptSovitsSourceUrl = 'https://github.com/RVC-Boss/GPT-SoVITS/archive/refs/tags/20250606v2pro.zip',
     [string]$GptSovitsPackageArchiveName = 'GPT-SoVITS-v2pro-20250604.7z',
@@ -42,12 +56,27 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
 }
 
 if ($AllSafe) {
+    # Canonical stack = the benchmarked performance stack (Kokoro / Parakeet / qwen3:4b).
+    # The legacy stack (GPT-SoVITS / Faster-Whisper / llama3.1) is opt-in via -InstallLegacyStack.
     $InstallBaseToolchain = $true
     $InstallRepoDependencies = $true
     $InstallOllama = $true
+    $PullQwen3 = $true
+    $InstallKokoro = $true
+    $InstallParakeet = $true
+    $Validate = $true
+}
+
+if ($InstallLegacyStack) {
     $PullOllamaModel = $true
     $InstallFasterWhisperMedium = $true
-    $Validate = $true
+}
+
+if ($HfEndpoint) {
+    # huggingface_hub reads HF_ENDPOINT from the environment; the snapshot subprocesses
+    # inherit it. Used when huggingface.co is unreachable but a mirror is.
+    $env:HF_ENDPOINT = $HfEndpoint
+    Write-Host ("Using Hugging Face endpoint override: {0}" -f $HfEndpoint)
 }
 
 if (-not $ConfigPath) {
@@ -75,6 +104,8 @@ $ttsModelRoot = Join-Path $storageLayout.tts_models_root 'gpt-sovits'
 $ttsProviderRoot = Join-Path $storageLayout.providers_root 'tts\gpt-sovits'
 $embeddingsBaselineRoot = Join-Path $storageLayout.embeddings_root 'bge-small-en'
 $embeddingsFallbackRoot = Join-Path $storageLayout.embeddings_root 'MiniLM-L6-v2'
+$kokoroModelRoot = Join-Path $storageLayout.tts_models_root 'kokoro'
+$parakeetModelRoot = Join-Path $storageLayout.stt_models_root 'parakeet-tdt-0.6b-v2'
 $downloadRoot = Join-Path $storageLayout.cache_root 'downloads'
 $stagingRoot = Join-Path $storageLayout.cache_root 'staging'
 $ttsProviderRuntimeRoot = Join-Path $ttsProviderRoot 'runtime'
@@ -152,6 +183,11 @@ function Test-NikoFPayloadProof {
     }
 
     foreach ($child in @(Get-ChildItem -LiteralPath $RootPath -Force -ErrorAction SilentlyContinue)) {
+        # Ignore scaffold manifests and dot-entries (e.g. a partial .cache/ left by a
+        # failed snapshot_download) — they are not real model payload proof.
+        if ($child.Name.StartsWith('.')) {
+            continue
+        }
         if ($ScaffoldArtifactNames -notcontains $child.Name) {
             return $true
         }
@@ -442,6 +478,55 @@ function Install-NikoFFasterWhisperMediumModel {
     }
 }
 
+function Get-NikoFHfRepoFileList {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PythonExe,
+
+        [Parameter(Mandatory)]
+        [string]$RepoId
+    )
+
+    # list_repo_files uses the API endpoint, which stays reachable on some networks
+    # even when the resolve/CDN path that snapshot_download relies on does not.
+    $listCommand = "import os; from huggingface_hub import HfApi; ep=os.environ.get('HF_ENDPOINT') or None; print('\n'.join(HfApi(endpoint=ep).list_repo_files(r'{0}')))" -f $RepoId
+    $output = & $PythonExe -c $listCommand 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return @()
+    }
+    return @($output | Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() })
+}
+
+function Install-NikoFHfResolveDownload {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoId,
+
+        [Parameter(Mandatory)]
+        [string]$DestinationRoot,
+
+        [Parameter(Mandatory)]
+        [string[]]$Files,
+
+        [Parameter(Mandatory)]
+        [string]$Label
+    )
+
+    # Fallback path: GET each repo file straight from {endpoint}/{repo}/resolve/main/{file}.
+    # Plain GETs can succeed where huggingface_hub's HEAD/resolve handshake is blocked.
+    $endpoint = if ($env:HF_ENDPOINT) { $env:HF_ENDPOINT.TrimEnd('/') } else { 'https://huggingface.co' }
+    $skipNames = @('.gitattributes', 'README.md')
+    foreach ($file in $Files) {
+        $leaf = Split-Path -Leaf $file
+        if ($skipNames -contains $leaf) {
+            continue
+        }
+        $url = ('{0}/{1}/resolve/main/{2}' -f $endpoint, $RepoId, $file)
+        $destPath = Join-Path $DestinationRoot ($file -replace '/', '\')
+        Invoke-NikoFDownloadFile -Url $url -DestinationPath $destPath -Label ('{0}: {1}' -f $Label, $file)
+    }
+}
+
 function Install-NikoFHuggingFaceSnapshotPayload {
     param(
         [Parameter(Mandatory)]
@@ -466,8 +551,22 @@ function Install-NikoFHuggingFaceSnapshotPayload {
     Write-NikoFStep -Message ('Downloading {0}' -f $Label)
     $downloadCommand = "from huggingface_hub import snapshot_download; snapshot_download(repo_id=r'{0}', local_dir=r'{1}')" -f $RepoId, $DestinationRoot
     & $PythonExe -c $downloadCommand
-    if ($LASTEXITCODE -ne 0) {
-        throw ('Download {0} payload failed. If Hugging Face is blocked on this machine, place an approved local copy under {1} and rerun bootstrap validation.' -f $Label, $DestinationRoot)
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    # snapshot_download failed (commonly a blocked resolve/CDN path). Try the
+    # direct-resolve fallback using the file list from the reachable API endpoint.
+    Write-Warning ('snapshot_download failed for {0}; trying direct per-file download from the resolve endpoint.' -f $Label)
+    $repoFiles = @(Get-NikoFHfRepoFileList -PythonExe $PythonExe -RepoId $RepoId)
+    if ($repoFiles.Count -eq 0) {
+        throw ('Download {0} payload failed and the file list could not be retrieved. If Hugging Face is blocked on this machine, pass -HfEndpoint <mirror> or place an approved local copy under {1} and rerun.' -f $Label, $DestinationRoot)
+    }
+
+    Install-NikoFHfResolveDownload -RepoId $RepoId -DestinationRoot $DestinationRoot -Files $repoFiles -Label $Label
+
+    if (-not (Test-NikoFPayloadProof -RootPath $DestinationRoot -ScaffoldArtifactNames @())) {
+        throw ('Download {0} payload failed even via direct resolve. Pass -HfEndpoint <mirror> or place an approved local copy under {1} and rerun.' -f $Label, $DestinationRoot)
     }
 }
 
@@ -690,6 +789,54 @@ function Stage-NikoFRepoTtsServer {
     Write-Warning 'The repo entrypoint alone does not install the approved GPT-SoVITS runtime or model payload. Supply -InstallGptSovitsV2Pro or -TtsProviderSourcePath and -TtsModelSourcePath to bring the TTS lane fully up to spec.'
 }
 
+function Install-NikoFKokoroEngine {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PythonExe
+    )
+
+    Write-NikoFStep -Message 'Installing Kokoro TTS engine (kokoro-onnx)'
+    & $PythonExe -m pip install -e ("{0}[kokoro]" -f $backendRoot)
+    Assert-NikoFLastExitCode -Action 'Install Kokoro extra'
+
+    $modelPath = Join-Path $kokoroModelRoot 'kokoro-v1.0.onnx'
+    $voicesPath = Join-Path $kokoroModelRoot 'voices-v1.0.bin'
+    Invoke-NikoFDownloadFile -Url $KokoroModelUrl -DestinationPath $modelPath -Label 'Kokoro v1.0 ONNX model'
+    Invoke-NikoFDownloadFile -Url $KokoroVoicesUrl -DestinationPath $voicesPath -Label 'Kokoro v1.0 voices'
+}
+
+function Install-NikoFParakeetEngine {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PythonExe
+    )
+
+    Write-NikoFStep -Message 'Installing Parakeet STT engine (onnx-asr + onnxruntime-gpu)'
+    & $PythonExe -m pip install -e ("{0}[parakeet]" -f $backendRoot)
+    Assert-NikoFLastExitCode -Action 'Install Parakeet extra'
+    Install-NikoFHuggingFaceSnapshotPayload -PythonExe $PythonExe -RepoId $ParakeetRepoId -DestinationRoot $parakeetModelRoot -Label 'Parakeet TDT 0.6B v2 ONNX model'
+}
+
+function Install-NikoFQwen3Model {
+    Ensure-NikoFOllamaInstalled
+    $resolvedOllama = Resolve-NikoFCommandPath -Command 'ollama'
+    if (-not $resolvedOllama) {
+        throw 'Ollama is unavailable; cannot pull the qwen3 model.'
+    }
+
+    Write-NikoFStep -Message ('Pulling Ollama model {0}' -f $Qwen3Model)
+    & $resolvedOllama pull $Qwen3Model
+    Assert-NikoFLastExitCode -Action ('ollama pull ' + $Qwen3Model)
+
+    # Repo-facing readiness marker (mirrors the llama3.1 hook); model tag sanitised to a dir name.
+    $markerDirName = 'ollama-' + ($Qwen3Model -replace '[:\\/]', '-')
+    $markerDir = Join-Path $storageLayout.llm_models_root $markerDirName
+    if (-not (Test-Path -LiteralPath $markerDir)) {
+        New-Item -ItemType Directory -Path $markerDir -Force | Out-Null
+    }
+    Write-NikoFJsonFile -Path (Join-Path $markerDir '.installed.json') -Payload ([ordered]@{ model = $Qwen3Model; source = 'install-prerequisites' })
+}
+
 function Invoke-NikoFValidation {
     param(
         [Parameter(Mandatory)]
@@ -740,7 +887,7 @@ if ($InstallBaseToolchain) {
 }
 
 $resolvedPythonExe = $null
-if ($InstallRepoDependencies -or $InstallFasterWhisperMedium -or $InstallFasterWhisperSmall -or $InstallBgeSmallEmbeddings -or $InstallMiniLmEmbeddings -or $Validate) {
+if ($InstallRepoDependencies -or $InstallFasterWhisperMedium -or $InstallFasterWhisperSmall -or $InstallBgeSmallEmbeddings -or $InstallMiniLmEmbeddings -or $InstallKokoro -or $InstallParakeet -or $Validate) {
     $resolvedPythonExe = Ensure-NikoFBackendVirtualEnv
 }
 
@@ -789,6 +936,26 @@ if ($InstallMiniLmEmbeddings) {
     }
 
     Install-NikoFMiniLmEmbeddings -PythonExe $resolvedPythonExe
+}
+
+if ($PullQwen3) {
+    Install-NikoFQwen3Model
+}
+
+if ($InstallKokoro) {
+    if (-not $resolvedPythonExe) {
+        $resolvedPythonExe = Ensure-NikoFBackendVirtualEnv
+    }
+
+    Install-NikoFKokoroEngine -PythonExe $resolvedPythonExe
+}
+
+if ($InstallParakeet) {
+    if (-not $resolvedPythonExe) {
+        $resolvedPythonExe = Ensure-NikoFBackendVirtualEnv
+    }
+
+    Install-NikoFParakeetEngine -PythonExe $resolvedPythonExe
 }
 
 if ($InstallGptSovitsV2Pro) {

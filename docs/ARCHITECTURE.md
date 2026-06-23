@@ -21,7 +21,7 @@ The baseline above is a planning contract, not a hard lock on one specific runti
 - Git stores source, contracts, manifests, scripts, and documentation. Git does not store LLM weights, speech model payloads, vector indexes generated from local data, vendor runtime installers, or other heavyweight prerequisites.
 - Bootstrap scripts are the first-class path for preparing a new Windows machine. They should download or provision prerequisites when licensing, redistribution, and installer behavior make automation viable.
 - When a provider cannot be installed safely through automation, the repo must still carry precise manual fallback instructions, expected install locations, validation checks, and the next step needed to rejoin the standard bootstrap flow.
-- Cross-machine continuity is a design requirement, not a convenience item. The checked-in docs plus `.squad/` state must be sufficient for Jason or another developer to recover the architecture, current work plan, and local setup expectations on a fresh machine.
+- Cross-machine continuity is a design requirement, not a convenience item. The checked-in docs (this file, `docs/IMPLEMENTATION_PLAN.md`, `docs/WORKSTREAMS.md`, `docs/SETUP_AND_CONTINUITY.md`, and `CLAUDE.md`) must be sufficient for Jason or another developer to recover the architecture, current work plan, and local setup expectations on a fresh machine. The `.squad/` and `.copilot/` state is legacy Copilot-era continuity, retained for historical context only — do not rely on or extend it.
 
 Local storage rule:
 
@@ -228,7 +228,7 @@ The repository structure above intentionally omits committed model payload direc
 
 - `scripts/bootstrap/` owns machine preparation steps, prerequisite detection, download orchestration where allowed, and post-install validation entry points.
 - Documentation must describe the supported bootstrap flow for a fresh Windows machine, including which prerequisites are automated, which remain manual, and how to validate the finished environment before starting frontend or backend services.
-- Squad continuity files under `.squad/` are part of the operational architecture. They preserve active decisions, work ownership, and durable project knowledge so another machine or developer can resume with minimal rediscovery.
+- Squad continuity files under `.squad/` (and `.copilot/`) are legacy Copilot-era artifacts, not part of the active operational architecture. They are historical context only; durable decisions, work ownership, and project knowledge now live in the checked-in `docs/` and `CLAUDE.md`. Do not rely on or extend the `.squad/`/`.copilot/` state.
 - Architecture changes that affect local storage, install flow, or provider expectations must update both the implementation docs and the setup-and-continuity guide in the same change.
 
 ### Animation Runtime Service

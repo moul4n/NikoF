@@ -12,7 +12,7 @@ Committed:
 - Contracts, schemas, manifests, fixture payloads, and validation logic.
 - Character package metadata and small placeholder assets that are intentionally part of the repo contract.
 - Documentation that explains architecture, setup, delivery stages, and work ownership.
-- Squad continuity files under `.squad/`, excluding transient logs, inbox state, and other ignored runtime scratch data.
+- Legacy squad continuity files under `.squad/` (and `.copilot/`), excluding transient logs, inbox state, and other ignored runtime scratch data. These are Copilot-era artifacts committed for history only — they are not an active continuity mechanism.
 
 Not committed:
 
@@ -42,7 +42,7 @@ Expectations:
 ## Expected Bootstrap Flow On A Fresh Windows Machine
 
 1. Clone the repository.
-2. Read `README.md`, this document, and the current squad docs to understand the expected stack and work state.
+2. Read `README.md`, `CLAUDE.md`, and this document to understand the expected stack and work state.
 3. Run `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\bootstrap.ps1` from the repo root.
 4. If you want the repo to perform the safe Windows bring-up work automatically, run `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -AllSafe` instead of doing the base install steps by hand.
 5. Let bootstrap create or validate the local storage roots under `%LOCALAPPDATA%\NikoF` by default, or fall back to the documented repo-local sandbox only when `LOCALAPPDATA` is unavailable.
@@ -55,23 +55,23 @@ The bootstrap contract is successful when a second Windows machine can reconstru
 
 ## Preferred Local Startup And Shutdown
 
-For normal local operation after bootstrap, the preferred startup path for users, the dev team, and AI agents is:
+For normal local operation after bootstrap, the single front door for users, the dev team, and AI agents is the root launcher:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
+```bat
+start-all.bat
 ```
 
 Why this is the preferred path:
 
-- It starts the frontend and backend together from one repo-root command.
-- It keeps STT and TTS sidecar ownership with the backend instead of with the frontend or a stray terminal.
-- It gives one supervisor process a single shutdown surface instead of relying on a user or agent to remember multiple commands.
+- It runs the preflight gate (`scripts/bootstrap/Invoke-Preflight.ps1`) first and stops with install guidance if a launch-critical prerequisite (the `.venv`, frontend deps, or the configured engine's model) is missing.
+- It starts the backend (which owns the STT/TTS/LLM engines and warms them on its lifespan), the control frontend, and the Tauri stage from one command.
+- The canonical engines (Kokoro / Parakeet / qwen3:4b) run in-process; the legacy GPT-SoVITS / Faster-Whisper sidecars are the opt-in fallback.
 
-Preferred shutdown rule:
+Shutdown:
 
-- Stop the supervisor window with `Ctrl+C` when you are done. That is the intended path for a human run.
-- For automation or smoke tests that must stop on their own, use `-StopAfterSeconds`, for example `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1 -StopAfterSeconds 15`.
-- Start `..\.venv\Scripts\python.exe -m app.dev_server` directly only for backend-only debugging. The frontend does not own STT or TTS sidecars.
+- Each service runs in its own window — close them, or run `stop-dev-stack.ps1` for a one-shot cleanup of ports 8000 / 5173 / 11434.
+- Start `..\.venv\Scripts\python.exe -m app.dev_server` directly only for backend-only debugging. The frontend does not own the STT or TTS engines.
+- `run-dev-stack.ps1` is deprecated (it forwards to `start-all`); the ops dashboard (`startup.bat`) is an optional per-service monitor.
 
 ## Manual Fallback When Automation Is Not Viable
 
@@ -136,7 +136,7 @@ For Faster-Whisper Medium specifically, startup now also prints the managed acce
 For GPT-SoVITS specifically, startup now also prints the managed acceptance targets and any still-blocked local proof so the user can see whether the remaining issue is payload placement, provider entrypoint placement, or both.
 The live GPT-SoVITS path now launches one backend-owned sidecar and writes sidecar stdout and stderr to `%LOCALAPPDATA%\NikoF\logs\tts\tts-server-*.log`. When TTS requests degrade to `unavailable`, inspect those log files first.
 The backend resource monitor's owned-process table depends on the backend environment matching `backend/pyproject.toml`; if `psutil` is missing from the active `.venv`, the API will return an empty `owned_processes` list until the environment is resynced.
-Current measured TTS baseline on the active dev machine, captured on 2026-05-21 after the lifecycle-fallback fix:
+Historical GPT-SoVITS (legacy TTS) baseline, captured 2026-05-21 on the prior 12 GB dev machine after the lifecycle-fallback fix — kept for reference; the canonical TTS is now Kokoro (see docs/TTS_ENGINE_BENCHMARK.md):
 
 - An 8-prompt sequential soak through `POST /session/operator-command` returned `ready` for all requests and kept the GPT-SoVITS sidecar warm throughout the run.
 - Sampled end-to-end request latency was 290.6 ms minimum, 881.0 ms average, and 1593.2 ms maximum for prompts between 12 and 117 characters.
@@ -151,18 +151,18 @@ Current measured TTS baseline on the active dev machine, captured on 2026-05-21 
 - Reuse `scripts/testing/Invoke-TtsSoak.ps1` for future warm-path checks instead of rebuilding the manual command chain. The script writes a JSON artifact under `.local/monitoring/` with per-request samples, aggregate timing and GPU summaries, tail idle data, and both the raw resource-counter total plus an artifact-sequence-based completion estimate when `GET /system/resources` lags the returned `audio_reference` ids.
 - Backend default server selection now prefers dedicated headless GPT-SoVITS API entrypoints in this order: `api_v2.py`, then `api.py`, then `api_server.py`. Machines that only have the current `api_server.py` wrapper remain compatible, but newer provider installs can switch to the lighter headless API path without additional repo changes.
 
-## Squad Continuity Expectations
+## Continuity Expectations
 
-Continuity is a maintained artifact, not a best effort.
+Continuity is a maintained artifact, not a best effort. The checked-in `docs/` and `CLAUDE.md` are the source of truth.
 
 - `README.md` should explain the repo-level portability rule and point to the deeper setup guide.
 - `docs/ARCHITECTURE.md` should capture the storage and bootstrap design constraints.
 - `docs/IMPLEMENTATION_PLAN.md` should keep setup, portability, and reproducibility in Stage 0 and relevant later acceptance criteria.
 - `docs/WORKSTREAMS.md` should keep ownership explicit for bootstrap, validation, install docs, and cross-machine continuity.
-- `.squad/decisions.md` should capture durable policy decisions that shape implementation.
-- Agent histories should retain lasting context that helps another machine or developer resume without rediscovering assumptions.
+- `CLAUDE.md` and the checked-in `docs/` should capture durable policy decisions that shape implementation.
+- The `.squad/` and `.copilot/` files are legacy Copilot-era continuity, retained for historical context only. Do not keep writing to them or treat them as an active source of decisions.
 
-When setup flow, local storage paths, or provider expectations change, update the architecture, implementation plan, setup guide, and relevant squad records in the same change.
+When setup flow, local storage paths, or provider expectations change, update the architecture, implementation plan, and setup guide in the same change.
 
 ## Fresh-Machine Handoff Checklist
 
@@ -170,5 +170,5 @@ When setup flow, local storage paths, or provider expectations change, update th
 - Local-only storage roots are documented.
 - Bootstrap automation and manual fallbacks are both documented.
 - Validation commands are documented.
-- The current project plan and decisions are present in checked-in docs and `.squad/` files.
-- Another developer can identify the next work item from `docs/WORKSTREAMS.md` and squad history without asking the original author.
+- The current project plan and decisions are present in the checked-in docs and `CLAUDE.md`. (The `.squad/`/`.copilot/` files are historical context only.)
+- Another developer can identify the next work item from `docs/WORKSTREAMS.md` without asking the original author.

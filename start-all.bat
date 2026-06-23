@@ -16,5 +16,6 @@ pause
 exit /b 1
 
 :have_shell
-"%PS_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%start-all.ps1"
+REM Forwards any flags through to start-all.ps1, e.g. start-all.bat -SkipPreflight -NoStage
+"%PS_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%start-all.ps1" %*
 endlocal

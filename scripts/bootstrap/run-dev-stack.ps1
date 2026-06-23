@@ -1,144 +1,31 @@
 [CmdletBinding()]
 param(
-    [switch]$BackendOnly,
-    [switch]$FrontendOnly,
-    [switch]$ValidateOnly,
-    [int]$StopAfterSeconds = 0
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$PassThroughArgs
 )
 
+# DEPRECATED: run-dev-stack.ps1 has been retired in favour of the single front door.
+# Use start-all.bat (preflight-gated full bring-up) and stop-dev-stack.ps1 (cleanup).
+# This shim forwards to start-all.ps1 so existing muscle memory keeps working.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($BackendOnly -and $FrontendOnly) {
-    throw 'Choose either -BackendOnly or -FrontendOnly, not both.'
-}
-if ($StopAfterSeconds -lt 0) {
-    throw '-StopAfterSeconds must be zero or a positive integer.'
-}
+Write-Warning 'run-dev-stack.ps1 is deprecated. Use start-all.bat to launch and stop-dev-stack.ps1 to stop.'
+Write-Warning 'Forwarding to start-all.ps1 (note: -BackendOnly/-FrontendOnly/-StopAfterSeconds are no longer supported here).'
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$backendRoot = Join-Path $repoRoot 'backend'
-$frontendRoot = Join-Path $repoRoot 'frontend'
-$backendPython = Join-Path $repoRoot '.venv\Scripts\python.exe'
-$pwshCommand = (Get-Command pwsh -ErrorAction Stop).Source
-
-$targets = @()
-if (-not $FrontendOnly) {
-    $targets += [pscustomobject]@{
-        Name = 'backend'
-        WorkingDirectory = $backendRoot
-        Command = '.\\..\\.venv\\Scripts\\python.exe -m app.dev_server'
-        Url = 'http://127.0.0.1:8000/health'
-    }
+$startAll = Join-Path $repoRoot 'start-all.ps1'
+if (-not (Test-Path -LiteralPath $startAll)) {
+    throw "start-all.ps1 not found at $startAll"
 }
-if (-not $BackendOnly) {
-    $targets += [pscustomobject]@{
-        Name = 'frontend'
-        WorkingDirectory = $frontendRoot
-        Command = 'npm run dev'
-        Url = 'http://127.0.0.1:5173/'
+
+# Only forward flags start-all understands; drop the retired ones.
+$forward = @()
+foreach ($arg in @($PassThroughArgs)) {
+    if ($arg -in @('-SkipPreflight', '-Force', '-NoStage')) {
+        $forward += $arg
     }
 }
 
-if (-not (Test-Path -LiteralPath $backendPython -PathType Leaf)) {
-    throw "Backend virtualenv Python not found at $backendPython"
-}
-
-if ($ValidateOnly) {
-    $targets | ConvertTo-Json -Depth 4
-    exit 0
-}
-
-$managedProcesses = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
-$cleanupManagedProcesses = $false
-
-function Start-NikoFManagedProcess {
-    param(
-        [Parameter(Mandatory)]
-        [pscustomobject]$Target
-    )
-
-    Write-Host ("Starting {0} in a managed child PowerShell window" -f $Target.Name)
-    $process = Start-Process -FilePath $pwshCommand -ArgumentList @(
-        '-NoLogo',
-        '-NoProfile',
-        '-NoExit',
-        '-Command',
-        $Target.Command
-    ) -WorkingDirectory $Target.WorkingDirectory -PassThru
-    $managedProcesses.Add($process)
-    return $process
-}
-
-function Stop-NikoFManagedProcesses {
-    foreach ($process in $managedProcesses) {
-        try {
-            if (-not $process.HasExited) {
-                & taskkill /PID $process.Id /T /F | Out-Null
-            }
-        }
-        catch {
-        }
-    }
-}
-
-foreach ($target in $targets) {
-    $process = Start-NikoFManagedProcess -Target $target
-    Write-Host ("{0} started with pid {1} -> {2}" -f $target.Name, $process.Id, $target.Url)
-}
-
-if ($managedProcesses.Count -eq 0) {
-    throw 'No processes were selected to start.'
-}
-
-$managedProcessIds = @($managedProcesses | ForEach-Object { $_.Id })
-
-try {
-    if ($StopAfterSeconds -gt 0) {
-        Write-Host ("Managed dev stack will auto-stop after {0} seconds." -f $StopAfterSeconds)
-        Wait-Process -Id $managedProcessIds -Timeout $StopAfterSeconds -ErrorAction SilentlyContinue
-        $cleanupManagedProcesses = $true
-        Write-Host 'Managed dev stack stop window reached; shutting down child process trees.'
-        return
-    }
-
-    Write-Host 'Press Ctrl+C in this supervisor window to stop the managed dev stack. If this supervisor window closes unexpectedly, use stop-dev-stack.ps1 to stop the child services later.'
-
-    $controlCHandled = $false
-    try {
-        $originalTreatControlCAsInput = [Console]::TreatControlCAsInput
-        [Console]::TreatControlCAsInput = $true
-        $controlCHandled = $true
-
-        while ($true) {
-            $runningProcesses = @($managedProcesses | Where-Object { -not $_.HasExited })
-            if ($runningProcesses.Count -eq 0) {
-                break
-            }
-
-            if ([Console]::KeyAvailable) {
-                $key = [Console]::ReadKey($true)
-                if ($key.Key -eq [ConsoleKey]::C -and ($key.Modifiers -band [ConsoleModifiers]::Control)) {
-                    $cleanupManagedProcesses = $true
-                    Write-Host 'Ctrl+C received; shutting down child process trees.'
-                    break
-                }
-            }
-
-            Start-Sleep -Milliseconds 250
-        }
-    }
-    catch {
-        Wait-Process -Id $managedProcessIds -ErrorAction SilentlyContinue
-    }
-    finally {
-        if ($controlCHandled) {
-            [Console]::TreatControlCAsInput = $originalTreatControlCAsInput
-        }
-    }
-}
-finally {
-    if ($cleanupManagedProcesses) {
-        Stop-NikoFManagedProcesses
-    }
-}
+& $startAll @forward
+exit $LASTEXITCODE

@@ -8,12 +8,14 @@ NikoF is a Windows-first, local-only anime companion: web UI + rendered VRM avat
 |---|---|---|
 | Backend | Python 3.10+, FastAPI/uvicorn | `backend/app/` |
 | Frontend | React 18 + TypeScript + Vite, three.js + @pixiv/three-vrm | `frontend/src/` |
-| STT | Faster-Whisper (sidecar HTTP server, port 8767) | `backend/app/services/stt_server.py` + worker |
-| TTS | GPT-SoVITS (sidecar HTTP server, port 9880) | `backend/app/services/tts_server.py` + worker |
-| LLM | Ollama (LLaMA 3.1 8B Q4_K_M, port 11434) | `backend/app/services/llm.py` |
+| STT | **Parakeet** TDT 0.6B v2 in-process (onnx-asr, canonical) · Faster-Whisper sidecar (port 8767, fallback) | `backend/app/providers/stt_engines.py` · `backend/app/services/stt_server.py` |
+| TTS | **Kokoro** in-process (kokoro-onnx, canonical) · GPT-SoVITS sidecar (port 9880, fallback) | `backend/app/services/tts_engines.py` · `backend/app/services/tts_server.py` |
+| LLM | Ollama (**qwen3:4b** canonical · llama3.1:8b fallback, port 11434) | `backend/app/services/llm.py` |
 | Unity (next phase) | Unity 6 LTS (6000.4.7f1) skeleton at repo root | `Packages/`, `ProjectSettings/`, `assets/` |
 
-Ports: frontend 5173, backend 8000, ops dashboard 8765, Ollama 11434, STT 8767, TTS 9880.
+Canonical runtime = the performance stack (Kokoro / Parakeet / qwen3:4b), selected via `NIKOF_TTS_ENGINE` / `NIKOF_STT_ENGINE` / `NIKOF_LLM_MODEL` (set by `start-all`), benchmarked in `docs/TTS_ENGINE_BENCHMARK.md`. Kokoro and Parakeet run **in-process** (no sidecar/port); the sidecar engines (GPT-SoVITS:9880, Faster-Whisper:8767) are the legacy fallback that `start-all` does not enable by default.
+
+Ports: frontend 5173, backend 8000, ops dashboard 8765, Ollama 11434, STT sidecar 8767 (fallback), TTS sidecar 9880 (fallback).
 
 **The backend owns the STT/TTS/LLM sidecar lifecycles.** The frontend never starts sidecars. The ops dashboard (`scripts/bootstrap/app-manager.ps1`) should control sidecars only through backend HTTP APIs, not by killing processes directly (direct kill is the legacy fallback being phased out).
 
@@ -26,8 +28,12 @@ Session events flow through an event store (`services/session.py`) and reach the
 ## Running things
 
 ```powershell
-# Preferred local startup — ops dashboard at http://127.0.0.1:8765/
-startup.bat   # → scripts/bootstrap/app-manager.ps1
+# Preferred local startup — single front door: preflight-gate + full bring-up
+start-all.bat   # → start-all.ps1 (backend + frontend + Tauri stage)
+# Optional ops dashboard (per-service controls) at http://127.0.0.1:8765/
+startup.bat     # → scripts/bootstrap/app-manager.ps1
+# Verify a machine before launch
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\Invoke-Preflight.ps1
 
 # Backend tests (unittest, not pytest)
 .venv\Scripts\python.exe -m unittest discover -s backend/tests -t backend

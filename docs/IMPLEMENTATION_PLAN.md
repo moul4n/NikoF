@@ -23,7 +23,7 @@ Goal
 
 Create the project skeleton, Windows-first bootstrap, and the shared contracts that all later stages depend on.
 
-Stage 0 also locks the repo portability rule: heavyweight prerequisites are acquired outside Git, bootstrap scripts own automated setup where possible, and documentation plus squad state must support fresh-machine recovery without tribal knowledge.
+Stage 0 also locks the repo portability rule: heavyweight prerequisites are acquired outside Git, bootstrap scripts own automated setup where possible, and the checked-in documentation must support fresh-machine recovery without tribal knowledge. (The `.squad/`/`.copilot/` state is legacy Copilot-era continuity, retained for history only — not a current recovery source.)
 
 Dependencies
 

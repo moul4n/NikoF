@@ -16,23 +16,21 @@ When you want the repo to install the safe prerequisites on a Windows machine in
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\install-prerequisites.ps1 -AllSafe
 ```
 
-For normal day-to-day local use after bootstrap, the preferred full-stack startup path is:
+`-AllSafe` installs the canonical performance stack: the base toolchain, the `.venv` (with `kokoro` + `parakeet` extras), frontend deps, Ollama + **qwen3:4b**, the **Kokoro** model files, and the **Parakeet** model. Add `-InstallLegacyStack` for the GPT-SoVITS / Faster-Whisper / llama3.1 fallback. If `huggingface.co` is blocked, add `-HfEndpoint https://hf-mirror.com` (the installer also falls back to direct per-file downloads when the Hub resolve API is unreachable).
+
+Before launching, verify the machine with the preflight doctor (checks tested tool-version ranges, `.venv` integrity, GPU/VRAM, and the configured engine models):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\run-dev-stack.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\Invoke-Preflight.ps1
 ```
 
-For an operator-style local app manager UI with Start/Stop/Restart controls and live process status,
-launch the root entrypoint:
+For normal day-to-day local use, the single front door is the root launcher (it runs the preflight gate, then starts backend + control frontend + the Tauri stage):
 
 ```bat
-startup.bat
+start-all.bat
 ```
 
-That starts `scripts/bootstrap/app-manager.ps1`, opens `http://127.0.0.1:8765/`, and lets you control
-Frontend, Backend, LLM, STT, and TTS from one page.
-
-That supervisor starts frontend plus backend together, keeps STT and TTS ownership with the backend, and is the startup path users, developers, and AI agents should prefer. In an interactive PowerShell window, `Ctrl+C` still stops the managed child process trees. If the supervisor window closes unexpectedly, the child services stay up so you can inspect them and then stop them explicitly with `stop-dev-stack.ps1`. For automation that should prove startup and still leave the machine clean, add `-StopAfterSeconds 15` or a similar bounded value.
+The ops dashboard (`startup.bat` → `scripts/bootstrap/app-manager.ps1`, `http://127.0.0.1:8765/`) is an optional monitor with per-service Start/Stop/Restart controls; it is not required to run the stack. `run-dev-stack.ps1` is deprecated and forwards to `start-all`.
 
 For a clean stop from one place, especially after detached backend debugging or a stale frontend dev server, use:
 
@@ -96,7 +94,7 @@ Dot-source the generated helper in a PowerShell session when you want those valu
 
 ## Manual Provider Follow-Up
 
-The manifest file [bootstrap.targets.json](/c:/Users/fletc/Sources/NikoF/scripts/bootstrap/bootstrap.targets.json) records the expected folder names and upstream/manual-install notes for the current baseline.
+The manifest file [bootstrap.targets.json](bootstrap.targets.json) records the expected folder names and upstream/manual-install notes for the legacy fallback baseline. (The canonical perf-stack engines — Kokoro, Parakeet, qwen3:4b — are installed by `install-prerequisites.ps1` and verified by the preflight rather than catalogued here.)
 
 The bootstrap summary now prints a hook command for every missing provider prerequisite:
 
