@@ -124,7 +124,11 @@ class STTWorker:
     def _ensure_dispatch_executor(self) -> None:
         if self._dispatch_executor is not None:
             return
-        self._dispatch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
+        # Double-checked under the lock so concurrent callers can't create two
+        # executors and orphan one.
+        with self._lock:
+            if self._dispatch_executor is None:
+                self._dispatch_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-turn-dispatch")
 
     def configure_turn_services(self, services: UserTurnServices) -> None:
         self._turn_services = services

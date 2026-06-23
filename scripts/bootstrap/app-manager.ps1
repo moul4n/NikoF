@@ -248,12 +248,26 @@ function Start-Backend {
     # installed: qwen3:4b in Ollama, and the Kokoro model under
     # <NIKOF_TTS_MODELS_ROOT>/kokoro (pip install -e backend[kokoro]). To run the
     # legacy config, set these to the empty string / gpt-sovits before launching.
+    #
+    # Parakeet GPU placement is VRAM-gated (matches start-all.ps1): default GPU only
+    # on cards with headroom beyond the LLM (>=12GB), else CPU. Parakeet on the GPU
+    # measures ~3.4GB and would overload an ~8GB card alongside the LLM; on CPU it
+    # leaves the GPU for the LLM. Override by setting NIKOF_STT_ALLOW_GPU first.
+    $sttAllowGpuDefault = '0'
+    $smiCommand = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+    if ($smiCommand) {
+        try {
+            $vramLine = (& $smiCommand.Source --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1)
+            if ($vramLine -and ([int]($vramLine.Trim()) -ge 11264)) { $sttAllowGpuDefault = '1' }
+        }
+        catch {}
+    }
     $perfDefaults = [ordered]@{
         NIKOF_TTS_ENGINE        = 'kokoro'      # fast TTS, frees VRAM (preset voice)
         NIKOF_KOKORO_VOICE      = 'jf_gongitsune' # higher-pitched timbre; English stays via NIKOF_KOKORO_LANG=en-us
         NIKOF_KOKORO_LANG       = 'en-us'       # keep English phonemizer regardless of voice timbre
-        NIKOF_STT_ENGINE        = 'parakeet'    # Parakeet TDT v2: 0 WER vs Whisper-medium, ~2x faster (GPU)
-        NIKOF_STT_ALLOW_GPU     = '1'           # run Parakeet on the RTX 4070 (CUDA EP via torch-bundled cuDNN/CUDA)
+        NIKOF_STT_ENGINE        = 'parakeet'    # Parakeet TDT v2: lower WER than Whisper-medium, fast on CPU too
+        NIKOF_STT_ALLOW_GPU     = $sttAllowGpuDefault  # VRAM-gated: GPU only on >=12GB cards, else CPU (leaves GPU for the LLM)
         NIKOF_STT_PARTIALS      = '1'           # interim transcripts -> live captions on the avatar surface
         NIKOF_LLM_MODEL         = 'qwen3:4b'    # ~2x faster than llama3.2:3b
         NIKOF_LLM_THINK         = 'false'       # qwen3 reasoning off -> fast clean JSON
