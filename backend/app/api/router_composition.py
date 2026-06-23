@@ -38,7 +38,7 @@ from app.services.llm import (
     TextGenerationSidecarManager,
     get_text_generation_sidecar_manager,
 )
-from app.services.session import InMemorySessionService, SessionService
+from app.services.session import InMemorySessionService, SessionService, build_session_event_store
 from app.services.speech import (
     DefaultSessionEventFactory,
     DefaultTurnPipelinePublisher,
@@ -214,6 +214,10 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
     _persist_active_character = (
         os.environ.get("NIKOF_PERSIST_ACTIVE_CHARACTER", "").strip().lower() not in ("", "0", "false", "no")
     )
+    # Same gate as the active-character file: in production (dev_server sets the env)
+    # the session/speech-lifecycle event streams persist to SQLite so they survive a
+    # backend restart; the test suite builds these services without the env and keeps
+    # the in-memory store so it never touches real on-disk state.
     session_service = InMemorySessionService(
         default_character_id=default_character_id,
         state_path=(
@@ -222,6 +226,13 @@ def build_default_api_runtime_services() -> DefaultApiRuntimeServices:
             else None
         ),
         known_character_ids=frozenset(available_character_ids),
+        event_store=build_session_event_store(
+            db_path=(
+                app_paths.local_data_root / "session" / "events.db"
+                if _persist_active_character
+                else None
+            )
+        ),
     )
     speech_services = build_speech_service_registry(app_paths=app_paths)
     transcription_service = speech_services.resolve_transcription(

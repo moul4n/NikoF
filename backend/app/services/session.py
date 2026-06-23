@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import logging
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Protocol
@@ -15,6 +16,51 @@ logger = logging.getLogger(__name__)
 
 class InvalidEventCursor(ValueError):
     """Raised when a cursor does not target the requested stream slice."""
+
+
+_SESSION_EVENT_ADAPTER = None
+
+
+def _session_event_adapter():
+    """Lazily build a pydantic TypeAdapter for SessionEvent round-trips (used by the
+    SQLite store). pydantic ships with FastAPI, so it is always present in the real
+    backend; kept lazy so importing this module never hard-requires it."""
+    global _SESSION_EVENT_ADAPTER
+    if _SESSION_EVENT_ADAPTER is None:
+        from pydantic import TypeAdapter
+
+        _SESSION_EVENT_ADAPTER = TypeAdapter(SessionEvent)
+    return _SESSION_EVENT_ADAPTER
+
+
+def _parse_after_cursor_sequence(stream: str, *, session_id: str, after_cursor: str | None) -> int:
+    """Parse a `stream:session_id:sequence` cursor and return the sequence to read
+    after. Shared by every SessionEventStore implementation."""
+    if after_cursor is None:
+        return 0
+
+    cursor_stream, separator, remainder = after_cursor.partition(":")
+    if not separator:
+        raise InvalidEventCursor(f"Invalid cursor format: {after_cursor}")
+
+    cursor_session_id, separator, sequence_text = remainder.partition(":")
+    if not separator:
+        raise InvalidEventCursor(f"Invalid cursor format: {after_cursor}")
+
+    if cursor_stream != stream or cursor_session_id != session_id:
+        raise InvalidEventCursor(
+            f"Cursor {after_cursor} does not belong to {stream} for session {session_id}."
+        )
+
+    try:
+        sequence = int(sequence_text)
+    except ValueError as error:
+        raise InvalidEventCursor(f"Invalid cursor sequence: {after_cursor}") from error
+
+    if sequence < 0:
+        raise InvalidEventCursor(f"Cursor sequence must be non-negative: {after_cursor}")
+
+    return sequence
 
 
 class SessionEventStore(Protocol):
@@ -89,31 +135,116 @@ class InMemorySessionEventStore:
         session_id: str,
         after_cursor: str | None,
     ) -> int:
-        if after_cursor is None:
-            return 0
+        return _parse_after_cursor_sequence(stream, session_id=session_id, after_cursor=after_cursor)
 
-        cursor_stream, separator, remainder = after_cursor.partition(":")
-        if not separator:
-            raise InvalidEventCursor(f"Invalid cursor format: {after_cursor}")
 
-        cursor_session_id, separator, sequence_text = remainder.partition(":")
-        if not separator:
-            raise InvalidEventCursor(f"Invalid cursor format: {after_cursor}")
+class SqliteSessionEventStore:
+    """SQLite-backed event store so session/speech-lifecycle streams survive a
+    backend restart — reconnecting clients keep valid cursors and history instead
+    of losing everything an in-memory store dropped on exit. Same envelope id /
+    cursor scheme as InMemorySessionEventStore so it is a drop-in replacement."""
 
-        if cursor_stream != stream or cursor_session_id != session_id:
-            raise InvalidEventCursor(
-                f"Cursor {after_cursor} does not belong to {stream} for session {session_id}."
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = Path(db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        # check_same_thread=False: the store is shared across the backend's worker
+        # threads, guarded by self._lock for every access.
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_events (
+                stream TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                event_id TEXT NOT NULL,
+                cursor TEXT NOT NULL,
+                event_json TEXT NOT NULL,
+                PRIMARY KEY (stream, session_id, sequence)
             )
+            """
+        )
+        self._conn.commit()
 
-        try:
-            sequence = int(sequence_text)
-        except ValueError as error:
-            raise InvalidEventCursor(f"Invalid cursor sequence: {after_cursor}") from error
+    def append(self, stream: str, event: SessionEvent) -> SpeechLifecycleEventEnvelope:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM session_events WHERE stream = ? AND session_id = ?",
+                (stream, event.session_id),
+            ).fetchone()
+            sequence = int(row[0]) + 1
+            envelope = SpeechLifecycleEventEnvelope(
+                event_id=f"{stream.replace('.', '-')}-{sequence:04d}",
+                sequence=sequence,
+                cursor=f"{stream}:{event.session_id}:{sequence}",
+                event=event,
+            )
+            event_json = _session_event_adapter().dump_json(event).decode("utf-8")
+            self._conn.execute(
+                "INSERT INTO session_events (stream, session_id, sequence, event_id, cursor, event_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (stream, event.session_id, sequence, envelope.event_id, envelope.cursor, event_json),
+            )
+            self._conn.commit()
+            return envelope
 
-        if sequence < 0:
-            raise InvalidEventCursor(f"Cursor sequence must be non-negative: {after_cursor}")
+    def read(
+        self,
+        stream: str,
+        *,
+        session_id: str,
+        after_cursor: str | None = None,
+    ) -> tuple[SpeechLifecycleEventEnvelope, ...]:
+        after_sequence = _parse_after_cursor_sequence(stream, session_id=session_id, after_cursor=after_cursor)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT event_id, sequence, cursor, event_json FROM session_events "
+                "WHERE stream = ? AND session_id = ? AND sequence > ? ORDER BY sequence",
+                (stream, session_id, after_sequence),
+            ).fetchall()
+        adapter = _session_event_adapter()
+        return tuple(
+            SpeechLifecycleEventEnvelope(
+                event_id=row[0],
+                sequence=int(row[1]),
+                cursor=row[2],
+                event=adapter.validate_json(row[3]),
+            )
+            for row in rows
+        )
 
-        return sequence
+    def next_cursor(self, stream: str, *, session_id: str) -> str:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM session_events WHERE stream = ? AND session_id = ?",
+                (stream, session_id),
+            ).fetchone()
+        return f"{stream}:{session_id}:{int(row[0]) + 1}"
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._conn.close()
+            except sqlite3.Error:
+                logger.warning("Failed to close SQLite session event store at %s", self._db_path, exc_info=True)
+
+
+def build_session_event_store(*, db_path: Path | None) -> SessionEventStore:
+    """Durable SQLite store when a path is given (production), else in-memory
+    (tests / headless). Falls back to in-memory if SQLite cannot be opened so a
+    storage problem degrades rather than blocks startup."""
+    if db_path is None:
+        return InMemorySessionEventStore()
+    try:
+        return SqliteSessionEventStore(db_path)
+    except Exception:
+        logger.warning(
+            "Failed to open SQLite session event store at %s; falling back to in-memory.",
+            db_path,
+            exc_info=True,
+        )
+        return InMemorySessionEventStore()
 
 
 class SessionService(Protocol):
