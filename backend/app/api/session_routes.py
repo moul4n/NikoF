@@ -230,6 +230,7 @@ def register_session_transport_routes(
         return get_display_settings_state().update(
             bone_overlay=update.bone_overlay,
             captions=update.captions,
+            always_on_top=update.always_on_top,
             wardrobe=update.wardrobe,
         )
 

@@ -7,7 +7,7 @@
 export const DISPLAY_SETTINGS_ROUTE_PATH = "/session/display-settings";
 
 export interface DisplaySettingsDocument {
-  global: { bone_overlay: boolean; captions: boolean };
+  global: { bone_overlay: boolean; captions: boolean; always_on_top: boolean };
   // characterId -> controlId -> value (toggles 0/1, sliders 0..1)
   characters: Record<string, Record<string, number>>;
 }
@@ -15,11 +15,12 @@ export interface DisplaySettingsDocument {
 export interface DisplaySettingsUpdate {
   bone_overlay?: boolean;
   captions?: boolean;
+  always_on_top?: boolean;
   wardrobe?: Record<string, Record<string, number>>;
 }
 
 const DEFAULT_DOCUMENT: DisplaySettingsDocument = {
-  global: { bone_overlay: false, captions: true },
+  global: { bone_overlay: false, captions: true, always_on_top: false },
   characters: {}
 };
 
@@ -45,7 +46,8 @@ function normalizeDocument(raw: unknown): DisplaySettingsDocument {
   return {
     global: {
       bone_overlay: typeof global.bone_overlay === "boolean" ? global.bone_overlay : DEFAULT_DOCUMENT.global.bone_overlay,
-      captions: typeof global.captions === "boolean" ? global.captions : DEFAULT_DOCUMENT.global.captions
+      captions: typeof global.captions === "boolean" ? global.captions : DEFAULT_DOCUMENT.global.captions,
+      always_on_top: typeof global.always_on_top === "boolean" ? global.always_on_top : DEFAULT_DOCUMENT.global.always_on_top
     },
     characters
   };

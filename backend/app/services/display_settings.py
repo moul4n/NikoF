@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BONE_OVERLAY = False
 DEFAULT_CAPTIONS = True
+DEFAULT_ALWAYS_ON_TOP = False
 
 
 def _clamp_unit(value: float) -> float:
@@ -40,6 +41,9 @@ class DisplaySettingsService:
     state_path: Path | None = None
     bone_overlay: bool = DEFAULT_BONE_OVERLAY
     captions: bool = DEFAULT_CAPTIONS
+    # When true, the standalone stage (Tauri) window is pinned always-on-top and
+    # rendered frameless (no title bar / window controls). Stage-window-only.
+    always_on_top: bool = DEFAULT_ALWAYS_ON_TOP
     _wardrobe: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -64,6 +68,8 @@ class DisplaySettingsService:
                 self.bone_overlay = global_settings["bone_overlay"]
             if isinstance(global_settings.get("captions"), bool):
                 self.captions = global_settings["captions"]
+            if isinstance(global_settings.get("always_on_top"), bool):
+                self.always_on_top = global_settings["always_on_top"]
         characters = data.get("characters")
         if isinstance(characters, dict):
             for character_id, controls in characters.items():
@@ -88,7 +94,11 @@ class DisplaySettingsService:
 
     def to_document(self) -> dict:
         return {
-            "global": {"bone_overlay": self.bone_overlay, "captions": self.captions},
+            "global": {
+                "bone_overlay": self.bone_overlay,
+                "captions": self.captions,
+                "always_on_top": self.always_on_top,
+            },
             "characters": {character_id: dict(controls) for character_id, controls in self._wardrobe.items()},
         }
 
@@ -100,6 +110,7 @@ class DisplaySettingsService:
         *,
         bone_overlay: bool | None = None,
         captions: bool | None = None,
+        always_on_top: bool | None = None,
         wardrobe: dict[str, dict[str, float]] | None = None,
     ) -> dict:
         """Merge a partial update and persist. `wardrobe` is keyed by character
@@ -108,6 +119,8 @@ class DisplaySettingsService:
             self.bone_overlay = bone_overlay
         if isinstance(captions, bool):
             self.captions = captions
+        if isinstance(always_on_top, bool):
+            self.always_on_top = always_on_top
         if isinstance(wardrobe, dict):
             for character_id, controls in wardrobe.items():
                 if not isinstance(character_id, str) or not isinstance(controls, dict):

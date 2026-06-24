@@ -7,12 +7,16 @@ import { getStageBackground } from "../avatar/loaders/stageBackground";
 import { useAttentionState } from "./useAttentionState";
 import { useAttentionCapture } from "../features/vision/useAttentionCapture.js";
 import { StageControls } from "./StageControls";
+import { StageAlwaysOnTopToggle } from "./StageAlwaysOnTopToggle";
+import { applyStageAlwaysOnTop, isTauriStageWindow } from "./tauriStageWindow";
 
 const STAGE_BACKGROUND_POLL_MS = 2500;
 
 interface StageSurfaceShellProps {
   runtime: AvatarRuntimeBridge;
   selectedCharacter: CharacterCatalogEntry | null;
+  alwaysOnTop: boolean;
+  onSetAlwaysOnTop: (enabled: boolean) => void;
 }
 
 /**
@@ -25,9 +29,17 @@ interface StageSurfaceShellProps {
  * shared App orchestration (session animation + speech.lifecycle SSE), so a
  * command issued on the control surface plays through here.
  */
-export function StageSurfaceShell({ runtime, selectedCharacter }: StageSurfaceShellProps): JSX.Element {
+export function StageSurfaceShell({
+  runtime,
+  selectedCharacter,
+  alwaysOnTop,
+  onSetAlwaysOnTop
+}: StageSurfaceShellProps): JSX.Element {
   const mountPoints = getAvatarRuntimeMountPoints("display");
   const [snapshot, setSnapshot] = useState(() => runtime.snapshot());
+  // Only the Tauri desktop window can be pinned/frameless; in a plain browser
+  // tab the toggle is hidden and the apply call is a no-op.
+  const [isDesktopWindow] = useState(() => isTauriStageWindow());
   const [backgroundId, setBackgroundId] = useState<string>(DEFAULT_STAGE_BACKGROUND_ID);
 
   // Camera attention (gaze/focus tracking + the debug tracking dot) is a
@@ -74,6 +86,16 @@ export function StageSurfaceShell({ runtime, selectedCharacter }: StageSurfaceSh
   useEffect(() => {
     runtime.setAttentionDebugMarkerEnabled(attentionState.state.showTrackingDebugMarker);
   }, [attentionState.state.showTrackingDebugMarker, runtime]);
+
+  // Apply the persisted always-on-top / frameless mode to the Tauri window.
+  // Driven by the backend-backed display setting (so it restores on restart and
+  // follows a control-surface change). No-op outside the desktop window.
+  useEffect(() => {
+    if (!isDesktopWindow) {
+      return;
+    }
+    void applyStageAlwaysOnTop(alwaysOnTop);
+  }, [alwaysOnTop, isDesktopWindow]);
 
   useEffect(() => {
     const snapshot = attentionState.state.snapshot;
@@ -177,6 +199,9 @@ export function StageSurfaceShell({ runtime, selectedCharacter }: StageSurfaceSh
         >
           {statusMessage}
         </p>
+      ) : null}
+      {isDesktopWindow ? (
+        <StageAlwaysOnTopToggle alwaysOnTop={alwaysOnTop} onToggle={() => onSetAlwaysOnTop(!alwaysOnTop)} />
       ) : null}
       <StageControls
         cameraTrackingOn={cameraTrackingOn}

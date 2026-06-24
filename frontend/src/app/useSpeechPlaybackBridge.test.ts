@@ -87,6 +87,7 @@ interface BridgeProps {
   canonicalSynthesisSegments: BackendSessionEventDocument[];
   playbackEnabled?: boolean;
   resolveSegmentAudioOverride?: (utteranceId: string | null, segmentIndex: number | null) => string | null;
+  lifecycleReady?: boolean;
 }
 
 async function flush(): Promise<void> {
@@ -270,5 +271,44 @@ describe("useSpeechPlaybackBridge playlist sequencing", () => {
     // (re)load must not replay it.
     expect(FakeAudio.instances).toHaveLength(0);
     expect((runtime.beginSpeechReaction as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a segmented mount-time replay once the snapshot is ready, then voices the next reply", async () => {
+    const runtime = makeRuntime();
+    // A completed multi-segment reply already present in the snapshot when this
+    // surface loads. The first segment's key differs from the latest/canonical
+    // event, so the old single-key suppression missed it — this is the startup
+    // "she plays the last TTS file" bug.
+    const priorReply = [segment(0, false, "One."), segment(1, true, "Two.")];
+    const { rerender } = renderHook((props: BridgeProps) => useSpeechPlaybackBridge(props), {
+      initialProps: {
+        runtime,
+        canonicalSynthesisEvent: priorReply[priorReply.length - 1],
+        latestAvailableSynthesisEvent: priorReply[priorReply.length - 1],
+        canonicalSynthesisSegments: priorReply,
+        lifecycleReady: true
+      }
+    });
+
+    await flush();
+    // Snapshot replay on load -> must NOT auto-voice.
+    expect(FakeAudio.instances).toHaveLength(0);
+    expect((runtime.beginSpeechReaction as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+
+    // A genuinely new utterance (different utterance_id) arrives after the
+    // baseline -> it IS voiced.
+    const nextReply = [segment(0, true, "A fresh reply.", "u2")];
+    await act(async () => {
+      rerender({
+        runtime,
+        canonicalSynthesisEvent: nextReply[0],
+        latestAvailableSynthesisEvent: nextReply[0],
+        canonicalSynthesisSegments: nextReply,
+        lifecycleReady: true
+      });
+    });
+    await flush();
+    expect(FakeAudio.instances).toHaveLength(1);
+    expect((runtime.beginSpeechReaction as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
   });
 });

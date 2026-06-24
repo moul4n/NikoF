@@ -1,12 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { usePushToTalk } from "./usePushToTalk";
+import { useAutoRevealOnPointer } from "./useAutoRevealOnPointer";
 import {
   isAudioOutputMuted,
   setAudioOutputMuted,
   subscribeAudioOutputMuted
 } from "./audioOutputControl";
-
-const CONTROLS_HIDE_DELAY_MS = 2500;
 
 type PointerLikeEvent = {
   preventDefault(): void;
@@ -84,36 +83,14 @@ export function StageControls({
 }: StageControlsProps): JSX.Element {
   const [micMuted, setMicMuted] = useState(false);
   const [audioMuted, setAudioMuted] = useState(() => isAudioOutputMuted());
-  const [pointerActive, setPointerActive] = useState(false);
-  const hideTimerRef = useRef<number | null>(null);
 
   const ptt = usePushToTalk({ disabledExternally: micMuted });
-  const visible = pointerActive || ptt.active;
+  // Reveal on mouse movement, hide after idle — but stay visible while listening.
+  const revealed = useAutoRevealOnPointer();
+  const visible = revealed || ptt.active;
 
   // Keep the audio-mute button in sync if the mute is toggled elsewhere.
   useEffect(() => subscribeAudioOutputMuted(setAudioMuted), []);
-
-  // Reveal on any mouse/pointer movement over the window, then fade out after an
-  // idle delay. (While listening, `visible` stays true via ptt.active.)
-  useEffect(() => {
-    function reveal(): void {
-      setPointerActive(true);
-      if (hideTimerRef.current !== null) {
-        window.clearTimeout(hideTimerRef.current);
-      }
-      hideTimerRef.current = window.setTimeout(() => setPointerActive(false), CONTROLS_HIDE_DELAY_MS);
-    }
-
-    window.addEventListener("mousemove", reveal);
-    window.addEventListener("pointerdown", reveal);
-    return () => {
-      window.removeEventListener("mousemove", reveal);
-      window.removeEventListener("pointerdown", reveal);
-      if (hideTimerRef.current !== null) {
-        window.clearTimeout(hideTimerRef.current);
-      }
-    };
-  }, []);
 
   function toggleAudioMuted(): void {
     setAudioOutputMuted(!audioMuted);

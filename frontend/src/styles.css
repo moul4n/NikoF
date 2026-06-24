@@ -1574,6 +1574,26 @@ select {
   pointer-events: auto;
 }
 
+/* Top-right "always on top" toggle (Tauri stage window only). */
+.stage-topright {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 5;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.stage-topright[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
 .stage-controls__row {
   display: flex;
   align-items: center;

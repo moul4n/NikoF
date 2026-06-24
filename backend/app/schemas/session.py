@@ -306,6 +306,7 @@ class DisplaySettingsUpdateRequest:
 
     bone_overlay: bool | None = None
     captions: bool | None = None
+    always_on_top: bool | None = None
     wardrobe: dict[str, dict[str, float]] | None = None
 
 

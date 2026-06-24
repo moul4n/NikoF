@@ -76,6 +76,14 @@ interface UseSpeechPlaybackBridgeOptions {
   // instead of resolving the backend audio_reference — saving the artifact
   // fetch round-trip. Returns null to fall back to the canonical reference.
   resolveSegmentAudioOverride?: (utteranceId: string | null, segmentIndex: number | null) => string | null;
+  // True once the lifecycle snapshot has loaded for this surface. Whatever
+  // utterance is already present at that moment was synthesized BEFORE this
+  // surface was live (it is a snapshot replay, not a fresh reply), so the bridge
+  // adopts it as already-played instead of auto-voicing the last reply on
+  // startup. Only utterances that begin AFTER that baseline are voiced. Defaults
+  // to false (no suppression): a caller that does not pass this keeps the legacy
+  // behavior of playing whatever is present on first render.
+  lifecycleReady?: boolean;
 }
 
 interface SpeechPlaybackStateSeed {
@@ -99,7 +107,8 @@ export function useSpeechPlaybackBridge({
   latestAvailableSynthesisEvent,
   canonicalSynthesisSegments,
   playbackEnabled = true,
-  resolveSegmentAudioOverride
+  resolveSegmentAudioOverride,
+  lifecycleReady = false
 }: UseSpeechPlaybackBridgeOptions): SpeechPlaybackState {
   const [speechPlaybackStatus, setSpeechPlaybackStatus] = useState<SpeechPlaybackSnapshot>(() => createIdleSpeechPlaybackState(null));
   const [speechPlaybackWindowId] = useState(() => {
@@ -115,6 +124,9 @@ export function useSpeechPlaybackBridge({
     playbackTimeoutId: null as number | null,
     handledPlaybackKey: null as string | null,
     hasResolvedInitialBundle: false,
+    // Set once the first lifecycle snapshot has loaded; whatever utterance is
+    // present then is adopted as already-played (mount-time replay suppression).
+    hasBaselinedInitialUtterance: false,
     pendingPlaybackStateSeed: null as SpeechPlaybackStateSeed | null,
     pendingTimingMessage: null as string | null,
     // Phase 1a playlist cursor.
@@ -186,6 +198,27 @@ export function useSpeechPlaybackBridge({
 
     const segments = resolvePlaylistSegments(canonicalSynthesisSegments, canonicalSynthesisEvent);
 
+    // Mount-time replay suppression: the first time the lifecycle snapshot is
+    // ready, adopt whatever utterance it already contains as already-played
+    // rather than auto-voicing the last reply on startup. This is the snapshot
+    // (not a live reply), and it is keyed to the snapshot being READY rather than
+    // the first effect run, because the snapshot loads asynchronously after mount
+    // (the first run usually sees an empty snapshot). Utterances that begin after
+    // this baseline are voiced normally.
+    if (lifecycleReady && !speechPlaybackBridge.hasBaselinedInitialUtterance) {
+      speechPlaybackBridge.hasBaselinedInitialUtterance = true;
+      if (segments.length > 0) {
+        speechPlaybackBridge.activeUtteranceId = resolveUtteranceIdentity(segments);
+        speechPlaybackBridge.utteranceSegments = segments;
+        speechPlaybackBridge.segmentCursor = segments.length;
+        const lastSegmentKey = buildSpeechSynthesisPlaybackKey(segments[segments.length - 1] ?? null);
+        if (lastSegmentKey) {
+          speechPlaybackBridge.handledPlaybackKey = lastSegmentKey;
+        }
+        return;
+      }
+    }
+
     if (segments.length === 0) {
       speechPlaybackBridge.activeUtteranceId = null;
       speechPlaybackBridge.segmentCursor = 0;
@@ -207,7 +240,7 @@ export function useSpeechPlaybackBridge({
 
     speechPlaybackBridge.utteranceSegments = segments;
     playSegmentAtCursor();
-  }, [canonicalSynthesisSegments, canonicalSynthesisEvent, runtime, speechPlaybackBridge, playbackEnabled]);
+  }, [canonicalSynthesisSegments, canonicalSynthesisEvent, runtime, speechPlaybackBridge, playbackEnabled, lifecycleReady]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

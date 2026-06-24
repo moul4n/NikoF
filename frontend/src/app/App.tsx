@@ -107,7 +107,11 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
     latestAvailableSynthesisEvent: speechLifecycleState.snapshot?.canonicalSpeechSynthesisEvent ?? null,
     canonicalSynthesisSegments: speechLifecycleState.snapshot?.canonicalSpeechSynthesisSegments ?? [],
     playbackEnabled: isAvatarPlaybackSurface,
-    resolveSegmentAudioOverride: speechAudioStream.getSegmentAudioUrl
+    resolveSegmentAudioOverride: speechAudioStream.getSegmentAudioUrl,
+    // Don't auto-voice the last reply already present in the snapshot when this
+    // surface first loads — only utterances that begin after the snapshot is
+    // ready are spoken.
+    lifecycleReady: speechLifecycleState.status === "ready"
   });
   const avatarRuntimeSnapshot = useAvatarRuntimeSnapshot({ runtime });
   const {
@@ -231,7 +235,14 @@ export function App({ surfaceMode }: AppProps): JSX.Element {
   ]);
 
   if (surfaceMode === "stage") {
-    return <StageSurfaceShell runtime={runtime} selectedCharacter={selectedCharacter} />;
+    return (
+      <StageSurfaceShell
+        runtime={runtime}
+        selectedCharacter={selectedCharacter}
+        alwaysOnTop={displaySettings.alwaysOnTop}
+        onSetAlwaysOnTop={displaySettings.setAlwaysOnTop}
+      />
+    );
   }
 
   if (surfaceMode === "display") {

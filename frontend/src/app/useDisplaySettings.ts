@@ -12,7 +12,7 @@ const DISPLAY_SETTINGS_POLL_MS = 2500;
 const WARDROBE_PUT_DEBOUNCE_MS = 250;
 
 const DEFAULT_DOCUMENT: DisplaySettingsDocument = {
-  global: { bone_overlay: false, captions: true },
+  global: { bone_overlay: false, captions: true, always_on_top: false },
   characters: {}
 };
 
@@ -33,10 +33,13 @@ export interface UseDisplaySettingsResult {
   document: DisplaySettingsDocument;
   boneOverlayEnabled: boolean;
   captionsEnabled: boolean;
+  /** Stage (Tauri) window pinned always-on-top + frameless. */
+  alwaysOnTop: boolean;
   /** Active character's wardrobe values (controlId -> value), or {}. */
   wardrobe: Record<string, number>;
   setBoneOverlay: (enabled: boolean) => void;
   setCaptions: (enabled: boolean) => void;
+  setAlwaysOnTop: (enabled: boolean) => void;
   setWardrobeControl: (controlId: string, value: number) => void;
   resetWardrobe: () => void;
 }
@@ -101,6 +104,11 @@ export function useDisplaySettings(options: UseDisplaySettingsOptions = {}): Use
     void updateDisplaySettings({ captions: enabled });
   }, []);
 
+  const setAlwaysOnTop = useCallback((enabled: boolean) => {
+    setDocument((prev) => ({ ...prev, global: { ...prev.global, always_on_top: enabled } }));
+    void updateDisplaySettings({ always_on_top: enabled });
+  }, []);
+
   const setWardrobeControl = useCallback(
     (controlId: string, value: number) => {
       if (!activeCharacterId) {
@@ -139,9 +147,11 @@ export function useDisplaySettings(options: UseDisplaySettingsOptions = {}): Use
     document,
     boneOverlayEnabled: document.global.bone_overlay,
     captionsEnabled: document.global.captions,
+    alwaysOnTop: document.global.always_on_top,
     wardrobe,
     setBoneOverlay,
     setCaptions,
+    setAlwaysOnTop,
     setWardrobeControl,
     resetWardrobe
   };

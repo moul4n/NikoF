@@ -18,7 +18,7 @@ class DisplaySettingsServiceTests(unittest.TestCase):
         service = DisplaySettingsService()
         self.assertEqual(
             service.snapshot(),
-            {"global": {"bone_overlay": False, "captions": True}, "characters": {}},
+            {"global": {"bone_overlay": False, "captions": True, "always_on_top": False}, "characters": {}},
         )
 
     def test_update_merges_and_clamps(self) -> None:
@@ -49,8 +49,21 @@ class DisplaySettingsServiceTests(unittest.TestCase):
         service.update(bone_overlay="yes", captions=1, wardrobe={"flare": {"dress": "off"}, "bad": 5})  # type: ignore[arg-type]
         self.assertEqual(
             service.snapshot(),
-            {"global": {"bone_overlay": False, "captions": True}, "characters": {}},
+            {"global": {"bone_overlay": False, "captions": True, "always_on_top": False}, "characters": {}},
         )
+
+    def test_always_on_top_persists_and_restores(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "session" / "display-settings.json"
+            first = DisplaySettingsService(state_path=state_path)
+            self.assertFalse(first.snapshot()["global"]["always_on_top"])
+            first.update(always_on_top=True)
+
+            restored = DisplaySettingsService(state_path=state_path)
+            self.assertTrue(restored.snapshot()["global"]["always_on_top"])
+            # A captions-only toggle must not wipe always_on_top.
+            restored.update(captions=False)
+            self.assertTrue(restored.snapshot()["global"]["always_on_top"])
 
     def test_persists_and_restores_across_instances(self) -> None:
         with TemporaryDirectory() as temp_dir:
