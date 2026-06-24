@@ -11,7 +11,13 @@ Status legend: `[ ]` open · `[x]` done · `[~]` in progress · `[-]` dropped/su
 
 Root causes identified: two competing control layers (PowerShell dashboard vs backend sidecar managers), restart with no stop→dead→start barrier, port-only service identity, `/health` reporting ready before subsystems are, and several backend worker races.
 
-### 1A. Ops dashboard (`scripts/bootstrap/app-manager.ps1`)
+### 1A. Ops dashboard (`scripts/bootstrap/app-manager.ps1`) — RETIRED
+
+> **The ops dashboard and the `run-dev-stack.ps1` shim were removed** in favour of
+> the single `start-all` front door. The remaining unchecked items in this section
+> (dashboard tree-kill, dual LLM control path in the dashboard) are moot — kept
+> below only as a record of what the dashboard did. Lifecycle ownership now lives
+> entirely in the backend + `start-all` / `stop-dev-stack.ps1`.
 
 - [x] **TTS "Start" was a no-op** *(fixed 2026-06-10)* — the `/session/tts/control` start action only started the processing loop; the model stays lazy, so the worker sat at `idle` and the dashboard showed TTS down forever. Added `TTSWorker.request_warmup()` (non-blocking background load) and wired it into the start/restart control actions, so an explicit operator start brings TTS up (idle→loading→ready). Lifespan auto-start stays lazy.
 - [x] **VRAM precheck blocked reuse of a warm server** *(fixed 2026-06-10)* — `_load_model` failed with "Insufficient VRAM" even when a healthy GPT-SoVITS server was already running (model already resident). Now reuses an already-healthy server before the VRAM gate; the gate only applies when actually spawning a new server. Fixes "TTS down, Start says down" after a backend restart / when other apps hold VRAM.
@@ -39,7 +45,7 @@ Root causes identified: two competing control layers (PowerShell dashboard vs ba
 
 - [ ] **Durable session event store** — `services/session.py` `InMemorySessionEventStore` loses all events on backend restart; frontend cursors invalidate mid-session. Replace with SQLite-backed store (SQLite already in the stack for memory).
 - [ ] **Frontend reconnect backoff** — fixed 3000ms retry, no exponential backoff/jitter (`useCharacterShellState.ts`); clients hammer a recovering backend. Add backoff with jitter.
-- [ ] **Single launch path** — retire `run-dev-stack.ps1` + `stop-dev-stack.ps1` (or fold their supervisor mode into app-manager). Two launchers managing the same ports causes ownership ambiguity.
+- [x] **Single launch path** *(done)* — `run-dev-stack.ps1` and the `app-manager.ps1` ops dashboard were retired; `start-all.bat` is the sole launch path and `stop-dev-stack.ps1` the sole cleanup. No more two-launcher port-ownership ambiguity.
 
 ### 1D. Lifecycle test gate
 
@@ -98,7 +104,7 @@ The pipeline is serial and fully buffered: STT poll (350ms) → full LLM complet
 
 ### 3C. Scripts & repo
 
-- [ ] **Consolidate launchers** — covered in 1C; after that, `scripts/bootstrap/` should contain one orchestration entry (app-manager) + bootstrap/install only.
+- [x] **Consolidate launchers** *(done)* — the `app-manager.ps1` dashboard and `run-dev-stack.ps1` shim were removed; `scripts/bootstrap/` now holds the preflight doctor, `stop-dev-stack.ps1`, and bootstrap/install only. `start-all.bat` (repo root) is the single orchestration entry.
 - [ ] **Delete `.copilot-tmp-playwright.cjs`** (root one-off).
 - [ ] **Archive `.squad/` + `.copilot/`** — legacy Copilot multi-agent state; relevant knowledge imported into CLAUDE.md. Keep for history or move to an `archive/` branch; do not extend.
 - [ ] **Console noise** — frontend `console.warn` spam in prod paths → gate behind dev flag or a small logger.

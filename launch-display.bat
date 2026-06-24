@@ -4,8 +4,8 @@ REM  NikoF - launch the standalone desktop display window (Tauri shell).
 REM
 REM  Runs in DEV mode: the window is served by the Vite dev server, so the
 REM  avatar, animations (VRMA), and hot-reload all work without a packaged
-REM  bundle. The backend (startup.bat / ops dashboard) should be running for
-REM  live session + speech; the avatar itself renders without it.
+REM  bundle. The backend (start-all.bat, or `app.dev_server`) should be running
+REM  for live session + speech; the avatar itself renders without it.
 REM
 REM  First run compiles the Rust shell (a few minutes); later runs are fast.
 REM

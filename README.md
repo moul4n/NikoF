@@ -155,15 +155,14 @@ Once the prerequisites are in place (run the [preflight](#check-your-machine-pre
 start-all.bat
 ```
 
-This brings up the backend (which owns the STT, TTS, and LLM sidecars) and the control frontend together, and gives you one supervisor window. Stop everything with `Ctrl+C` in that window.
+This preflight-gates the machine, then brings up the backend (which owns the STT, TTS, and LLM sidecars), the control frontend, and the Tauri stage window — each in its own window so logs stay visible. Stop everything at once with `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\stop-dev-stack.ps1`, or close the individual windows. Pass `-NoStage` to skip the desktop window, `-SkipPreflight` to skip the readiness check.
 
 ### Optional surfaces
 
-- **Ops dashboard** — `startup.bat` opens a traffic-light operations dashboard at `http://127.0.0.1:8765/` with per-service Start/Stop/Restart controls. Use it to monitor and control individual services; it is not required to run the stack.
-- **Desktop display window** — `launch-display.bat` opens the standalone Tauri "stage" window (requires the [optional desktop toolchain](#optional-standalone-desktop-display-window)).
+- **Desktop display window** — `launch-display.bat` opens the standalone Tauri "stage" window (requires the [optional desktop toolchain](#optional-standalone-desktop-display-window)). `start-all.bat` already launches it as part of the full bring-up.
 - **Backend-only session** — `..\.venv\Scripts\python.exe -m app.dev_server` from `backend/`, only when you intentionally need the backend without the frontend. The frontend never owns the STT or TTS sidecars.
 
-For bounded smoke checks or automation that must start the stack and then leave the machine clean, the supervisor accepts an auto-stop window, e.g. `-StopAfterSeconds 15`.
+Each service opens in its own window so logs stay visible; stop everything with `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\stop-dev-stack.ps1`.
 
 ## Fresh-Machine Bootstrap
 

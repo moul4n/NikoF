@@ -72,8 +72,8 @@ if ($totalVramMb) {
     Write-Host ("[start-all] Detected {0} MB VRAM; default NIKOF_STT_ALLOW_GPU={1} (Parakeet on {2})." -f $totalVramMb, $sttAllowGpuDefault, $(if ($sttAllowGpuDefault -eq '1') { 'GPU' } else { 'CPU' }))
 }
 
-# Performance runtime profile — keep in sync with scripts/bootstrap/app-manager.ps1
-# (see docs/TTS_ENGINE_BENCHMARK.md). This is the canonical stack; without it the
+# Performance runtime profile (see docs/TTS_ENGINE_BENCHMARK.md). This is the
+# canonical stack and the single place it is configured; without it the
 # backend falls back to the legacy GPT-SoVITS / faster-whisper / llama3.1 defaults.
 # Each value is applied only if not already set, so any can be overridden from the
 # parent environment. These env vars are inherited by the backend window and by the

@@ -15,9 +15,9 @@ NikoF is a Windows-first, local-only anime companion: web UI + rendered VRM avat
 
 Canonical runtime = the performance stack (Kokoro / Parakeet / qwen3:4b), selected via `NIKOF_TTS_ENGINE` / `NIKOF_STT_ENGINE` / `NIKOF_LLM_MODEL` (set by `start-all`), benchmarked in `docs/TTS_ENGINE_BENCHMARK.md`. Kokoro and Parakeet run **in-process** (no sidecar/port); the sidecar engines (GPT-SoVITS:9880, Faster-Whisper:8767) are the legacy fallback that `start-all` does not enable by default.
 
-Ports: frontend 5173, backend 8000, ops dashboard 8765, Ollama 11434, STT sidecar 8767 (fallback), TTS sidecar 9880 (fallback).
+Ports: frontend 5173, backend 8000, Ollama 11434, STT sidecar 8767 (fallback), TTS sidecar 9880 (fallback).
 
-**The backend owns the STT/TTS/LLM sidecar lifecycles.** The frontend never starts sidecars. The ops dashboard (`scripts/bootstrap/app-manager.ps1`) should control sidecars only through backend HTTP APIs, not by killing processes directly (direct kill is the legacy fallback being phased out).
+**The backend owns the STT/TTS/LLM sidecar lifecycles.** The frontend never starts sidecars; nothing else should kill them directly. The legacy ops dashboard / watchdog scripts were retired in favour of the single `start-all` front door.
 
 ## Core flow
 
@@ -28,10 +28,10 @@ Session events flow through an event store (`services/session.py`) and reach the
 ## Running things
 
 ```powershell
-# Preferred local startup — single front door: preflight-gate + full bring-up
+# Local startup — the single front door: preflight-gate + full bring-up
 start-all.bat   # → start-all.ps1 (backend + frontend + Tauri stage)
-# Optional ops dashboard (per-service controls) at http://127.0.0.1:8765/
-startup.bat     # → scripts/bootstrap/app-manager.ps1
+# Stop everything (one-shot port cleanup: 8000 / 5173 / 11434)
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\stop-dev-stack.ps1
 # Verify a machine before launch
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap\Invoke-Preflight.ps1
 
@@ -59,7 +59,7 @@ Backend-only session (no frontend, no dashboard): `.venv\Scripts\python.exe -m a
 - `backend/app/services/` — sidecar managers (`stt_server.py`, `tts_server.py`, `llm.py`), async workers (`stt_worker.py`, `tts_worker.py`), turn pipeline (`turns.py`), speech adapters/contracts (`speech.py`), session event store, animation, memory.
 - `backend/app/core/process_supervision.py` — port probing + process-tree termination shared by all sidecar managers.
 - `frontend/src/` — single shared source tree; three Vite entry points: main app, `control/` (operator UI), `display/` (read-only avatar viewport), differentiated by `data-surface-mode`. `avatarRuntime.ts` is the three.js/VRM runtime.
-- `scripts/bootstrap/` — `app-manager.ps1` (ops dashboard), `bootstrap.ps1`, `install-prerequisites.ps1`.
+- `scripts/bootstrap/` — `Invoke-Preflight.ps1` (readiness doctor), `stop-dev-stack.ps1` (one-shot cleanup), `bootstrap.ps1`, `install-prerequisites.ps1`. (Launch from `start-all.bat` at the repo root.)
 - `scripts/testing/` — stability suite, TTS soak capture.
 - `assets/characters/` — UniVRM 1.0 character packages (model.vrm + manifest + expressions + voice profile + animation overrides). `assets/animations/` — animation DSL JSON (tracked in git as the semantic staging path).
 - `tests/contracts/` — JSON schemas + fixtures for animation/session/character contracts. `tests/stability/` — snapshot baselines.

@@ -30,7 +30,7 @@ For normal day-to-day local use, the single front door is the root launcher (it 
 start-all.bat
 ```
 
-The ops dashboard (`startup.bat` → `scripts/bootstrap/app-manager.ps1`, `http://127.0.0.1:8765/`) is an optional monitor with per-service Start/Stop/Restart controls; it is not required to run the stack. `run-dev-stack.ps1` is deprecated and forwards to `start-all`.
+`start-all.bat` is the single startup front door. The legacy ops dashboard (`app-manager.ps1`) and the deprecated `run-dev-stack.ps1` shim were retired in favour of it.
 
 For a clean stop from one place, especially after detached backend debugging or a stale frontend dev server, use:
 

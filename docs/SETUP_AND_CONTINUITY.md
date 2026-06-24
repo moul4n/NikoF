@@ -71,7 +71,7 @@ Shutdown:
 
 - Each service runs in its own window — close them, or run `stop-dev-stack.ps1` for a one-shot cleanup of ports 8000 / 5173 / 11434.
 - Start `..\.venv\Scripts\python.exe -m app.dev_server` directly only for backend-only debugging. The frontend does not own the STT or TTS engines.
-- `run-dev-stack.ps1` is deprecated (it forwards to `start-all`); the ops dashboard (`startup.bat`) is an optional per-service monitor.
+- `start-all.bat` is the single launch path; the legacy `run-dev-stack.ps1` shim and the `app-manager.ps1` ops dashboard have been retired.
 
 ## Manual Fallback When Automation Is Not Viable
 
