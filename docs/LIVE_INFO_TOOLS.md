@@ -134,8 +134,10 @@ generate(planner)                      # call 1 — already paid for today
                              → generate(planner)        # call 2, phrases the answer
 ```
 
-- **Default cost is unchanged.** Non-tool turns return `tool_request: null` in the *same* generation
-  we already run. There is **no separate router model and no per-turn classifier tax**.
+- **Default cost is unchanged on the non-streaming path.** Non-tool turns return `tool_request:
+  null` in the *same* generation we already run — no separate router model, no per-turn classifier
+  tax. **Caveat:** under Phase-1 streaming this is not strictly free, because call 1 cannot stream to
+  TTS when it might turn out to be a tool turn (see §8 R1 and the time-to-speak analysis in §11).
 - **Tool turns cost exactly one extra generation + one fetch**, capped by a **hop limit (2–3)** so it
   can never spiral.
 - This reuses the existing `expect_structured_output` path. It is preferable to Ollama's native
@@ -307,10 +309,83 @@ any tool exists.
 
 ---
 
-## 11. Summary
+## 11. Performance & time-to-speak (the filler mechanism)
 
-- **Routing is free on the common path:** one nullable `tool_request` field rides the planner JSON we
-  already generate. No router model, no per-turn tax, no keywords — the model decides on meaning.
+> Numbers below are **order-of-magnitude estimates** for an 8B Q4 model on a ~12 GB VRAM box, **not
+> measured on this machine.** The turn pipeline already records `llm_ms`, `tts_ms`, and `memory_ms`
+> per turn via `get_turn_telemetry()` (`turns.py:445`), so Stage A should replace every estimate here
+> with measured truth *before* committing to the Stage B loop. **Measure first.**
+
+### 11.1 Three turn shapes
+
+- **Normal / ambient turn** (chat, "what time is it", "is it the weekend", "roughly what's it
+  like out"): identical to today — one LLM pass, streams to TTS as now. **Zero added latency.** The
+  `[AMBIENT]` block only makes the answer *correct* instead of hallucinated.
+- **Tool turn, naïve** ("forecast Friday", "latest score"): pays a **full second LLM pass + a network
+  fetch** not paid today, and per R1 loses first-pass streaming. Without mitigation this feels like a
+  2–5 s stall before *any* audio.
+- **Tool turn, with filler** (the design): call 1 returns a **spoken filler** as its `reply_text`
+  *together with* the `tool_request`, so first audio lands on time and the fetch + second pass happen
+  *under* the filler audio.
+
+### 11.2 The filler mechanism (load-bearing)
+
+```
+LLM call 1 → speak reply_text = "Let me check Friday's forecast…"   (TTS starts now)
+           ↳ in parallel: broker.fetch → LLM call 2 → speak the real answer
+```
+
+- Time-to-**first**-audio on a tool turn ≈ a normal turn, because the filler *is* a normal short
+  reply. The user perceives "she acknowledged, then answered," not "she froze."
+- The existing **thinking-animation** publish (`_build_llm_thinking_animation_snapshot`,
+  `turns.py:161`) covers the visual seam during the fetch.
+- Filler can be sourced two ways: (a) the model emits it as call-1 `reply_text` alongside
+  `tool_request` (most natural, context-aware: "ooh, Friday — one sec"), or (b) a backend canned
+  line if call 1 returns an empty `reply_text` (deterministic fallback). Both cost the same; prefer
+  (a), fall back to (b).
+- **Interaction with R1/R3 (status gating):** call 1 on a tool turn must speak the filler but **not**
+  trigger answer synthesis as if the turn were complete — this is why a `tool_pending`-style status
+  is needed so the pipeline treats call-1 output as filler-only, not the final utterance.
+
+### 11.3 Rough budget
+
+| Metric | Normal turn (today) | Tool turn, naïve | Tool turn, **with filler** |
+|---|---|---|---|
+| Time-to-**first** audio | ~1–3 s | ~3–7 s (stall) | **~1–3 s** (filler) |
+| Time-to-**real-answer** audio | ~1–3 s | ~3–7 s | ~3–6 s (under filler) |
+| Added LLM passes | 0 | +1 | +1 |
+| Added network | none | 1 fetch (weather ~0.1–0.5 s; search ~0.3–2 s) | same |
+
+The load-bearing row is **time-to-first audio holding at ~1–3 s with the filler** — that is the
+difference between "natural companion" and "laggy bot." The real answer still arrives a couple
+seconds later, but behind audio, so it does not read as latency.
+
+### 11.4 What actually moves these numbers
+
+- **Cold model load dominates everything.** `CLAUDE.md` flags lazy-load on first use; a cold tool
+  turn can add *seconds*. A warmup / keep-alive is worth more than any micro-optimization here.
+- **Caching** (TTL: weather ~10 min, news ~5 min, scores ~30 s) collapses a repeat ask back to a
+  single-pass Case-1 turn.
+- **Ambient block + tool schemas** add prompt tokens to *every* turn, nudging first-token latency up
+  slightly even on normal turns — keep the toolset tiny and the ambient block budgeted (R5).
+- **Filler quality** is the whole perceived-latency game; a context-aware filler beats a canned one
+  at the same cost.
+
+### 11.5 Recommendation
+
+Build **Stage A (ambient) first**, turn on the existing turn telemetry, and read the *actual*
+`llm_ms` / `tts_ms` off the target box. That yields a real filler-budget number before committing to
+the Stage B tool loop — no guessing about whether the filler comfortably covers the fetch + second
+pass.
+
+## 12. Summary
+
+- **Routing is free on the common path (non-streaming):** one nullable `tool_request` field rides the
+  planner JSON we already generate. No router model, no per-turn tax, no keywords — the model decides
+  on meaning. Under streaming there is a real interaction (R1) addressed by the filler design (§11).
+- **Tool turns cost +1 LLM pass + a fetch (~2–5 s to the real answer), but the filler keeps
+  time-to-first-audio at ~1–3 s** so they feel conversational, not laggy (§11). Cold model load, not
+  the fetch, is the biggest real latency risk — warm the model.
 - **Ambient context removes most "live" questions** before they can become tool calls, and answers
   them correctly with zero latency.
 - **Only typed data fetches leave the machine**, never the conversation — the local-only ethos holds.
