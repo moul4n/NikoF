@@ -16,6 +16,10 @@ dependencies = [
 	"numpy>=1.26,<3.0",
 	"psutil>=5.9,<7.0",
 	"sounddevice>=0.4.6,<1.0",
+	# IANA timezone database for zoneinfo on Windows (no system tz db). Enables the
+	# optional NIKOF_AMBIENT_TIMEZONE override; the default system-local path works
+	# without it. Pure-python, tiny.
+	"tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

@@ -295,6 +295,14 @@ later.**
 1. **Stage A — Ambient context only.** Add the `[AMBIENT]` block (time/date/day/location) to both
    planner builders behind a flag. **No new tool, no contract change, no network.** Validates the
    prompt-bloat / `num_ctx` budget and the "advisory, don't derail chit-chat" tuning in isolation.
+   > **Status (2026-06-25): landed, flag OFF.** `app/services/turns_ambient.py` renders an advisory
+   > `[AMBIENT]` block (local time, day_type, optional location) from the system clock; injected into
+   > both planner builders (`turns_prompts.py`) and wired at the `run_user_text_turn` call site.
+   > Knobs: `NIKOF_AMBIENT_CONTEXT` (off by default), `NIKOF_AMBIENT_TIMEZONE` (optional IANA
+   > override; defaults to system-local, needs `tzdata` on Windows — now a backend dep),
+   > `NIKOF_AMBIENT_LOCATION` (optional free-text label). The block is intentionally tiny, so no
+   > runtime token-budget knob was added (deviation from R5 — revisit if the toolset grows). Tested
+   > in `backend/tests/test_ambient_context.py`; contract gate + stability suite show no new diffs.
 2. **Stage B — `tool_request` contract + broker skeleton + ONE keyless tool (Open-Meteo weather).**
    Lands the locked contract (schema + fixtures + baselines, D4), the bounded turn loop with hop cap,
    caching, allowlist, offline-degrade, and the thinking-animation/filler. Resolves R1 (streaming

@@ -76,6 +76,16 @@ def _str_env(name: str, default: str, *, choices: frozenset[str] | None = None) 
     return value
 
 
+def _raw_str_env(name: str, default: str) -> str:
+    """Like _str_env but case-preserving (no lowercasing, no choices). For
+    free-form values such as an IANA timezone ("Europe/London") or a location
+    label ("Brighton, UK") where casing is significant."""
+    raw_value = os.environ.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    return raw_value.strip()
+
+
 def _int_env(name: str, default: int, *, minimum: int) -> int:
     raw_value = os.environ.get(name)
     if raw_value is None or not raw_value.strip():
@@ -135,6 +145,18 @@ _DEFAULT_MEMORY_ROLLUP_KEEP_RECENT = 40
 _DEFAULT_MEMORY_ROLLUP_MIN_BATCH = 20
 _DEFAULT_MEMORY_ROLLUP_MAX_BATCH = 40
 
+# Live-info Stage A (docs/LIVE_INFO_TOOLS.md): an advisory "[AMBIENT]" block of
+# cheap *local* facts (current local time, date, day-type, configured location)
+# injected into the planner prompt every turn so the companion is always aware of
+# "now" without a tool call or any network access. OFF by default like every
+# other behaviour-changing lever; enable with NIKOF_AMBIENT_CONTEXT=1. The block
+# is intentionally tiny (a few short lines) so it needs no runtime token budget.
+# Timezone is an optional IANA name override (empty = system local time);
+# location is an optional free-text label (empty = omitted, no geocoding here).
+_DEFAULT_AMBIENT_CONTEXT_ENABLED = False
+_DEFAULT_AMBIENT_TIMEZONE = ""
+_DEFAULT_AMBIENT_LOCATION = ""
+
 
 @dataclass(slots=True, frozen=True)
 class RuntimeTuning:
@@ -160,6 +182,9 @@ class RuntimeTuning:
     memory_rollup_keep_recent: int
     memory_rollup_min_batch: int
     memory_rollup_max_batch: int
+    ambient_context_enabled: bool
+    ambient_timezone: str
+    ambient_location: str
 
 
 @lru_cache(maxsize=1)
@@ -218,4 +243,9 @@ def get_runtime_tuning() -> RuntimeTuning:
         memory_rollup_max_batch=_int_env(
             "NIKOF_MEMORY_ROLLUP_MAX_BATCH", _DEFAULT_MEMORY_ROLLUP_MAX_BATCH, minimum=1
         ),
+        ambient_context_enabled=_bool_env(
+            "NIKOF_AMBIENT_CONTEXT", _DEFAULT_AMBIENT_CONTEXT_ENABLED
+        ),
+        ambient_timezone=_raw_str_env("NIKOF_AMBIENT_TIMEZONE", _DEFAULT_AMBIENT_TIMEZONE),
+        ambient_location=_raw_str_env("NIKOF_AMBIENT_LOCATION", _DEFAULT_AMBIENT_LOCATION),
     )

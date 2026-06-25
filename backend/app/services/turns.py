@@ -35,6 +35,9 @@ from app.services.turns_prompts import (  # noqa: F401  (re-exported for callers
     _build_spoken_reply_prompt,
     _should_include_appearance_context,
 )
+# Ambient context block (live-info Stage A): cheap local time/date/location facts
+# injected into the planner prompt every turn. Off unless NIKOF_AMBIENT_CONTEXT=1.
+from app.services.turns_ambient import build_ambient_block
 # Assistant-reply animation resolution (extracted); used by the turn pipeline.
 from app.services.turns_animation import (
     _build_assistant_animation_snapshot,
@@ -176,6 +179,7 @@ def run_user_text_turn(
             memory_context=memory_context,
             input_source="stt" if request.transcription is not None else "manual_text",
             lean=tuning.llm_lean_planner,
+            ambient_lines=build_ambient_block(),
         ),
         locale=request.locale,
         profile_id=LLM_BASELINE_PROFILE_IDS[0],

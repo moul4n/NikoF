@@ -1,9 +1,11 @@
 """Companion reply-planner prompt builders (extracted from turns.py).
 
 Pure string construction of the LLM planner prompt — the full planner and the
-lean variant — from the user text, character id, voice profile, and memory
-context. No turn state, services, or I/O. Re-exported from turns.py so callers
-and tests keep importing them from app.services.turns.
+lean variant — from the user text, character id, voice profile, memory context,
+and an optional pre-rendered ambient block. No turn state, services, or I/O (the
+ambient block is built with the wall clock in app.services.turns_ambient and
+passed in as data). Re-exported from turns.py so callers and tests keep importing
+them from app.services.turns.
 """
 
 from __future__ import annotations
@@ -39,12 +41,20 @@ def _character_profile_lines(memory_context: CompanionMemoryContext | None) -> l
     return lines
 
 
+def _ambient_block_lines(ambient_lines: list[str] | None) -> list[str]:
+    """Pass-through for a pre-rendered ambient block (header + body), dropping
+    empty input. The block is built in app.services.turns_ambient so these
+    prompt builders stay free of wall-clock / tuning I/O."""
+    return list(ambient_lines) if ambient_lines else []
+
+
 def _build_lean_reply_prompt(
     text: str,
     *,
     character_id: str,
     voice_profile: Any,
     memory_context: CompanionMemoryContext | None = None,
+    ambient_lines: list[str] | None = None,
 ) -> str:
     """Slim planner prompt (Phase: LLM latency). Requests only reply_text +
     feeling + a single animation cue, dropping thinking_summary / voice_tone /
@@ -80,6 +90,7 @@ def _build_lean_reply_prompt(
     lines.extend(_character_profile_lines(memory_context))
     if getattr(voice_profile, "style", None):
         lines.append(f"Delivery style: {voice_profile.style}.")
+    lines.extend(_ambient_block_lines(ambient_lines))
     lines.extend(["User message:", text])
     return "\n".join(lines)
 
@@ -92,6 +103,7 @@ def _build_spoken_reply_prompt(
     memory_context: CompanionMemoryContext | None = None,
     input_source: str = "manual_text",
     lean: bool = False,
+    ambient_lines: list[str] | None = None,
 ) -> str:
     if lean:
         return _build_lean_reply_prompt(
@@ -99,6 +111,7 @@ def _build_spoken_reply_prompt(
             character_id=character_id,
             voice_profile=voice_profile,
             memory_context=memory_context,
+            ambient_lines=ambient_lines,
         )
     persona_lines = [f"persona_id: {character_id}"]
     if memory_context is not None:
@@ -171,6 +184,7 @@ def _build_spoken_reply_prompt(
             ]
         )
     prompt_lines.extend(_character_profile_lines(memory_context))
+    prompt_lines.extend(_ambient_block_lines(ambient_lines))
     prompt_lines.extend(
         [
             "[CURRENT_INPUT]",
