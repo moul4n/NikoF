@@ -244,7 +244,11 @@ class WeatherService:
                 self._refreshing = False
 
     def _geocode(self, query: str) -> tuple[float, float] | None:
-        data = self._fetch_json(GEOCODE_URL, {"name": query, "count": 1, "format": "json"})
+        # Open-Meteo's geocoder matches a bare place name; a "City, Country" label
+        # (e.g. "Chester, UK") returns no match, so geocode the part before the
+        # first comma. The full label is still used for display in the prompt.
+        name = query.split(",", 1)[0].strip() or query
+        data = self._fetch_json(GEOCODE_URL, {"name": name, "count": 1, "format": "json"})
         results = data.get("results")
         if not isinstance(results, list) or not results:
             return None

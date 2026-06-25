@@ -233,6 +233,7 @@ def register_session_transport_routes(
             bone_overlay=update.bone_overlay,
             captions=update.captions,
             always_on_top=update.always_on_top,
+            push_to_talk=update.push_to_talk,
             wardrobe=update.wardrobe,
         )
 
@@ -245,12 +246,29 @@ def register_session_transport_routes(
 
     @router.put("/session/ambient-context")
     def put_ambient_context(update: AmbientContextUpdateRequest) -> dict:
-        return get_ambient_context_state().update(
+        document = get_ambient_context_state().update(
             enabled=update.enabled,
             timezone=update.timezone,
             location=update.location,
             weather_enabled=update.weather_enabled,
         )
+        if document.get("weather_enabled"):
+            # Warm the weather cache now (non-blocking background fetch) so the
+            # next turn already has a reading instead of the first ask coming up
+            # empty. Failures degrade silently.
+            from datetime import datetime
+            from app.services.ambient_context import DEFAULT_AMBIENT_TIMEZONE
+            from app.services.weather import get_weather_service
+
+            try:
+                get_weather_service().ambient_weather_line(
+                    location=str(document.get("location") or ""),
+                    timezone=str(document.get("timezone") or "") or DEFAULT_AMBIENT_TIMEZONE,
+                    now=datetime.now().astimezone(),
+                )
+            except Exception:  # never let a warm-up attempt fail the settings save
+                pass
+        return document
 
     @router.get("/session/audio-output")
     def get_audio_output() -> dict:

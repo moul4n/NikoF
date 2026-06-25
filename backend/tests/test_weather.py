@@ -34,9 +34,12 @@ class _FakeFetcher:
         self.forecast = forecast
         self.raise_on = raise_on
         self.calls: list[str] = []
+        self.geocode_names: list[str] = []
 
     def __call__(self, url: str, params: dict) -> dict:
         self.calls.append(url)
+        if "geocoding" in url:
+            self.geocode_names.append(str(params.get("name")))
         if self.raise_on and self.raise_on in url:
             raise OSError("synthetic network failure")
         if "geocoding" in url:
@@ -90,6 +93,18 @@ class WeatherServiceTests(unittest.TestCase):
         self.assertIn("14°C", line)  # 13.6 rounds to 14
         self.assertIn("light rain", line)
         self.assertIn("(as of", line)
+
+    def test_geocode_strips_country_suffix(self) -> None:
+        # "Chester, UK" must geocode as "Chester" — Open-Meteo's geocoder returns
+        # no match for the "City, Country" label.
+        fetcher = _FakeFetcher()
+        service = self._service(fetcher, _Clock())
+        self._prime_and_refresh(service, location="Chester, UK")
+        self.assertIn("Chester", fetcher.geocode_names)
+        self.assertNotIn("Chester, UK", fetcher.geocode_names)
+        self.assertIsNotNone(
+            service.ambient_weather_line(location="Chester, UK", timezone="Europe/London", now=_NOW)
+        )
 
     def test_blank_location_falls_back_to_timezone_city(self) -> None:
         fetcher, clock = _FakeFetcher(), _Clock()
