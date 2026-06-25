@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { CharacterCatalogEntry } from "../shared/types/character";
+import type { SemanticAnimationCommand } from "../shared/types/animation";
 import type { AvatarRuntimeBridge } from "../avatar/runtime/avatarRuntime";
 import { getAvatarRuntimeMountPoints } from "../avatar/runtime/mountPoints";
 import { DEFAULT_STAGE_BACKGROUND_ID } from "../avatar/runtime/backgroundController";
@@ -11,6 +12,11 @@ import { StageAlwaysOnTopToggle } from "./StageAlwaysOnTopToggle";
 import { applyStageAlwaysOnTop, isTauriStageWindow } from "./tauriStageWindow";
 
 const STAGE_BACKGROUND_POLL_MS = 2500;
+
+// Cute entrance: play the greeting one-shot the first time the avatar finishes
+// loading on the stage, then it returns to idle on its own (runtime.play protects
+// a one-shot from the backend's idle reconcile). One greeting per stage launch.
+const STARTUP_GREETING_COMMAND: SemanticAnimationCommand = { id: "greet.greeting.once", playback: "once" };
 
 interface StageSurfaceShellProps {
   runtime: AvatarRuntimeBridge;
@@ -82,6 +88,17 @@ export function StageSurfaceShell({
       setSnapshot(runtime.snapshot());
     });
   }, [runtime]);
+
+  // Play the greeting one-shot the first time the avatar is ready after the stage
+  // launches — her entrance flourish — then it settles back into idle on its own.
+  const hasGreetedRef = useRef(false);
+  useEffect(() => {
+    if (hasGreetedRef.current || snapshot.loadState !== "ready") {
+      return;
+    }
+    hasGreetedRef.current = true;
+    runtime.play({ ...STARTUP_GREETING_COMMAND });
+  }, [snapshot.loadState, runtime]);
 
   useEffect(() => {
     runtime.setAttentionDebugMarkerEnabled(attentionState.state.showTrackingDebugMarker);
