@@ -11,21 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "NikoF",
-        "label": "display",
-        "url": "stage/index.html",
-        "width": 540,
-        "height": 960,
-        "minWidth": 360,
-        "minHeight": 640,
-        "resizable": true,
-        "fullscreen": false,
-        "decorations": true,
-        "transparent": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

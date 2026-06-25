@@ -24,9 +24,13 @@ export const DEFAULT_STAGE_BACKGROUND_COLOR = "#09111a";
 
 export const STAGE_BACKGROUND_PRESETS: StageBackgroundPreset[] = [
   { id: "plain", label: "Plain", kind: "plain", color: DEFAULT_STAGE_BACKGROUND_COLOR },
+  { id: "black", label: "Black", kind: "plain", color: "#000000" },
+  { id: "charcoal", label: "Charcoal", kind: "plain", color: "#15171c" },
+  { id: "studio", label: "Studio", kind: "plain", color: "#2b2f3a" },
+  { id: "chroma", label: "Green screen", kind: "plain", color: "#00b140" },
   { id: "transparent", label: "Transparent", kind: "transparent" },
-  // Future scenes slot in here, e.g.:
-  // { id: "studio", label: "Studio", kind: "scene" },
+  // 2D image / full 3D scene backdrops slot in here as kind: "scene" (set
+  // scene.background to a texture / scene.environment for an HDRI).
 ];
 
 export const DEFAULT_STAGE_BACKGROUND_ID = "plain";

@@ -28,7 +28,7 @@ import {
   type AnimationPlaybackDebugSnapshot
 } from "./animationPlayback";
 import { probeVrmaAsset } from "./vrmaAssetResolution";
-import { RenderQualityController } from "./renderQuality";
+import { RenderQualityController, type RenderQualityOptions } from "./renderQuality";
 import { applyStageBackground, DEFAULT_STAGE_BACKGROUND_ID } from "./backgroundController";
 import type { AvatarRuntimeMountPoints } from "./mountPoints";
 import { createPassiveBlinkController, type PassiveBlinkController } from "./passiveBlink";
@@ -45,6 +45,66 @@ import {
   type AppearanceController,
   type AppearanceControlState
 } from "./appearanceController";
+
+/**
+ * Whether the WebGL canvas should request an alpha (transparent) buffer.
+ *
+ * Only when the surface can actually be see-through: a normal browser tab (CSS
+ * transparent-background mode), or the Tauri stage launched in transparent
+ * "floating" mode. On an OPAQUE Tauri window an alpha canvas still has its alpha
+ * channel composited by WebView2 every frame, which flickers grey/black — so
+ * there we use an opaque (no-alpha) canvas. ``__NIKOF_STAGE_TRANSPARENT__`` is
+ * injected by the Rust shell (src-tauri/src/lib.rs); it is absent in a browser.
+ */
+function rendererWantsAlpha(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  if (!("__TAURI__" in window)) {
+    return true;
+  }
+  return (window as unknown as { __NIKOF_STAGE_TRANSPARENT__?: boolean }).__NIKOF_STAGE_TRANSPARENT__ === true;
+}
+
+/**
+ * Load-time stability fixes applied to every avatar mesh.
+ *
+ * 1. Disable frustum culling. A skinned mesh's bounding volume is computed once at
+ *    bind pose and never grows for spring-bone / skinning displacement. Models with
+ *    far-flung dynamic geometry (e.g. fox ears + a long tail) swing well outside
+ *    those stale bounds as they idle, so three.js culls the WHOLE mesh for a frame
+ *    when the stale bounds cross the frustum edge — the avatar blinks out (a
+ *    whole-body black flash). The avatar is always the subject, so culling it is
+ *    never a win; turning it off costs nothing and removes the flicker.
+ *
+ * 2. Stabilise coplanar transparent decals. Some VRMs (notably VRM 0.x) put the
+ *    brows/lashes/mouth on a Transparent MToon material with ZWrite OFF
+ *    ("faceparts_alpha") coplanar with the opaque face; with no depth write the two
+ *    share a depth and z-fight as the face micro-moves, flickering the dark facial
+ *    features. A tiny negative polygon offset biases the decal toward the camera so
+ *    it wins the coplanar depth test. It only touches transparent, non-depth-writing
+ *    materials and is far too small to reorder anything that isn't coplanar.
+ */
+function stabilizeAvatarMeshRendering(root: THREE.Object3D): void {
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) {
+      return;
+    }
+    mesh.frustumCulled = false;
+    if (!mesh.material) {
+      return;
+    }
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      if (material && material.transparent && material.depthWrite === false) {
+        material.polygonOffset = true;
+        material.polygonOffsetFactor = -1;
+        material.polygonOffsetUnits = -1;
+      }
+    }
+  });
+}
 
 type AvatarRuntimeLoadState = "idle" | "loading" | "ready" | "error";
 type AvatarSpeechReactionMode = "idle" | "coarse" | "viseme";
@@ -2641,7 +2701,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color("#09111a");
-    camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
+    // Tight near/far around a single standing character: the avatar sits ~2.5–4
+    // units from the camera and all geometry is within ~14 units, so a 0.1/200
+    // range wasted depth precision and invited z-fighting (flicker). 0.3/80 keeps
+    // the depth buffer dense without clipping at normal orbit distances.
+    camera = new THREE.PerspectiveCamera(30, 1, 0.3, 80);
     camera.position.set(0, 1.3, 3.2);
 
     const ambientLight = new THREE.HemisphereLight("#f8fbff", "#16202d", 1.65);
@@ -2652,7 +2716,13 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
     scene.add(ambientLight, keyLight, fillLight);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    // Only request a transparent (alpha) canvas when the surface can actually be
+    // see-through: a normal browser tab, or the Tauri stage launched in transparent
+    // floating mode. On an OPAQUE Tauri window an alpha canvas still has its alpha
+    // channel composited by WebView2, which flickers grey/black — so there we use
+    // an opaque (no-alpha) canvas. (window.__NIKOF_STAGE_TRANSPARENT__ is injected
+    // by the Rust shell; absent in a browser.)
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: rendererWantsAlpha() });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Honour the selected stage background (plain by default; "transparent" makes
     // the canvas see-through for a floating desktop avatar).
@@ -2663,7 +2733,27 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     // self-shadowing, higher pixel-ratio cap. The embedded/operator preview keeps
     // the original lean pipeline, so this controller is display-only.
     if (mountPoints?.viewerVariant === "display") {
-      renderQuality = new RenderQualityController({ renderer, scene, camera, keyLight });
+      // Stage diagnostic flags (injected by the Rust shell) to bisect the source
+      // of character flicker on WebView2: NIKOF_STAGE_NO_POST disables the
+      // bloom/SMAA/tone-map chain, NIKOF_STAGE_NO_SHADOWS disables the shadow map.
+      const stageFlags = (typeof window !== "undefined" ? window : {}) as unknown as {
+        __NIKOF_STAGE_NO_POST__?: boolean;
+        __NIKOF_STAGE_NO_SHADOWS__?: boolean;
+      };
+      const renderQualityOverrides: Partial<RenderQualityOptions> = {};
+      if (stageFlags.__NIKOF_STAGE_NO_POST__ === true) {
+        renderQualityOverrides.postProcessing = false;
+      }
+      if (stageFlags.__NIKOF_STAGE_NO_SHADOWS__ === true) {
+        renderQualityOverrides.shadows = false;
+      }
+      renderQuality = new RenderQualityController({
+        renderer,
+        scene,
+        camera,
+        keyLight,
+        options: Object.keys(renderQualityOverrides).length > 0 ? renderQualityOverrides : undefined
+      });
       renderQuality.configure();
     }
 
@@ -2835,6 +2925,9 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
 
       clearCurrentAvatar();
       activeScene.add(anchorRoot);
+      // Stop whole-mesh frustum-cull blink-out (spring-bone geometry vs stale
+      // bounds) and coplanar transparent decal z-fighting — see the helper.
+      stabilizeAvatarMeshRendering(root);
       // Display surface only: let the avatar cast/receive the contact shadow.
       renderQuality?.applyToAvatar(root);
       const frontProfileQuaternion = resolveFrontProfileQuaternion({

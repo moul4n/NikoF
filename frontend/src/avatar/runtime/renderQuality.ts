@@ -3,7 +3,35 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+// Guards the HDR buffer before bloom: a single non-finite fragment (NaN/Inf from
+// a degenerate normal or skinning value on some models) would otherwise be blurred
+// by UnrealBloomPass across the whole frame, flashing the entire image black for a
+// frame. max() drops NaN to 0 (ANGLE/D3D treats NaN as the missing operand) and
+// min() clamps Inf / runaway HDR to a sane ceiling. Alpha is preserved so the
+// transparent floating mode still composites.
+const SanitizeHdrShader = {
+  uniforms: { tDiffuse: { value: null as THREE.Texture | null } },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    varying vec2 vUv;
+    void main() {
+      vec4 texel = texture2D(tDiffuse, vUv);
+      vec3 rgb = min(max(texel.rgb, vec3(0.0)), vec3(64.0));
+      float a = min(max(texel.a, 0.0), 1.0);
+      gl_FragColor = vec4(rgb, a);
+    }
+  `
+};
 
 /**
  * Display-only render-quality stack.
@@ -146,6 +174,10 @@ export class RenderQualityController {
 
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
+
+    // Sanitize the HDR buffer BEFORE bloom so a stray NaN/Inf can't be smeared
+    // into a whole-frame black flash (see SanitizeHdrShader).
+    composer.addPass(new ShaderPass(SanitizeHdrShader));
 
     if (this.options.bloom) {
       const bloomPass = new UnrealBloomPass(

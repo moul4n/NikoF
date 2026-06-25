@@ -10,14 +10,23 @@
     prerequisite is missing (the .venv, frontend deps, or the configured engine's model)
     it stops with the exact install command rather than starting a broken stack. Pass
     -Force to start anyway, -SkipPreflight to skip the check, -NoStage to skip the Tauri
-    window. Each service runs in its own window so logs stay visible and you can close
-    them individually; stop-dev-stack.ps1 is the one-shot cleanup.
+    window. The stage window is transparent (see-through "floating avatar") by default;
+    pass -Opaque to force an opaque window if a transparent WebView2 window misbehaves
+    on a machine. Each service runs in its own window so logs stay visible;
+    stop-dev-stack.ps1 is the one-shot cleanup.
 #>
 [CmdletBinding()]
 param(
     [switch]$SkipPreflight,
     [switch]$Force,
-    [switch]$NoStage
+    [switch]$NoStage,
+    # Force an opaque stage window. The stage is transparent by default; use this
+    # only if a transparent WebView2 window misbehaves on a particular machine.
+    [switch]$Opaque,
+    # Diagnostics for the stage renderer: -NoPost disables the post chain
+    # (bloom/SMAA/tone-map); -NoShadows disables the shadow map + ground catcher.
+    [switch]$NoPost,
+    [switch]$NoShadows
 )
 
 $ErrorActionPreference = 'Stop'
@@ -170,7 +179,17 @@ if (Test-PortUp 5173) {
 if ($NoStage) {
     Write-Host '[start-all] 3/3 Stage desktop window skipped (-NoStage).'
 } else {
-    Write-Host '[start-all] 3/3 Stage desktop window (Tauri + Vite on 5174)...'
+    # These env vars are inherited by the cmd -> npm -> cargo -> app process tree;
+    # lib.rs reads them and forwards to the frontend renderer.
+    if ($Opaque) { $env:NIKOF_STAGE_OPAQUE = '1' }
+    if ($NoPost) { $env:NIKOF_STAGE_NO_POST = '1' }
+    if ($NoShadows) { $env:NIKOF_STAGE_NO_SHADOWS = '1' }
+    $stageNotes = @()
+    if ($Opaque) { $stageNotes += 'opaque window (-Opaque)' }
+    if ($NoPost) { $stageNotes += 'post-processing disabled (-NoPost)' }
+    if ($NoShadows) { $stageNotes += 'shadows disabled (-NoShadows)' }
+    $stageSuffix = if ($stageNotes.Count) { ' - ' + ($stageNotes -join ', ') } else { '' }
+    Write-Host ("[start-all] 3/3 Stage desktop window (Tauri + Vite on 5174){0}." -f $stageSuffix)
     # launch-display.bat handles the cargo PATH, frees 5174, and runs `tauri dev`.
     Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "`"$root\launch-display.bat`"") | Out-Null
 }

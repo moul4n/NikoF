@@ -10,7 +10,14 @@ logger = logging.getLogger(__name__)
 # Backdrop options for the stage / display window. Presentation-only: this is
 # deliberately NOT part of the session animation/speech contracts. Keep this set
 # in sync with the frontend STAGE_BACKGROUND_PRESETS as future scenes are added.
-KNOWN_STAGE_BACKGROUND_IDS: tuple[str, ...] = ("plain", "transparent")
+KNOWN_STAGE_BACKGROUND_IDS: tuple[str, ...] = (
+    "plain",
+    "black",
+    "charcoal",
+    "studio",
+    "chroma",
+    "transparent",
+)
 DEFAULT_STAGE_BACKGROUND_ID = "plain"
 
 

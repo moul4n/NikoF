@@ -9,6 +9,11 @@ REM  for live session + speech; the avatar itself renders without it.
 REM
 REM  First run compiles the Rust shell (a few minutes); later runs are fast.
 REM
+REM  The window is TRANSPARENT by default (see-through "floating avatar" + the
+REM  Transparent background option). If a transparent WebView2 window misbehaves
+REM  on a machine, set NIKOF_STAGE_OPAQUE=1 before launching (start-all.bat
+REM  -Opaque does this for you).
+REM
 REM  Prerequisites (one-time):
 REM    1. Rust toolchain        -> https://rustup.rs   (rustup, defaults to MSVC)
 REM    2. MSVC C++ Build Tools  -> "Desktop development with C++" workload
