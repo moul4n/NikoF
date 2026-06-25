@@ -167,19 +167,34 @@ class WeatherService:
         except OSError:
             logger.debug("Failed to persist weather cache to %s", self._state_path, exc_info=True)
 
+    @staticmethod
+    def _candidate_queries(location: str, timezone: str) -> list[str]:
+        """Geocoding candidates in priority order: the Location label first, then
+        the timezone's city as a fallback (used when Location is blank *or* when
+        Location returns no geocode match)."""
+        candidates: list[str] = []
+        loc = (location or "").strip()
+        if loc:
+            candidates.append(loc)
+        tz_city = city_from_timezone(timezone)
+        if tz_city and tz_city not in candidates:
+            candidates.append(tz_city)
+        return candidates
+
     # -- read seam -----------------------------------------------------------
     def ambient_weather_line(self, *, location: str, timezone: str, now: datetime) -> str | None:
         """Return a short weather line for the ambient block, or None when not
         yet available / stale / offline. Never blocks on the network: a stale
         cache only *schedules* a background refresh."""
-        query = (location or "").strip() or city_from_timezone(timezone)
-        if not query:
+        candidates = self._candidate_queries(location, timezone)
+        if not candidates:
             return None
+        identity = " | ".join(candidates)
 
         with self._lock:
-            if query != self._query:
-                # Location changed -> drop the previous location's cache.
-                self._query = query
+            if identity != self._query:
+                # Location/timezone changed -> drop the previous cache.
+                self._query = identity
                 self._temp_c = None
                 self._code = None
                 self._fetched_epoch = None
@@ -189,10 +204,10 @@ class WeatherService:
             if should_refresh:
                 self._refreshing = True
                 self._last_attempt_epoch = self._clock()
-                pending_query = query
+                pending = list(candidates)
 
         if should_refresh:
-            self._spawn_refresh(pending_query)
+            self._spawn_refresh(pending)
         return line
 
     def _should_refresh_locked(self) -> bool:
@@ -214,23 +229,29 @@ class WeatherService:
         return f"{round(self._temp_c)}°C, {describe_weather_code(self._code)} (as of {as_of})"
 
     # -- refresh -------------------------------------------------------------
-    def _spawn_refresh(self, query: str) -> None:
-        thread = threading.Thread(target=self._refresh_blocking, args=(query,), daemon=True)
+    def _spawn_refresh(self, candidates: list[str]) -> None:
+        thread = threading.Thread(target=self._refresh_blocking, args=(candidates,), daemon=True)
         thread.start()
 
-    def _refresh_blocking(self, query: str) -> None:
-        """Geocode (if needed) + fetch current weather, updating the cache. Any
-        failure leaves the previous cache intact and only logs at debug level."""
+    def _refresh_blocking(self, candidates: list[str]) -> None:
+        """Geocode the candidates in order (Location first, then the timezone city
+        fallback) until one resolves, then fetch current weather and update the
+        cache. Any failure leaves the previous cache intact and logs at debug."""
+        identity = " | ".join(candidates)
         try:
-            coords = self._geocode(query)
+            coords = None
+            for candidate in candidates:
+                coords = self._geocode(candidate)
+                if coords is not None:
+                    break
             if coords is None:
-                logger.debug("Weather geocode returned no match for %r", query)
+                logger.debug("Weather geocode found no match for any of %r", candidates)
                 return
             latitude, longitude = coords
             temp_c, code = self._fetch_current(latitude, longitude)
             with self._lock:
                 # A concurrent location change may have superseded this query.
-                if query != self._query:
+                if identity != self._query:
                     return
                 self._temp_c = temp_c
                 self._code = code
@@ -238,7 +259,7 @@ class WeatherService:
             # Persist outside the lock so a restart reuses this reading + timestamp.
             self._persist()
         except (urllib_error.URLError, TimeoutError, OSError, ValueError, KeyError) as exc:
-            logger.debug("Weather refresh for %r failed: %s", query, exc)
+            logger.debug("Weather refresh for %r failed: %s", candidates, exc)
         finally:
             with self._lock:
                 self._refreshing = False

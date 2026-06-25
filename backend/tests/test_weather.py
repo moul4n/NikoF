@@ -55,6 +55,15 @@ class _Clock:
         return self.value
 
 
+def _build_service(fetcher, clock, *, state_path=None) -> WeatherService:
+    """A WeatherService whose background refresh is suppressed: tests drive
+    _refresh_blocking synchronously, so leaving the daemon thread enabled would
+    double the fetches and make geocode-call assertions racy."""
+    service = WeatherService(fetch_json=fetcher, clock=clock, state_path=state_path)
+    service._spawn_refresh = lambda candidates: None  # type: ignore[method-assign]
+    return service
+
+
 class WeatherHelpersTests(unittest.TestCase):
     def test_city_from_timezone(self) -> None:
         self.assertEqual("London", city_from_timezone("Europe/London"))
@@ -71,15 +80,14 @@ class WeatherHelpersTests(unittest.TestCase):
 
 class WeatherServiceTests(unittest.TestCase):
     def _service(self, fetcher: _FakeFetcher, clock: _Clock) -> WeatherService:
-        return WeatherService(fetch_json=fetcher, clock=clock)
+        return _build_service(fetcher, clock)
 
     def _prime_and_refresh(self, service: WeatherService, *, location: str, timezone: str = "Europe/London") -> None:
         """Mirror the real flow: the first read sets the active query + schedules
         a refresh; the background thread then runs _refresh_blocking on it. Drive
         that refresh synchronously here."""
         service.ambient_weather_line(location=location, timezone=timezone, now=_NOW)
-        query = (location or "").strip() or city_from_timezone(timezone)
-        service._refresh_blocking(query)
+        service._refresh_blocking(WeatherService._candidate_queries(location, timezone))
 
     def test_first_call_returns_none_then_populates_after_refresh(self) -> None:
         fetcher, clock = _FakeFetcher(), _Clock()
@@ -87,7 +95,7 @@ class WeatherServiceTests(unittest.TestCase):
         # First call schedules a refresh and returns nothing yet.
         self.assertIsNone(service.ambient_weather_line(location="Brighton, UK", timezone="Europe/London", now=_NOW))
         # Drive the refresh synchronously (production spawns a daemon thread).
-        service._refresh_blocking("Brighton, UK")
+        service._refresh_blocking(WeatherService._candidate_queries("Brighton, UK", "Europe/London"))
         line = service.ambient_weather_line(location="Brighton, UK", timezone="Europe/London", now=_NOW)
         self.assertIsNotNone(line)
         self.assertIn("14°C", line)  # 13.6 rounds to 14
@@ -114,6 +122,38 @@ class WeatherServiceTests(unittest.TestCase):
         self.assertIsNotNone(line)
         # Geocoding was queried with the derived city.
         self.assertTrue(any("geocoding" in url for url in fetcher.calls))
+        self.assertEqual(["London"], fetcher.geocode_names)
+
+    def test_candidate_queries_order(self) -> None:
+        # Location first, then the timezone city as a fallback; blank location
+        # uses the timezone city alone.
+        self.assertEqual(
+            ["Chester, UK", "London"], WeatherService._candidate_queries("Chester, UK", "Europe/London")
+        )
+        self.assertEqual(["London"], WeatherService._candidate_queries("", "Europe/London"))
+        self.assertEqual([], WeatherService._candidate_queries("", "UTC"))
+
+    def test_location_geocode_miss_falls_back_to_timezone_city(self) -> None:
+        # Location is set but geocodes to nothing; the refresh must then try the
+        # timezone city and succeed (the user's requested fallback).
+        class _FallbackFetcher(_FakeFetcher):
+            def __call__(self, url: str, params: dict) -> dict:
+                self.calls.append(url)
+                if "geocoding" in url:
+                    name = str(params.get("name"))
+                    self.geocode_names.append(name)
+                    if name == "London":
+                        return {"results": [{"latitude": 51.5, "longitude": -0.12}]}
+                    return {"results": []}  # bogus location -> no match
+                return _FORECAST_OK
+
+        fetcher = _FallbackFetcher()
+        service = self._service(fetcher, _Clock())
+        self._prime_and_refresh(service, location="Nowheresville", timezone="Europe/London")
+        line = service.ambient_weather_line(location="Nowheresville", timezone="Europe/London", now=_NOW)
+        self.assertIsNotNone(line)
+        # Tried the location first, then fell back to the timezone city.
+        self.assertEqual(["Nowheresville", "London"], fetcher.geocode_names)
 
     def test_no_query_returns_none_without_network(self) -> None:
         fetcher, clock = _FakeFetcher(), _Clock()
@@ -161,9 +201,9 @@ class WeatherServiceTests(unittest.TestCase):
 class WeatherPersistenceTests(unittest.TestCase):
     def _seed(self, path: Path, *, at_epoch: float = 1000.0) -> None:
         """Populate + persist a reading for 'Brighton' at a given clock time."""
-        service = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(at_epoch), state_path=path)
+        service = _build_service(_FakeFetcher(), _Clock(at_epoch), state_path=path)
         service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
-        service._refresh_blocking("Brighton")
+        service._refresh_blocking(WeatherService._candidate_queries("Brighton", "Europe/London"))
         self.assertIsNotNone(service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW))
 
     def test_reading_restored_and_reused_within_the_hour_without_refetch(self) -> None:
@@ -173,7 +213,7 @@ class WeatherPersistenceTests(unittest.TestCase):
             # A fresh instance (restart) 30 min later restores the reading and does
             # NOT hit the network — the value is under an hour old.
             fetcher = _FakeFetcher()
-            restarted = WeatherService(fetch_json=fetcher, clock=_Clock(1000.0 + 30 * 60), state_path=path)
+            restarted = _build_service(fetcher, _Clock(1000.0 + 30 * 60), state_path=path)
             line = restarted.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
             self.assertIsNotNone(line)
             self.assertIn("light rain", line)
@@ -185,20 +225,21 @@ class WeatherPersistenceTests(unittest.TestCase):
             self._seed(path, at_epoch=1000.0)
 
             # 59 min old -> still fresh, no refresh scheduled.
-            within = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(1000.0 + 59 * 60), state_path=path)
+            within = _build_service(_FakeFetcher(), _Clock(1000.0 + 59 * 60), state_path=path)
             within.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
             with within._lock:
                 self.assertFalse(within._should_refresh_locked())
 
             # 61 min old -> over an hour, a refresh is due.
-            after = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(1000.0 + 61 * 60), state_path=path)
+            after = _build_service(_FakeFetcher(), _Clock(1000.0 + 61 * 60), state_path=path)
             with after._lock:
                 self.assertTrue(after._should_refresh_locked())
 
     def test_in_memory_service_does_not_touch_disk(self) -> None:
-        service = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(), state_path=None)
+        service = _build_service(_FakeFetcher(), _Clock(), state_path=None)
         service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
-        service._refresh_blocking("Brighton")  # no state_path => nothing persisted, no error
+        # no state_path => nothing persisted, no error
+        service._refresh_blocking(WeatherService._candidate_queries("Brighton", "Europe/London"))
         self.assertIsNotNone(service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW))
 
 
