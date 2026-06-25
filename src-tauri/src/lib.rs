@@ -11,6 +11,8 @@
 // the renderer), so transparency is safe to keep on. NIKOF_STAGE_OPAQUE=1 forces
 // an opaque window if a transparent WebView2 window ever misbehaves on a machine.
 
+use tauri_plugin_window_state::{StateFlags, WindowExt};
+
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
         .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -34,9 +36,21 @@ pub fn run() {
         transparent, disable_post, disable_shadows
     );
 
+    // Persist only the window geometry across launches. Decorations are owned by
+    // the in-app always-on-top toggle and transparency by the launch flag, so they
+    // are deliberately excluded from the saved state.
+    let window_state_flags = StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED;
+
     tauri::Builder::default()
+        // Save the stage window's position/size on move/resize/exit and restore it
+        // on the next launch (per-window state file in the app data dir).
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(window_state_flags)
+                .build(),
+        )
         .setup(move |app| {
-            tauri::WebviewWindowBuilder::new(
+            let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "display",
                 tauri::WebviewUrl::App("stage/index.html".into()),
@@ -49,6 +63,9 @@ pub fn run() {
             .transparent(transparent)
             .initialization_script(&init_script)
             .build()?;
+
+            // Apply the saved geometry from the previous session (no-op on first run).
+            let _ = window.restore_state(window_state_flags);
             Ok(())
         })
         .run(tauri::generate_context!())
