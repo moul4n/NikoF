@@ -49,7 +49,8 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
     enabled: false,
     timezone: DEFAULT_TIMEZONE,
     location: "",
-    weather_enabled: false
+    weather_enabled: false,
+    sky_enabled: false
   });
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,7 +66,8 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
           enabled: document.enabled,
           timezone: document.timezone || DEFAULT_TIMEZONE,
           location: document.location,
-          weather_enabled: document.weather_enabled
+          weather_enabled: document.weather_enabled,
+          sky_enabled: document.sky_enabled
         });
       }
     });
@@ -88,7 +90,8 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
       enabled: draft.enabled,
       timezone: draft.timezone,
       location: draft.location.trim(),
-      weather_enabled: draft.weather_enabled
+      weather_enabled: draft.weather_enabled,
+      sky_enabled: draft.sky_enabled
     });
     setSaving(false);
     if (result) {
@@ -96,7 +99,8 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
         enabled: result.enabled,
         timezone: result.timezone || DEFAULT_TIMEZONE,
         location: result.location,
-        weather_enabled: result.weather_enabled
+        weather_enabled: result.weather_enabled,
+        sky_enabled: result.sky_enabled
       });
       setIsDirty(false);
       setMessage("Ambient context saved.");
@@ -204,6 +208,30 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
           }}
         >
           {draft.weather_enabled ? "On" : "Off"}
+        </button>
+      </label>
+
+      <label className="character-profile-panel__field">
+        <span className="character-profile-panel__label">Sky</span>
+        <span className="character-profile-panel__hint">
+          Adds part of day, season, and moon phase so she can greet the morning, notice you're up late, or mention a
+          full moon. Pure local, no internet.
+        </span>
+        <button
+          type="button"
+          className={
+            draft.sky_enabled
+              ? "control-gesture-panel__button control-gesture-panel__button--active"
+              : "control-gesture-panel__button"
+          }
+          aria-pressed={draft.sky_enabled}
+          disabled={saving}
+          onClick={() => {
+            setIsDirty(true);
+            setDraft((current) => ({ ...current, sky_enabled: !current.sky_enabled }));
+          }}
+        >
+          {draft.sky_enabled ? "On" : "Off"}
         </button>
       </label>
 

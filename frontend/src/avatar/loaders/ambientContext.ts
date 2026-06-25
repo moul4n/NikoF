@@ -10,6 +10,7 @@ export interface AmbientContextDocument {
   timezone: string;
   location: string;
   weather_enabled: boolean;
+  sky_enabled: boolean;
 }
 
 export interface AmbientContextUpdate {
@@ -17,6 +18,7 @@ export interface AmbientContextUpdate {
   timezone?: string;
   location?: string;
   weather_enabled?: boolean;
+  sky_enabled?: boolean;
 }
 
 const backendApiBaseUrl = resolveBackendApiBaseUrl();
@@ -30,12 +32,14 @@ function normalizeDocument(raw: unknown): AmbientContextDocument | null {
     timezone?: unknown;
     location?: unknown;
     weather_enabled?: unknown;
+    sky_enabled?: unknown;
   };
   return {
     enabled: typeof data.enabled === "boolean" ? data.enabled : false,
     timezone: typeof data.timezone === "string" ? data.timezone : "",
     location: typeof data.location === "string" ? data.location : "",
-    weather_enabled: typeof data.weather_enabled === "boolean" ? data.weather_enabled : false
+    weather_enabled: typeof data.weather_enabled === "boolean" ? data.weather_enabled : false,
+    sky_enabled: typeof data.sky_enabled === "boolean" ? data.sky_enabled : false
   };
 }
 

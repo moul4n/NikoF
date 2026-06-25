@@ -307,6 +307,9 @@ class DisplaySettingsUpdateRequest:
     bone_overlay: bool | None = None
     captions: bool | None = None
     always_on_top: bool | None = None
+    # Push-to-talk key binding ({code, key}); shared across surfaces so the stage
+    # window's hold-to-talk key follows a control-page change and survives restart.
+    push_to_talk: dict[str, str | None] | None = None
     wardrobe: dict[str, dict[str, float]] | None = None
 
 
@@ -322,6 +325,7 @@ class AmbientContextUpdateRequest:
     timezone: str | None = None
     location: str | None = None
     weather_enabled: bool | None = None
+    sky_enabled: bool | None = None
 
 
 @pydantic_dataclass(slots=True, frozen=True)

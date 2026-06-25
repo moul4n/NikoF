@@ -116,6 +116,7 @@ class BuildAmbientBlockTests(unittest.TestCase):
         timezone: str = "Europe/London",
         location: str = "",
         weather_enabled: bool = False,
+        sky_enabled: bool = False,
     ) -> None:
         ambient_context._ambient_context_state = AmbientContextState(
             state_path=None,
@@ -123,6 +124,7 @@ class BuildAmbientBlockTests(unittest.TestCase):
             timezone=timezone,
             location=location,
             weather_enabled=weather_enabled,
+            sky_enabled=sky_enabled,
         )
 
     def _set_weather(self, line: str | None) -> _FakeWeatherService:
@@ -206,6 +208,18 @@ class BuildAmbientBlockTests(unittest.TestCase):
         self._set_last_interaction(_WEEKDAY.timestamp() - 3 * 24 * 60 * 60)
         block = build_ambient_block(clock=lambda: _WEEKDAY)
         self.assertIn("last_seen: 3 days ago", block)
+
+    def test_sky_lines_present_only_when_sky_enabled(self) -> None:
+        self._set_store(enabled=True, sky_enabled=True)
+        block = build_ambient_block(clock=lambda: _WEEKDAY)  # Thu 25 Jun 14:30 BST
+        self.assertIn("part_of_day: afternoon", block)
+        self.assertTrue(any(line.startswith("sky: summer") for line in block))
+
+    def test_no_sky_lines_when_disabled(self) -> None:
+        self._set_store(enabled=True, sky_enabled=False)
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertFalse(any(line.startswith("part_of_day:") for line in block))
+        self.assertFalse(any(line.startswith("sky:") for line in block))
 
     def test_bad_timezone_name_resolves_to_none(self) -> None:
         # The Windows-relevant path: an unresolvable zone must degrade to None

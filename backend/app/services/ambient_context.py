@@ -41,6 +41,7 @@ class AmbientContextState:
     timezone: str = DEFAULT_AMBIENT_TIMEZONE
     location: str = ""
     weather_enabled: bool = False
+    sky_enabled: bool = False
 
     def __post_init__(self) -> None:
         self._restore()
@@ -66,6 +67,8 @@ class AmbientContextState:
             self.location = data["location"].strip()
         if isinstance(data.get("weather_enabled"), bool):
             self.weather_enabled = data["weather_enabled"]
+        if isinstance(data.get("sky_enabled"), bool):
+            self.sky_enabled = data["sky_enabled"]
 
     def _persist(self) -> None:
         if self.state_path is None:
@@ -82,6 +85,7 @@ class AmbientContextState:
             "timezone": self.timezone,
             "location": self.location,
             "weather_enabled": self.weather_enabled,
+            "sky_enabled": self.sky_enabled,
         }
 
     def snapshot(self) -> dict:
@@ -94,6 +98,7 @@ class AmbientContextState:
         timezone: str | None = None,
         location: str | None = None,
         weather_enabled: bool | None = None,
+        sky_enabled: bool | None = None,
     ) -> dict:
         """Merge a partial update and persist. `timezone`/`location` are trimmed;
         an empty timezone is allowed (render falls back to the default zone)."""
@@ -105,6 +110,8 @@ class AmbientContextState:
             self.location = location.strip()
         if isinstance(weather_enabled, bool):
             self.weather_enabled = weather_enabled
+        if isinstance(sky_enabled, bool):
+            self.sky_enabled = sky_enabled
         self._persist()
         return self.to_document()
 

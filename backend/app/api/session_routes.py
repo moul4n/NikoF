@@ -251,6 +251,7 @@ def register_session_transport_routes(
             timezone=update.timezone,
             location=update.location,
             weather_enabled=update.weather_enabled,
+            sky_enabled=update.sky_enabled,
         )
         if document.get("weather_enabled"):
             # Warm the weather cache now (non-blocking background fetch) so the
