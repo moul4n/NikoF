@@ -44,6 +44,11 @@ class ApplicationShell:
 @asynccontextmanager
 async def _lifespan(app: Any) -> AsyncIterator[None]:
     """Manage async services that need startup/shutdown hooks."""
+    from app.core.access_log import install_quiet_access_log_filter
+
+    # Quiet the per-poll access-log spam on the dev terminal (errors still show).
+    install_quiet_access_log_filter()
+
     from app.core.runtime_tuning import get_runtime_tuning
     from app.services.attention_worker import get_attention_worker
     from app.services.llm import TextGenerationRequest, get_text_generation_sidecar_manager
