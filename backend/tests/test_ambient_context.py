@@ -11,8 +11,9 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.turns import _build_lean_reply_prompt, _build_spoken_reply_prompt
-from app.services import ambient_context, interaction_log, turns_ambient, weather
+from app.services import ambient_context, important_dates, interaction_log, turns_ambient, weather
 from app.services.ambient_context import AmbientContextState
+from app.services.important_dates import ImportantDate, ImportantDatesStore
 from app.services.interaction_log import LastInteractionState
 from app.services.turns_ambient import (
     AMBIENT_BLOCK_HEADER,
@@ -135,13 +136,21 @@ class BuildAmbientBlockTests(unittest.TestCase):
     def _set_last_interaction(self, last_epoch: float | None) -> None:
         interaction_log._last_interaction_state = LastInteractionState(state_path=None, last_epoch=last_epoch)
 
+    def _set_important_dates(self, entries: list[ImportantDate]) -> None:
+        store = ImportantDatesStore(state_path=None)
+        store.entries = list(entries)
+        important_dates._important_dates_store = store
+
     def setUp(self) -> None:
         self.addCleanup(setattr, ambient_context, "_ambient_context_state", None)
         self.addCleanup(setattr, weather, "_weather_service", None)
         self.addCleanup(setattr, interaction_log, "_last_interaction_state", None)
-        # Default: no prior interaction, so the last_seen line is absent unless a
-        # test sets one. (None singleton would otherwise hit the real data root.)
+        self.addCleanup(setattr, important_dates, "_important_dates_store", None)
+        # Defaults: no prior interaction and no important dates, so those lines are
+        # absent unless a test sets them. (A None singleton would otherwise read
+        # the real data root.)
         self._set_last_interaction(None)
+        self._set_important_dates([])
 
     def test_disabled_returns_empty(self) -> None:
         self._set_store(enabled=False)
@@ -220,6 +229,20 @@ class BuildAmbientBlockTests(unittest.TestCase):
         block = build_ambient_block(clock=lambda: _WEEKDAY)
         self.assertFalse(any(line.startswith("part_of_day:") for line in block))
         self.assertFalse(any(line.startswith("sky:") for line in block))
+
+    def test_important_dates_surface_when_near(self) -> None:
+        # _WEEKDAY is 2026-06-25; a 28 Jun date is 3 days out, a 25 Jun is today.
+        self._set_store(enabled=True)
+        self._set_important_dates([ImportantDate("Mum's birthday", 6, 28), ImportantDate("Anna", 6, 25)])
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertIn("today: Anna", block)
+        self.assertIn("upcoming: Mum's birthday in 3 days", block)
+
+    def test_important_dates_absent_when_far(self) -> None:
+        self._set_store(enabled=True)
+        self._set_important_dates([ImportantDate("Distant", 12, 1)])
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertFalse(any(line.startswith(("today:", "upcoming:")) for line in block))
 
     def test_bad_timezone_name_resolves_to_none(self) -> None:
         # The Windows-relevant path: an unresolvable zone must degrade to None

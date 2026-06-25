@@ -30,6 +30,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.services.ambient_context import DEFAULT_AMBIENT_TIMEZONE, get_ambient_context_state
+from app.services.important_dates import describe_upcoming, get_important_dates_store
 from app.services.interaction_log import get_last_interaction_state
 from app.services.sky import moon_phase, part_of_day, season
 from app.services.weather import get_weather_service
@@ -142,6 +143,10 @@ def build_ambient_block(*, clock: Callable[[], datetime] | None = None) -> list[
         # and moon phase as gentle flavour.
         body.append(f"part_of_day: {part_of_day(now)}")
         body.append(f"sky: {season(now)}, {moon_phase(now)}")
+
+    # Operator-curated important dates that are today or within the week. A
+    # non-empty list is the opt-in; no separate toggle.
+    body.extend(describe_upcoming(get_important_dates_store().entries, now.date()))
 
     if not body:
         return []

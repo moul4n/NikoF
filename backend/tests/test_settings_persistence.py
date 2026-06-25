@@ -22,11 +22,17 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.api.session_routes import register_session_transport_routes  # noqa: E402  (path bootstrap above)
-from app.schemas.session import AmbientContextUpdateRequest, AudioOutputUpdateRequest  # noqa: E402
+from app.schemas.session import (  # noqa: E402
+    AmbientContextUpdateRequest,
+    AudioOutputUpdateRequest,
+    ImportantDateEntry,
+    ImportantDatesUpdateRequest,
+)
 from app.services.ambient_context import (  # noqa: E402
     DEFAULT_AMBIENT_TIMEZONE,
     AmbientContextState,
 )
+from app.services.important_dates import ImportantDatesStore  # noqa: E402
 from app.services.attention_worker import (  # noqa: E402
     DEFAULT_ATTENTION_DEVICE_ID,
     AttentionWorker,
@@ -389,6 +395,35 @@ class AmbientContextRouteTests(unittest.TestCase):
                 # Untouched field keeps its default; the store reflects the PUT.
                 self.assertEqual(DEFAULT_AMBIENT_TIMEZONE, updated["timezone"])
                 self.assertTrue(state.enabled)
+
+
+class ImportantDatesRouteTests(unittest.TestCase):
+    def _register_routes(self, router: _FakeAPIRouter) -> None:
+        register_session_transport_routes(
+            router,
+            services=object(),
+            serialize_dataclass_payload=lambda payload: payload,
+        )
+
+    def test_get_then_put_round_trips_through_durable_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ImportantDatesStore(state_path=Path(tmp) / "session" / "important-dates.json")
+            with patch("app.api.session_routes.get_important_dates_store", return_value=store):
+                router = _FakeAPIRouter()
+                self._register_routes(router)
+
+                initial = _invoke(_get_route(router, path="/session/important-dates", method="GET").endpoint)
+                self.assertEqual([], initial["entries"])
+
+                updated = _invoke(
+                    _get_route(router, path="/session/important-dates", method="PUT").endpoint,
+                    update=ImportantDatesUpdateRequest(
+                        entries=[ImportantDateEntry(label="Mum's birthday", month=6, day=28, year=1960)]
+                    ),
+                )
+                self.assertEqual(1, len(updated["entries"]))
+                self.assertEqual("Mum's birthday", updated["entries"][0]["label"])
+                self.assertEqual(1, len(store.entries))
 
 
 if __name__ == "__main__":

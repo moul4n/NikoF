@@ -8,6 +8,7 @@ from app.schemas.animation import SessionAnimationSnapshot
 from app.schemas.session import (
     AmbientContextUpdateRequest,
     DisplaySettingsUpdateRequest,
+    ImportantDatesUpdateRequest,
     SessionGestureRequest,
     SessionLifecycleUpdateRequest,
     AudioOutputUpdateRequest,
@@ -15,6 +16,7 @@ from app.schemas.session import (
     StageBackgroundUpdateRequest,
 )
 from app.services.ambient_context import get_ambient_context_state
+from app.services.important_dates import get_important_dates_store
 from app.services.audio_output_settings import get_audio_output_settings_state
 from app.services.display_settings import get_display_settings_state
 from app.services.stage_view import get_stage_view_state, is_known_stage_background_id
@@ -270,6 +272,21 @@ def register_session_transport_routes(
             except Exception:  # never let a warm-up attempt fail the settings save
                 pass
         return document
+
+    @router.get("/session/important-dates")
+    def get_important_dates() -> dict:
+        # Operator-curated birthdays/anniversaries the ambient block surfaces when
+        # near. Editable from the control surface; read live by the turn pipeline.
+        return get_important_dates_store().snapshot()
+
+    @router.put("/session/important-dates")
+    def put_important_dates(update: ImportantDatesUpdateRequest) -> dict:
+        return get_important_dates_store().set_entries(
+            [
+                {"label": entry.label, "month": entry.month, "day": entry.day, "year": entry.year}
+                for entry in update.entries
+            ]
+        )
 
     @router.get("/session/audio-output")
     def get_audio_output() -> dict:

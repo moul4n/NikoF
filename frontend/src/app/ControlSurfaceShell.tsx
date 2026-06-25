@@ -30,6 +30,7 @@ import { ControlSurfaceSttPanel } from "./ControlSurfaceSttPanel.js";
 import { ControlSurfaceSpeechPlaybackPanel } from "./ControlSurfaceSpeechPlaybackPanel.js";
 import { ControlSurfaceKokoroVoicePanel } from "./ControlSurfaceKokoroVoicePanel.js";
 import { ControlSurfaceAmbientContextPanel } from "./ControlSurfaceAmbientContextPanel.js";
+import { ControlSurfaceImportantDatesPanel } from "./ControlSurfaceImportantDatesPanel.js";
 import type { UseDisplaySettingsResult } from "./useDisplaySettings";
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
@@ -372,6 +373,7 @@ export function ControlSurfaceShell({
                 onCommandPublished={onCommandPublished}
               />
               <ControlSurfaceAmbientContextPanel />
+              <ControlSurfaceImportantDatesPanel />
             </div>
           ) : null}
 

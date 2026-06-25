@@ -329,6 +329,25 @@ class AmbientContextUpdateRequest:
 
 
 @pydantic_dataclass(slots=True, frozen=True)
+class ImportantDateEntry:
+    """One operator-curated date (birthday/anniversary). Recurring annually; the
+    optional year is reference only."""
+
+    label: str
+    month: int
+    day: int
+    year: int | None = None
+
+
+@pydantic_dataclass(slots=True, frozen=True)
+class ImportantDatesUpdateRequest:
+    """Full replacement of the important-dates list the ambient block surfaces.
+    A prompt setting, not part of the session animation/speech contracts."""
+
+    entries: list[ImportantDateEntry] = field(default_factory=list)
+
+
+@pydantic_dataclass(slots=True, frozen=True)
 class AudioOutputUpdateRequest:
     """Operator-selected audio output device (speaker/headphones) for avatar
     speech playback. ``device_id`` null means the system default. Browsers apply
