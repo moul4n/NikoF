@@ -11,11 +11,13 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.turns import _build_lean_reply_prompt, _build_spoken_reply_prompt
-from app.services import ambient_context, turns_ambient, weather
+from app.services import ambient_context, interaction_log, turns_ambient, weather
 from app.services.ambient_context import AmbientContextState
+from app.services.interaction_log import LastInteractionState
 from app.services.turns_ambient import (
     AMBIENT_BLOCK_HEADER,
     build_ambient_block,
+    format_time_since,
     render_ambient_lines,
 )
 
@@ -91,6 +93,18 @@ class RenderAmbientLinesTests(unittest.TestCase):
         )
 
 
+class FormatTimeSinceTests(unittest.TestCase):
+    def test_recent_returns_none(self) -> None:
+        self.assertIsNone(format_time_since(0))
+        self.assertIsNone(format_time_since(59 * 60))
+
+    def test_hours_and_days_with_pluralization(self) -> None:
+        self.assertEqual("1 hour ago", format_time_since(60 * 60))
+        self.assertEqual("2 hours ago", format_time_since(2 * 60 * 60))
+        self.assertEqual("1 day ago", format_time_since(24 * 60 * 60))
+        self.assertEqual("3 days ago", format_time_since(3 * 24 * 60 * 60))
+
+
 class BuildAmbientBlockTests(unittest.TestCase):
     """build_ambient_block reads the durable ambient-context store live. Override
     the process-wide singleton with an in-memory state (no disk) per test."""
@@ -116,9 +130,16 @@ class BuildAmbientBlockTests(unittest.TestCase):
         weather._weather_service = fake
         return fake
 
+    def _set_last_interaction(self, last_epoch: float | None) -> None:
+        interaction_log._last_interaction_state = LastInteractionState(state_path=None, last_epoch=last_epoch)
+
     def setUp(self) -> None:
         self.addCleanup(setattr, ambient_context, "_ambient_context_state", None)
         self.addCleanup(setattr, weather, "_weather_service", None)
+        self.addCleanup(setattr, interaction_log, "_last_interaction_state", None)
+        # Default: no prior interaction, so the last_seen line is absent unless a
+        # test sets one. (None singleton would otherwise hit the real data root.)
+        self._set_last_interaction(None)
 
     def test_disabled_returns_empty(self) -> None:
         self._set_store(enabled=False)
@@ -166,6 +187,25 @@ class BuildAmbientBlockTests(unittest.TestCase):
         self._set_weather(None)  # not yet cached / offline
         block = build_ambient_block(clock=lambda: _WEEKDAY)
         self.assertFalse(any(line.startswith("weather:") for line in block))
+
+    def test_last_seen_absent_with_no_prior_interaction(self) -> None:
+        self._set_store(enabled=True)
+        self._set_last_interaction(None)
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertFalse(any(line.startswith("last_seen:") for line in block))
+
+    def test_last_seen_absent_when_recent(self) -> None:
+        # A gap under an hour is conversational noise -> omitted.
+        self._set_store(enabled=True)
+        self._set_last_interaction(_WEEKDAY.timestamp() - 5 * 60)
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertFalse(any(line.startswith("last_seen:") for line in block))
+
+    def test_last_seen_shows_days(self) -> None:
+        self._set_store(enabled=True)
+        self._set_last_interaction(_WEEKDAY.timestamp() - 3 * 24 * 60 * 60)
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertIn("last_seen: 3 days ago", block)
 
     def test_bad_timezone_name_resolves_to_none(self) -> None:
         # The Windows-relevant path: an unresolvable zone must degrade to None

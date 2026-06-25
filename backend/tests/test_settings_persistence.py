@@ -32,6 +32,7 @@ from app.services.attention_worker import (  # noqa: E402
     AttentionWorker,
 )
 from app.services.audio_output_settings import AudioOutputSettingsState  # noqa: E402
+from app.services.interaction_log import LastInteractionState  # noqa: E402
 from app.services.stt_worker import STTWorker  # noqa: E402
 
 
@@ -250,6 +251,26 @@ class AmbientContextSettingsTests(unittest.TestCase):
         state.update(enabled=True, location="Nowhere")
         self.assertTrue(state.enabled)
         self.assertEqual("Nowhere", state.location)
+
+
+class LastInteractionPersistenceTests(unittest.TestCase):
+    def test_mark_persists_and_restores(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "session" / "last-interaction.json"
+            first = LastInteractionState(state_path=state_path)
+            self.assertIsNone(first.seconds_since(1000.0))  # no prior interaction
+            first.mark(1000.0)
+            restored = LastInteractionState(state_path=state_path)
+            self.assertEqual(500.0, restored.seconds_since(1500.0))
+
+    def test_clock_going_backwards_yields_none(self) -> None:
+        state = LastInteractionState(state_path=None, last_epoch=2000.0)
+        self.assertIsNone(state.seconds_since(1000.0))
+
+    def test_in_memory_state_does_not_touch_disk(self) -> None:
+        state = LastInteractionState(state_path=None)
+        state.mark(1234.0)
+        self.assertEqual(0.0, state.seconds_since(1234.0))
 
 
 class _FakeRoute:

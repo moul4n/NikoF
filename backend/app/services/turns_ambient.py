@@ -30,10 +30,26 @@ from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.services.ambient_context import DEFAULT_AMBIENT_TIMEZONE, get_ambient_context_state
+from app.services.interaction_log import get_last_interaction_state
 from app.services.weather import get_weather_service
 
 
 logger = logging.getLogger(__name__)
+
+# Only surface "time since we last talked" once the gap is meaningful — within an
+# active conversation it would just be noise.
+_LAST_SEEN_MIN_SECONDS = 60 * 60
+
+
+def format_time_since(seconds: float) -> str | None:
+    """Human "X ago" for the last-seen line, or None when too recent to mention."""
+    if seconds < _LAST_SEEN_MIN_SECONDS:
+        return None
+    if seconds < 24 * 60 * 60:
+        hours = round(seconds / 3600)
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    days = int(seconds // (24 * 60 * 60))
+    return f"{days} day{'s' if days != 1 else ''} ago"
 
 AMBIENT_BLOCK_HEADER = "[AMBIENT]"
 # Phrased so a small model uses these facts when relevant and otherwise ignores
@@ -98,6 +114,13 @@ def build_ambient_block(*, clock: Callable[[], datetime] | None = None) -> list[
     location = str(settings.get("location") or "")
     timezone = str(settings.get("timezone") or "") or DEFAULT_AMBIENT_TIMEZONE
     body = render_ambient_lines(now=now, location=location)
+
+    # "Time since we last talked" — relational continuity, pure local.
+    seconds_since = get_last_interaction_state().seconds_since(now.timestamp())
+    if seconds_since is not None:
+        last_seen = format_time_since(seconds_since)
+        if last_seen:
+            body.append(f"last_seen: {last_seen}")
 
     if settings.get("weather_enabled"):
         # Cached + non-blocking: a stale cache only schedules a background fetch,

@@ -36,8 +36,10 @@ from app.services.turns_prompts import (  # noqa: F401  (re-exported for callers
     _should_include_appearance_context,
 )
 # Ambient context block (live-info Stage A): cheap local time/date/location facts
-# injected into the planner prompt every turn. Off unless NIKOF_AMBIENT_CONTEXT=1.
+# injected into the planner prompt every turn. Off unless ambient context is enabled.
 from app.services.turns_ambient import build_ambient_block
+from app.services.ambient_context import get_ambient_context_state
+from app.services.interaction_log import get_last_interaction_state
 # Assistant-reply animation resolution (extracted); used by the turn pipeline.
 from app.services.turns_animation import (
     _build_assistant_animation_snapshot,
@@ -171,6 +173,14 @@ def run_user_text_turn(
             logger.exception("User turn thinking animation publication failed")
 
     tuning = get_runtime_tuning()
+    # Build the ambient block (reads "time since last talked" using the PREVIOUS
+    # interaction), then record this interaction so the next return is greeted.
+    ambient_lines = build_ambient_block()
+    if get_ambient_context_state().snapshot().get("enabled"):
+        try:
+            get_last_interaction_state().mark(time.time())
+        except Exception:
+            logger.debug("Failed to mark last interaction", exc_info=True)
     generation_request = TextGenerationRequest(
         prompt=_build_spoken_reply_prompt(
             turn_input_text,
@@ -179,7 +189,7 @@ def run_user_text_turn(
             memory_context=memory_context,
             input_source="stt" if request.transcription is not None else "manual_text",
             lean=tuning.llm_lean_planner,
-            ambient_lines=build_ambient_block(),
+            ambient_lines=ambient_lines,
         ),
         locale=request.locale,
         profile_id=LLM_BASELINE_PROFILE_IDS[0],
