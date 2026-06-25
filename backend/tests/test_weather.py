@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 
@@ -140,6 +141,50 @@ class WeatherServiceTests(unittest.TestCase):
         self.assertIsNotNone(service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW))
         # Switching location invalidates the old reading immediately.
         self.assertIsNone(service.ambient_weather_line(location="Tokyo", timezone="Europe/London", now=_NOW))
+
+
+class WeatherPersistenceTests(unittest.TestCase):
+    def _seed(self, path: Path, *, at_epoch: float = 1000.0) -> None:
+        """Populate + persist a reading for 'Brighton' at a given clock time."""
+        service = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(at_epoch), state_path=path)
+        service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
+        service._refresh_blocking("Brighton")
+        self.assertIsNotNone(service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW))
+
+    def test_reading_restored_and_reused_within_the_hour_without_refetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session" / "weather-cache.json"
+            self._seed(path, at_epoch=1000.0)
+            # A fresh instance (restart) 30 min later restores the reading and does
+            # NOT hit the network — the value is under an hour old.
+            fetcher = _FakeFetcher()
+            restarted = WeatherService(fetch_json=fetcher, clock=_Clock(1000.0 + 30 * 60), state_path=path)
+            line = restarted.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
+            self.assertIsNotNone(line)
+            self.assertIn("light rain", line)
+            self.assertEqual([], fetcher.calls)
+
+    def test_one_hour_staleness_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session" / "weather-cache.json"
+            self._seed(path, at_epoch=1000.0)
+
+            # 59 min old -> still fresh, no refresh scheduled.
+            within = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(1000.0 + 59 * 60), state_path=path)
+            within.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
+            with within._lock:
+                self.assertFalse(within._should_refresh_locked())
+
+            # 61 min old -> over an hour, a refresh is due.
+            after = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(1000.0 + 61 * 60), state_path=path)
+            with after._lock:
+                self.assertTrue(after._should_refresh_locked())
+
+    def test_in_memory_service_does_not_touch_disk(self) -> None:
+        service = WeatherService(fetch_json=_FakeFetcher(), clock=_Clock(), state_path=None)
+        service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW)
+        service._refresh_blocking("Brighton")  # no state_path => nothing persisted, no error
+        self.assertIsNotNone(service.ambient_weather_line(location="Brighton", timezone="Europe/London", now=_NOW))
 
 
 if __name__ == "__main__":

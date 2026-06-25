@@ -11,6 +11,10 @@ returns the last cached value (or None) immediately and, when the cache is stale
 spawns a daemon thread to refresh. It degrades silently to *no* weather line on any
 error / offline — the companion simply doesn't mention weather rather than guessing.
 
+The reading + lookup timestamp are persisted to disk, and a refresh only happens
+when the stored reading is over an hour old — so a backend restart reuses a recent
+value instead of immediately re-calling Open-Meteo.
+
 Two keyless Open-Meteo endpoints are used:
 - geocoding-api.open-meteo.com/v1/search?name=<city>&count=1  -> lat/lon
 - api.open-meteo.com/v1/forecast?...&current=temperature_2m,weather_code
@@ -22,6 +26,7 @@ import logging
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
@@ -32,9 +37,10 @@ logger = logging.getLogger(__name__)
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
-# How often to refresh in the background, and how stale a value may be before we
-# stop showing it at all (offline for longer than this -> drop the line).
-_REFRESH_INTERVAL_SECONDS = 15 * 60
+# Re-fetch only when the stored reading is over an hour old (the reading +
+# timestamp are persisted, so a restart reuses a recent value), and stop showing
+# a value at all once it is older than the hard-expiry window (offline too long).
+_REFRESH_INTERVAL_SECONDS = 60 * 60
 _HARD_EXPIRY_SECONDS = 3 * 60 * 60
 # Don't re-attempt a failing fetch on every single turn.
 _MIN_RETRY_INTERVAL_SECONDS = 60
@@ -105,9 +111,11 @@ class WeatherService:
         *,
         fetch_json: Callable[[str, dict], dict] | None = None,
         clock: Callable[[], float] | None = None,
+        state_path: Path | None = None,
     ) -> None:
         self._fetch_json = fetch_json or (lambda url, params: _http_get_json(url, params))
         self._clock = clock or time.time
+        self._state_path = state_path
         self._lock = threading.Lock()
         self._query: str = ""
         self._temp_c: float | None = None
@@ -115,6 +123,49 @@ class WeatherService:
         self._fetched_epoch: float | None = None
         self._last_attempt_epoch: float | None = None
         self._refreshing: bool = False
+        self._restore()
+
+    # -- persistence ---------------------------------------------------------
+    def _restore(self) -> None:
+        """Reload the last reading + timestamp so a restart reuses a recent value
+        (state_path None = in-memory only, for tests)."""
+        if self._state_path is None:
+            return
+        try:
+            raw = self._state_path.read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError):
+            return
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(data, dict):
+            return
+        query = data.get("query")
+        fetched = data.get("fetched_epoch")
+        if isinstance(query, str) and isinstance(fetched, (int, float)) and not isinstance(fetched, bool):
+            self._query = query
+            self._fetched_epoch = float(fetched)
+            temp = data.get("temperature_c")
+            code = data.get("weather_code")
+            self._temp_c = float(temp) if isinstance(temp, (int, float)) and not isinstance(temp, bool) else None
+            self._code = int(code) if isinstance(code, (int, float)) and not isinstance(code, bool) else None
+
+    def _persist(self) -> None:
+        if self._state_path is None:
+            return
+        with self._lock:
+            document = {
+                "query": self._query,
+                "temperature_c": self._temp_c,
+                "weather_code": self._code,
+                "fetched_epoch": self._fetched_epoch,
+            }
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_path.write_text(json.dumps(document), encoding="utf-8")
+        except OSError:
+            logger.debug("Failed to persist weather cache to %s", self._state_path, exc_info=True)
 
     # -- read seam -----------------------------------------------------------
     def ambient_weather_line(self, *, location: str, timezone: str, now: datetime) -> str | None:
@@ -184,6 +235,8 @@ class WeatherService:
                 self._temp_c = temp_c
                 self._code = code
                 self._fetched_epoch = self._clock()
+            # Persist outside the lock so a restart reuses this reading + timestamp.
+            self._persist()
         except (urllib_error.URLError, TimeoutError, OSError, ValueError, KeyError) as exc:
             logger.debug("Weather refresh for %r failed: %s", query, exc)
         finally:
@@ -218,8 +271,13 @@ _weather_service: WeatherService | None = None
 
 
 def get_weather_service() -> WeatherService:
-    """Process-wide cached weather service (one location at a time)."""
+    """Process-wide cached weather service (one location at a time), with the last
+    reading persisted under the app's local data root so a restart reuses it."""
     global _weather_service
     if _weather_service is None:
-        _weather_service = WeatherService()
+        from app.core.settings import get_app_paths
+
+        _weather_service = WeatherService(
+            state_path=get_app_paths().local_data_root / "session" / "weather-cache.json"
+        )
     return _weather_service
