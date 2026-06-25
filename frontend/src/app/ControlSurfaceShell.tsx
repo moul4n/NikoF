@@ -29,6 +29,7 @@ import { ControlSurfaceAudioOutputPanel } from "./ControlSurfaceAudioOutputPanel
 import { ControlSurfaceSttPanel } from "./ControlSurfaceSttPanel.js";
 import { ControlSurfaceSpeechPlaybackPanel } from "./ControlSurfaceSpeechPlaybackPanel.js";
 import { ControlSurfaceKokoroVoicePanel } from "./ControlSurfaceKokoroVoicePanel.js";
+import { ControlSurfaceAmbientContextPanel } from "./ControlSurfaceAmbientContextPanel.js";
 import type { UseDisplaySettingsResult } from "./useDisplaySettings";
 
 type SpeechLifecycleSnapshot = SpeechLifecycleLoadState["snapshot"];
@@ -237,7 +238,7 @@ type ControlTabId = "character" | "tracking" | "llm" | "tts" | "stt" | "performa
 const CONTROL_TABS: ReadonlyArray<{ id: ControlTabId; label: string; hint: string }> = [
   { id: "character", label: "Character", hint: "Selector · wardrobe · motion · personality" },
   { id: "tracking", label: "Tracking & Audio", hint: "Camera focus tracking · audio playback" },
-  { id: "llm", label: "LLM", hint: "Text questions · assistant relay" },
+  { id: "llm", label: "LLM", hint: "Text questions · assistant relay · time/place awareness" },
   { id: "tts", label: "TTS", hint: "Voice reference · synthesis preview" },
   { id: "stt", label: "STT", hint: "Hot mic · push-to-talk" },
   { id: "performance", label: "Performance", hint: "GPU / CPU / memory monitor" },
@@ -370,6 +371,7 @@ export function ControlSurfaceShell({
                 speechPlaybackStatus={speechPlaybackStatus}
                 onCommandPublished={onCommandPublished}
               />
+              <ControlSurfaceAmbientContextPanel />
             </div>
           ) : null}
 

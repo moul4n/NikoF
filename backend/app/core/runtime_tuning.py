@@ -148,10 +148,12 @@ _DEFAULT_MEMORY_ROLLUP_MAX_BATCH = 40
 # Live-info Stage A (docs/LIVE_INFO_TOOLS.md): an advisory "[AMBIENT]" block of
 # cheap *local* facts (current local time, date, day-type, configured location)
 # injected into the planner prompt every turn so the companion is always aware of
-# "now" without a tool call or any network access. OFF by default like every
-# other behaviour-changing lever; enable with NIKOF_AMBIENT_CONTEXT=1. The block
-# is intentionally tiny (a few short lines) so it needs no runtime token budget.
-# Timezone is an optional IANA name override (empty = system local time);
+# "now" without a tool call or any network access. These env knobs are only the
+# first-run SEED for the durable, control-surface-editable store in
+# app.services.ambient_context (which the turn pipeline reads live); after that
+# the persisted file / UI is the source of truth. OFF by default like every other
+# behaviour-changing lever; enable with NIKOF_AMBIENT_CONTEXT=1. Timezone is an
+# optional IANA name (empty falls back to the default home zone, Europe/London);
 # location is an optional free-text label (empty = omitted, no geocoding here).
 _DEFAULT_AMBIENT_CONTEXT_ENABLED = False
 _DEFAULT_AMBIENT_TIMEZONE = ""

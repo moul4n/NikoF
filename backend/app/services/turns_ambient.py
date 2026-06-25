@@ -11,6 +11,11 @@ stay free of I/O and unit tests / stability baselines stay stable. The wall-cloc
 read is isolated to `build_ambient_block` and is overridable via `clock` for
 tests.
 
+The enabled flag, timezone, and location come from the durable, control-surface-
+editable store in app.services.ambient_context (read live per turn, so a UI edit
+applies without a backend restart). An empty stored timezone falls back to
+DEFAULT_AMBIENT_TIMEZONE (Europe/London).
+
 Stage B (docs/LIVE_INFO_TOOLS.md) will extend the block with a last-known
 weather line sourced from the Tier-1 weather tool cache; that line is omitted
 here until that cache exists.
@@ -23,7 +28,7 @@ import logging
 from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.core.runtime_tuning import get_runtime_tuning
+from app.services.ambient_context import DEFAULT_AMBIENT_TIMEZONE, get_ambient_context_state
 
 
 logger = logging.getLogger(__name__)
@@ -75,19 +80,20 @@ def build_ambient_block(*, clock: Callable[[], datetime] | None = None) -> list[
     `clock` (returning an aware datetime) to make the result deterministic in
     tests.
     """
-    tuning = get_runtime_tuning()
-    if not tuning.ambient_context_enabled:
+    settings = get_ambient_context_state().snapshot()
+    if not settings.get("enabled"):
         return []
 
     if clock is not None:
         now = clock()
     else:
-        tz = _resolve_timezone(tuning.ambient_timezone)
+        # Empty stored timezone falls back to the default home zone (London).
+        tz = _resolve_timezone(str(settings.get("timezone") or "") or DEFAULT_AMBIENT_TIMEZONE)
         # astimezone() gives an aware datetime in the system local zone so the
-        # %Z abbreviation renders even without an explicit override.
+        # %Z abbreviation renders even when the IANA db is unavailable.
         now = datetime.now(tz) if tz is not None else datetime.now().astimezone()
 
-    body = render_ambient_lines(now=now, location=tuning.ambient_location)
+    body = render_ambient_lines(now=now, location=str(settings.get("location") or ""))
     if not body:
         return []
     return [AMBIENT_BLOCK_HEADER, AMBIENT_ADVISORY, *body]

@@ -22,7 +22,11 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.api.session_routes import register_session_transport_routes  # noqa: E402  (path bootstrap above)
-from app.schemas.session import AudioOutputUpdateRequest  # noqa: E402
+from app.schemas.session import AmbientContextUpdateRequest, AudioOutputUpdateRequest  # noqa: E402
+from app.services.ambient_context import (  # noqa: E402
+    DEFAULT_AMBIENT_TIMEZONE,
+    AmbientContextState,
+)
 from app.services.attention_worker import (  # noqa: E402
     DEFAULT_ATTENTION_DEVICE_ID,
     AttentionWorker,
@@ -212,6 +216,40 @@ class AudioOutputSettingsTests(unittest.TestCase):
             self.assertIsNone(restored.device_id)
 
 
+class AmbientContextSettingsTests(unittest.TestCase):
+    def test_defaults_to_london_disabled(self) -> None:
+        state = AmbientContextState()
+        self.assertFalse(state.enabled)
+        self.assertEqual(DEFAULT_AMBIENT_TIMEZONE, state.timezone)
+        self.assertEqual("", state.location)
+
+    def test_update_persists_and_restores_across_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "session" / "ambient-context.json"
+            first = AmbientContextState(state_path=state_path)
+            first.update(enabled=True, timezone="Asia/Tokyo", location="Tokyo, JP")
+            restored = AmbientContextState(state_path=state_path)
+            self.assertTrue(restored.enabled)
+            self.assertEqual("Asia/Tokyo", restored.timezone)
+            self.assertEqual("Tokyo, JP", restored.location)
+
+    def test_partial_update_leaves_other_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "session" / "ambient-context.json"
+            state = AmbientContextState(state_path=state_path)
+            state.update(location="Brighton, UK")
+            # Only location changed; enabled + timezone keep their defaults.
+            self.assertFalse(state.enabled)
+            self.assertEqual(DEFAULT_AMBIENT_TIMEZONE, state.timezone)
+            self.assertEqual("Brighton, UK", state.location)
+
+    def test_in_memory_state_does_not_touch_disk(self) -> None:
+        state = AmbientContextState(state_path=None)
+        state.update(enabled=True, location="Nowhere")
+        self.assertTrue(state.enabled)
+        self.assertEqual("Nowhere", state.location)
+
+
 class _FakeRoute:
     def __init__(self, path: str, endpoint, methods: tuple[str, ...]) -> None:
         self.path = path
@@ -292,6 +330,38 @@ class AudioOutputRouteTests(unittest.TestCase):
 
                 # The durable store reflects the PUT.
                 self.assertEqual("speaker-5", state.device_id)
+
+
+class AmbientContextRouteTests(unittest.TestCase):
+    def _register_routes(self, router: _FakeAPIRouter) -> None:
+        register_session_transport_routes(
+            router,
+            services=object(),
+            serialize_dataclass_payload=lambda payload: payload,
+        )
+
+    def test_get_then_put_round_trips_through_durable_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = AmbientContextState(state_path=Path(tmp) / "session" / "ambient-context.json")
+            with patch(
+                "app.api.session_routes.get_ambient_context_state", return_value=state
+            ):
+                router = _FakeAPIRouter()
+                self._register_routes(router)
+
+                initial = _invoke(_get_route(router, path="/session/ambient-context", method="GET").endpoint)
+                self.assertFalse(initial["enabled"])
+                self.assertEqual(DEFAULT_AMBIENT_TIMEZONE, initial["timezone"])
+
+                updated = _invoke(
+                    _get_route(router, path="/session/ambient-context", method="PUT").endpoint,
+                    update=AmbientContextUpdateRequest(enabled=True, location="Brighton, UK"),
+                )
+                self.assertTrue(updated["enabled"])
+                self.assertEqual("Brighton, UK", updated["location"])
+                # Untouched field keeps its default; the store reflects the PUT.
+                self.assertEqual(DEFAULT_AMBIENT_TIMEZONE, updated["timezone"])
+                self.assertTrue(state.enabled)
 
 
 if __name__ == "__main__":

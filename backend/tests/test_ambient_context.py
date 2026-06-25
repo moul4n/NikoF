@@ -4,16 +4,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.core import runtime_tuning
 from app.services.turns import _build_lean_reply_prompt, _build_spoken_reply_prompt
-from app.services import turns_ambient
+from app.services import ambient_context, turns_ambient
+from app.services.ambient_context import AmbientContextState
 from app.services.turns_ambient import (
     AMBIENT_BLOCK_HEADER,
     build_ambient_block,
@@ -80,23 +79,24 @@ class RenderAmbientLinesTests(unittest.TestCase):
 
 
 class BuildAmbientBlockTests(unittest.TestCase):
-    def setUp(self) -> None:
-        runtime_tuning.get_runtime_tuning.cache_clear()
-        self.addCleanup(runtime_tuning.get_runtime_tuning.cache_clear)
+    """build_ambient_block reads the durable ambient-context store live. Override
+    the process-wide singleton with an in-memory state (no disk) per test."""
 
-    def test_disabled_by_default_returns_empty(self) -> None:
-        with patch.dict(runtime_tuning.os.environ, {}, clear=True):
-            runtime_tuning.get_runtime_tuning.cache_clear()
-            self.assertEqual(build_ambient_block(clock=lambda: _WEEKDAY), [])
+    def _set_store(self, *, enabled: bool, timezone: str = "Europe/London", location: str = "") -> None:
+        ambient_context._ambient_context_state = AmbientContextState(
+            state_path=None, enabled=enabled, timezone=timezone, location=location
+        )
+
+    def setUp(self) -> None:
+        self.addCleanup(setattr, ambient_context, "_ambient_context_state", None)
+
+    def test_disabled_returns_empty(self) -> None:
+        self._set_store(enabled=False)
+        self.assertEqual(build_ambient_block(clock=lambda: _WEEKDAY), [])
 
     def test_enabled_returns_header_advisory_and_body(self) -> None:
-        with patch.dict(
-            runtime_tuning.os.environ,
-            {"NIKOF_AMBIENT_CONTEXT": "1", "NIKOF_AMBIENT_LOCATION": "Brighton, UK"},
-            clear=True,
-        ):
-            runtime_tuning.get_runtime_tuning.cache_clear()
-            block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self._set_store(enabled=True, location="Brighton, UK")
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
         self.assertEqual(block[0], AMBIENT_BLOCK_HEADER)
         joined = "\n".join(block)
         self.assertIn("advisory", joined)
@@ -104,15 +104,16 @@ class BuildAmbientBlockTests(unittest.TestCase):
         self.assertIn("location: Brighton, UK", joined)
 
     def test_unknown_timezone_falls_back_without_raising(self) -> None:
-        with patch.dict(
-            runtime_tuning.os.environ,
-            {"NIKOF_AMBIENT_CONTEXT": "1", "NIKOF_AMBIENT_TIMEZONE": "Not/AZone"},
-            clear=True,
-        ):
-            runtime_tuning.get_runtime_tuning.cache_clear()
-            # No clock override -> exercises the real wall-clock path + tz fallback.
-            block = build_ambient_block()
+        self._set_store(enabled=True, timezone="Not/AZone")
+        # No clock override -> exercises the real wall-clock path + tz fallback.
+        block = build_ambient_block()
         self.assertEqual(block[0], AMBIENT_BLOCK_HEADER)
+        self.assertTrue(any(line.startswith("local_time:") for line in block))
+
+    def test_empty_timezone_falls_back_to_default_without_raising(self) -> None:
+        # A cleared timezone falls back to the default home zone (Europe/London).
+        self._set_store(enabled=True, timezone="")
+        block = build_ambient_block()
         self.assertTrue(any(line.startswith("local_time:") for line in block))
 
     def test_bad_timezone_name_resolves_to_none(self) -> None:
@@ -122,17 +123,12 @@ class BuildAmbientBlockTests(unittest.TestCase):
         self.assertIsNone(turns_ambient._resolve_timezone(""))
 
     @unittest.skipUnless(
-        _zoneinfo_available("Asia/Tokyo"), "IANA tz database unavailable (install tzdata)"
+        _zoneinfo_available("Europe/London"), "IANA tz database unavailable (install tzdata)"
     )
-    def test_real_timezone_override_resolves(self) -> None:
-        self.assertIsNotNone(turns_ambient._resolve_timezone("Asia/Tokyo"))
-        with patch.dict(
-            runtime_tuning.os.environ,
-            {"NIKOF_AMBIENT_CONTEXT": "1", "NIKOF_AMBIENT_TIMEZONE": "Asia/Tokyo"},
-            clear=True,
-        ):
-            runtime_tuning.get_runtime_tuning.cache_clear()
-            block = build_ambient_block()
+    def test_default_london_zone_resolves(self) -> None:
+        self.assertIsNotNone(turns_ambient._resolve_timezone("Europe/London"))
+        self._set_store(enabled=True, timezone="Europe/London")
+        block = build_ambient_block()
         self.assertTrue(any(line.startswith("local_time:") for line in block))
 
 

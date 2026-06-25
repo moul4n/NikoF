@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from app.schemas.animation import SessionAnimationSnapshot
 from app.schemas.session import (
+    AmbientContextUpdateRequest,
     DisplaySettingsUpdateRequest,
     SessionGestureRequest,
     SessionLifecycleUpdateRequest,
@@ -13,6 +14,7 @@ from app.schemas.session import (
     SpeechLifecycleTransportSnapshot,
     StageBackgroundUpdateRequest,
 )
+from app.services.ambient_context import get_ambient_context_state
 from app.services.audio_output_settings import get_audio_output_settings_state
 from app.services.display_settings import get_display_settings_state
 from app.services.stage_view import get_stage_view_state, is_known_stage_background_id
@@ -232,6 +234,21 @@ def register_session_transport_routes(
             captions=update.captions,
             always_on_top=update.always_on_top,
             wardrobe=update.wardrobe,
+        )
+
+    @router.get("/session/ambient-context")
+    def get_ambient_context() -> dict:
+        # Durable ambient-context settings (enabled + timezone + location) the
+        # planner prompt reads each turn. Editable from the control surface; read
+        # live by the turn pipeline so a change applies without a restart.
+        return get_ambient_context_state().snapshot()
+
+    @router.put("/session/ambient-context")
+    def put_ambient_context(update: AmbientContextUpdateRequest) -> dict:
+        return get_ambient_context_state().update(
+            enabled=update.enabled,
+            timezone=update.timezone,
+            location=update.location,
         )
 
     @router.get("/session/audio-output")

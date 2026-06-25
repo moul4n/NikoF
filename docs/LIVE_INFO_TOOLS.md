@@ -295,14 +295,19 @@ later.**
 1. **Stage A — Ambient context only.** Add the `[AMBIENT]` block (time/date/day/location) to both
    planner builders behind a flag. **No new tool, no contract change, no network.** Validates the
    prompt-bloat / `num_ctx` budget and the "advisory, don't derail chit-chat" tuning in isolation.
-   > **Status (2026-06-25): landed, flag OFF.** `app/services/turns_ambient.py` renders an advisory
-   > `[AMBIENT]` block (local time, day_type, optional location) from the system clock; injected into
-   > both planner builders (`turns_prompts.py`) and wired at the `run_user_text_turn` call site.
-   > Knobs: `NIKOF_AMBIENT_CONTEXT` (off by default), `NIKOF_AMBIENT_TIMEZONE` (optional IANA
-   > override; defaults to system-local, needs `tzdata` on Windows — now a backend dep),
-   > `NIKOF_AMBIENT_LOCATION` (optional free-text label). The block is intentionally tiny, so no
-   > runtime token-budget knob was added (deviation from R5 — revisit if the toolset grows). Tested
-   > in `backend/tests/test_ambient_context.py`; contract gate + stability suite show no new diffs.
+   > **Status (2026-06-25): landed, disabled by default, control-surface editable.**
+   > `app/services/turns_ambient.py` renders an advisory `[AMBIENT]` block (local time, day_type,
+   > optional location); injected into both planner builders (`turns_prompts.py`) and wired at the
+   > `run_user_text_turn` call site. Config lives in a **durable, control-surface-editable store**
+   > (`app/services/ambient_context.py`, persisted to `session/ambient-context.json`) read **live per
+   > turn** so a UI change applies without a restart — resolving R3. Seam: `GET`/`PUT
+   > /session/ambient-context` (`AmbientContextUpdateRequest`); edited from the **LLM tab → "Time &
+   > place awareness" panel** (`ControlSurfaceAmbientContextPanel.tsx` + `loaders/ambientContext.ts`).
+   > **Timezone defaults to `Europe/London`** (an empty value falls back to it); `tzdata` is a backend
+   > dep so IANA zones resolve on Windows. The `NIKOF_AMBIENT_*` env vars now only **seed** first-run
+   > defaults. Block kept intentionally tiny, so no runtime token-budget knob (deviation from R5 —
+   > revisit if the toolset grows). Tested in `backend/tests/test_ambient_context.py` +
+   > `test_settings_persistence.py`; backend suite, contract gate, and frontend build all green.
 2. **Stage B — `tool_request` contract + broker skeleton + ONE keyless tool (Open-Meteo weather).**
    Lands the locked contract (schema + fixtures + baselines, D4), the bounded turn loop with hop cap,
    caching, allowlist, offline-degrade, and the thinking-animation/filler. Resolves R1 (streaming

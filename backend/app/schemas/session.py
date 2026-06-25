@@ -311,6 +311,18 @@ class DisplaySettingsUpdateRequest:
 
 
 @pydantic_dataclass(slots=True, frozen=True)
+class AmbientContextUpdateRequest:
+    """Partial update to the durable ambient-context settings the planner prompt
+    reads each turn: an enabled flag, an optional IANA timezone (empty falls back
+    to the default home zone), and an optional free-text location label. A prompt
+    setting, not part of the session animation/speech contracts."""
+
+    enabled: bool | None = None
+    timezone: str | None = None
+    location: str | None = None
+
+
+@pydantic_dataclass(slots=True, frozen=True)
 class AudioOutputUpdateRequest:
     """Operator-selected audio output device (speaker/headphones) for avatar
     speech playback. ``device_id`` null means the system default. Browsers apply
