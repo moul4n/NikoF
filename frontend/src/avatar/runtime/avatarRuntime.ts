@@ -275,6 +275,11 @@ interface ActiveBaseAnimationState {
   asyncBridgeReady: boolean;
   elapsedSeconds: number;
   sourceKind: AnimationClipSourceKind | null;
+  // Real duration of the loaded clip (seconds), captured once it streams in. Used
+  // to schedule a one-shot's return-to-idle by what is ACTUALLY playing rather
+  // than the DSL metadata, which can be shorter than the real .vrma/.fbx asset and
+  // would otherwise cut the gesture short / freeze it before the idle blend.
+  clipDurationSeconds: number | null;
 }
 
 interface AvatarHumanoidPlaybackDebugSnapshot {
@@ -2195,6 +2200,15 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
     return Math.max(payload.durationMs, resolveFinalFrameElapsedSeconds(payload) * 1000, 1000 / 30);
   }
 
+  function resolveActiveCycleDurationSeconds(state: ActiveBaseAnimationState): number {
+    // Prefer the real loaded clip length (what's actually on screen); fall back to
+    // the DSL payload metadata only until the clip has streamed in.
+    if (typeof state.clipDurationSeconds === "number" && state.clipDurationSeconds > 0) {
+      return Math.max(state.clipDurationSeconds, 1 / 30);
+    }
+    return Math.max(resolveAnimationDurationMs(state.payload) / 1000, 1 / 30);
+  }
+
   function resolveAdaptiveBaseAnimationTransitionMs(
     command: SemanticAnimationCommand,
     payload: SemanticAnimationRuntimePayload
@@ -2215,7 +2229,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
   function resolveReturnToIdleTransitionMs(baseAnimationState: ActiveBaseAnimationState): number {
     return Math.round(
       THREE.MathUtils.clamp(
-        resolveAnimationDurationMs(baseAnimationState.payload) * 0.28,
+        resolveActiveCycleDurationSeconds(baseAnimationState) * 1000 * 0.28,
         MIN_RETURN_TO_IDLE_TRANSITION_MS,
         MAX_RETURN_TO_IDLE_TRANSITION_MS
       )
@@ -2286,7 +2300,7 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       return;
     }
 
-    const cycleDurationSeconds = Math.max(resolveAnimationDurationMs(activeBaseAnimation.payload) / 1000, 1 / 30);
+    const cycleDurationSeconds = resolveActiveCycleDurationSeconds(activeBaseAnimation);
     const restoreIdleAtElapsedSeconds = Math.max(
       0,
       cycleDurationSeconds - resolveReturnToIdleLeadMs(activeBaseAnimation) / 1000
@@ -2453,7 +2467,8 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
       baselineQuaternion: currentAvatar.root.quaternion.clone(),
       asyncBridgeReady: false,
       elapsedSeconds: 0,
-      sourceKind: null
+      sourceKind: null,
+      clipDurationSeconds: null
     };
 
     resolveBaseAnimationSource(canonicalCommand.id, resolvedPayload)
@@ -2475,6 +2490,11 @@ export function createAvatarRuntime(): AvatarRuntimeBridge {
         activeBaseAnimation.asyncBridgeReady = true;
         activeBaseAnimation.elapsedSeconds = 0;
         activeBaseAnimation.sourceKind = clipHandle.sourceKind;
+        // Schedule the one-shot's return-to-idle by the real asset length.
+        activeBaseAnimation.clipDurationSeconds =
+          Number.isFinite(clipHandle.clip.duration) && clipHandle.clip.duration > 0
+            ? clipHandle.clip.duration
+            : null;
 
         const shouldTransitionFromPrevious = previousCommandId !== null && playbackBridge.hasActiveClip(previousCommandId);
 
