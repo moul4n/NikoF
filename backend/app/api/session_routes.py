@@ -249,6 +249,7 @@ def register_session_transport_routes(
             enabled=update.enabled,
             timezone=update.timezone,
             location=update.location,
+            weather_enabled=update.weather_enabled,
         )
 
     @router.get("/session/audio-output")

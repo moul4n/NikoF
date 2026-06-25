@@ -222,16 +222,18 @@ class AmbientContextSettingsTests(unittest.TestCase):
         self.assertFalse(state.enabled)
         self.assertEqual(DEFAULT_AMBIENT_TIMEZONE, state.timezone)
         self.assertEqual("", state.location)
+        self.assertFalse(state.weather_enabled)
 
     def test_update_persists_and_restores_across_instances(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "session" / "ambient-context.json"
             first = AmbientContextState(state_path=state_path)
-            first.update(enabled=True, timezone="Asia/Tokyo", location="Tokyo, JP")
+            first.update(enabled=True, timezone="Asia/Tokyo", location="Tokyo, JP", weather_enabled=True)
             restored = AmbientContextState(state_path=state_path)
             self.assertTrue(restored.enabled)
             self.assertEqual("Asia/Tokyo", restored.timezone)
             self.assertEqual("Tokyo, JP", restored.location)
+            self.assertTrue(restored.weather_enabled)
 
     def test_partial_update_leaves_other_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

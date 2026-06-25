@@ -308,10 +308,24 @@ later.**
    > defaults. Block kept intentionally tiny, so no runtime token-budget knob (deviation from R5 —
    > revisit if the toolset grows). Tested in `backend/tests/test_ambient_context.py` +
    > `test_settings_persistence.py`; backend suite, contract gate, and frontend build all green.
-2. **Stage B — `tool_request` contract + broker skeleton + ONE keyless tool (Open-Meteo weather).**
+1a. **Stage A+ — Ambient weather line (keyless, no LLM tool loop).**
+   > **Status (2026-06-25): landed, opt-in (`weather_enabled`), off by default.** A cached
+   > current-weather line (`weather: 14°C, light rain (as of 14:22)`) is appended to the `[AMBIENT]`
+   > block when weather is enabled. `app/services/weather.py` uses **Open-Meteo** (free, **keyless**):
+   > geocodes the **location label**, or — when blank — the **timezone's city** (`Europe/London` →
+   > "London"), then fetches current conditions. The refresh runs in a **background daemon thread**, so
+   > a stale cache only *schedules* a fetch and weather **never adds turn latency**; it **degrades
+   > silently** to no line when offline / not-yet-cached. This is the project's **first outbound
+   > network call** — only a lat/lon leaves the machine, never conversation/persona/memory (honors the
+   > local-only boundary, §6). Reuses the ambient store (`weather_enabled` flag) + a Weather toggle in
+   > the same control panel. It is the precursor the doc described — *not* the Stage B tool loop (no
+   > `tool_request`, no second LLM pass, no R1). Tested in `backend/tests/test_weather.py` +
+   > `test_ambient_context.py`.
+2. **Stage B — `tool_request` contract + broker skeleton + ONE keyless tool (Open-Meteo *forecast*).**
    Lands the locked contract (schema + fixtures + baselines, D4), the bounded turn loop with hop cap,
    caching, allowlist, offline-degrade, and the thinking-animation/filler. Resolves R1 (streaming
-   suppression on tool turns) here, with weather as the single proving case.
+   suppression on tool turns) here. (Current *ambient* weather already lands in Stage A+ above; Stage B
+   adds on-demand **forecasts** / "will it rain Friday" via the LLM-routed tool.)
 3. **Stage C — Generalize the broker; add keyless search + news.** Optionally self-host SearXNG as a
    backend-owned sidecar.
 4. **Stage D — Keyed Tier (opt-in): Google Maps/Search, sports, tides.** Behind config-supplied keys,

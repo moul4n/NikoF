@@ -16,9 +16,10 @@ editable store in app.services.ambient_context (read live per turn, so a UI edit
 applies without a backend restart). An empty stored timezone falls back to
 DEFAULT_AMBIENT_TIMEZONE (Europe/London).
 
-Stage B (docs/LIVE_INFO_TOOLS.md) will extend the block with a last-known
-weather line sourced from the Tier-1 weather tool cache; that line is omitted
-here until that cache exists.
+When weather is enabled in the store, a cached, keyless current-weather line is
+appended (app.services.weather, Open-Meteo). It is non-blocking — a stale cache
+only schedules a background refresh — so weather never adds network latency to a
+turn, and the line is simply omitted when unavailable / offline.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.services.ambient_context import DEFAULT_AMBIENT_TIMEZONE, get_ambient_context_state
+from app.services.weather import get_weather_service
 
 
 logger = logging.getLogger(__name__)
@@ -93,7 +95,24 @@ def build_ambient_block(*, clock: Callable[[], datetime] | None = None) -> list[
         # %Z abbreviation renders even when the IANA db is unavailable.
         now = datetime.now(tz) if tz is not None else datetime.now().astimezone()
 
-    body = render_ambient_lines(now=now, location=str(settings.get("location") or ""))
+    location = str(settings.get("location") or "")
+    timezone = str(settings.get("timezone") or "") or DEFAULT_AMBIENT_TIMEZONE
+    body = render_ambient_lines(now=now, location=location)
+
+    if settings.get("weather_enabled"):
+        # Cached + non-blocking: a stale cache only schedules a background fetch,
+        # so weather never adds network latency to the turn. None -> no line yet
+        # / offline (the companion just won't mention weather).
+        try:
+            weather_line = get_weather_service().ambient_weather_line(
+                location=location, timezone=timezone, now=now
+            )
+        except Exception:  # never let weather break a turn
+            logger.debug("Ambient weather line lookup failed", exc_info=True)
+            weather_line = None
+        if weather_line:
+            body.append(f"weather: {weather_line}")
+
     if not body:
         return []
     return [AMBIENT_BLOCK_HEADER, AMBIENT_ADVISORY, *body]

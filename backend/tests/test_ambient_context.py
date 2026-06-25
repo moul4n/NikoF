@@ -11,13 +11,26 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.turns import _build_lean_reply_prompt, _build_spoken_reply_prompt
-from app.services import ambient_context, turns_ambient
+from app.services import ambient_context, turns_ambient, weather
 from app.services.ambient_context import AmbientContextState
 from app.services.turns_ambient import (
     AMBIENT_BLOCK_HEADER,
     build_ambient_block,
     render_ambient_lines,
 )
+
+
+class _FakeWeatherService:
+    """Stand-in for the weather service: records the query inputs and returns a
+    canned line (or None) without any network."""
+
+    def __init__(self, line: str | None) -> None:
+        self.line = line
+        self.calls: list[tuple[str, str]] = []
+
+    def ambient_weather_line(self, *, location: str, timezone: str, now) -> str | None:
+        self.calls.append((location, timezone))
+        return self.line
 
 
 def _zoneinfo_available(key: str) -> bool:
@@ -82,13 +95,30 @@ class BuildAmbientBlockTests(unittest.TestCase):
     """build_ambient_block reads the durable ambient-context store live. Override
     the process-wide singleton with an in-memory state (no disk) per test."""
 
-    def _set_store(self, *, enabled: bool, timezone: str = "Europe/London", location: str = "") -> None:
+    def _set_store(
+        self,
+        *,
+        enabled: bool,
+        timezone: str = "Europe/London",
+        location: str = "",
+        weather_enabled: bool = False,
+    ) -> None:
         ambient_context._ambient_context_state = AmbientContextState(
-            state_path=None, enabled=enabled, timezone=timezone, location=location
+            state_path=None,
+            enabled=enabled,
+            timezone=timezone,
+            location=location,
+            weather_enabled=weather_enabled,
         )
+
+    def _set_weather(self, line: str | None) -> _FakeWeatherService:
+        fake = _FakeWeatherService(line)
+        weather._weather_service = fake
+        return fake
 
     def setUp(self) -> None:
         self.addCleanup(setattr, ambient_context, "_ambient_context_state", None)
+        self.addCleanup(setattr, weather, "_weather_service", None)
 
     def test_disabled_returns_empty(self) -> None:
         self._set_store(enabled=False)
@@ -115,6 +145,27 @@ class BuildAmbientBlockTests(unittest.TestCase):
         self._set_store(enabled=True, timezone="")
         block = build_ambient_block()
         self.assertTrue(any(line.startswith("local_time:") for line in block))
+
+    def test_weather_line_appended_when_enabled_and_available(self) -> None:
+        self._set_store(enabled=True, location="Brighton, UK", weather_enabled=True)
+        fake = self._set_weather("14°C, light rain (as of 14:22)")
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertIn("weather: 14°C, light rain (as of 14:22)", block)
+        # The store's location + timezone are passed through to the weather lookup.
+        self.assertEqual([("Brighton, UK", "Europe/London")], fake.calls)
+
+    def test_no_weather_line_when_weather_disabled(self) -> None:
+        self._set_store(enabled=True, location="Brighton, UK", weather_enabled=False)
+        fake = self._set_weather("14°C, light rain (as of 14:22)")
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertFalse(any(line.startswith("weather:") for line in block))
+        self.assertEqual([], fake.calls)  # weather service untouched when disabled
+
+    def test_no_weather_line_when_unavailable(self) -> None:
+        self._set_store(enabled=True, location="Brighton, UK", weather_enabled=True)
+        self._set_weather(None)  # not yet cached / offline
+        block = build_ambient_block(clock=lambda: _WEEKDAY)
+        self.assertFalse(any(line.startswith("weather:") for line in block))
 
     def test_bad_timezone_name_resolves_to_none(self) -> None:
         # The Windows-relevant path: an unresolvable zone must degrade to None

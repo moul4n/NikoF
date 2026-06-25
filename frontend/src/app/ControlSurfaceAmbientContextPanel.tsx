@@ -48,7 +48,8 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
   const [draft, setDraft] = useState<AmbientContextDocument>({
     enabled: false,
     timezone: DEFAULT_TIMEZONE,
-    location: ""
+    location: "",
+    weather_enabled: false
   });
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -63,7 +64,8 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
         setDraft({
           enabled: document.enabled,
           timezone: document.timezone || DEFAULT_TIMEZONE,
-          location: document.location
+          location: document.location,
+          weather_enabled: document.weather_enabled
         });
       }
     });
@@ -85,11 +87,17 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
     const result = await updateAmbientContext({
       enabled: draft.enabled,
       timezone: draft.timezone,
-      location: draft.location.trim()
+      location: draft.location.trim(),
+      weather_enabled: draft.weather_enabled
     });
     setSaving(false);
     if (result) {
-      setDraft({ enabled: result.enabled, timezone: result.timezone || DEFAULT_TIMEZONE, location: result.location });
+      setDraft({
+        enabled: result.enabled,
+        timezone: result.timezone || DEFAULT_TIMEZONE,
+        location: result.location,
+        weather_enabled: result.weather_enabled
+      });
       setIsDirty(false);
       setMessage("Ambient context saved.");
       setMessageTone("success");
@@ -173,6 +181,30 @@ export function ControlSurfaceAmbientContextPanel(): JSX.Element {
             setDraft((current) => ({ ...current, location: nextValue }));
           }}
         />
+      </label>
+
+      <label className="character-profile-panel__field">
+        <span className="character-profile-panel__label">Weather</span>
+        <span className="character-profile-panel__hint">
+          Adds a cached current-weather line for the location above (free, no API key). Refreshes in the background —
+          never slows a reply. The only setting here that uses the internet.
+        </span>
+        <button
+          type="button"
+          className={
+            draft.weather_enabled
+              ? "control-gesture-panel__button control-gesture-panel__button--active"
+              : "control-gesture-panel__button"
+          }
+          aria-pressed={draft.weather_enabled}
+          disabled={saving}
+          onClick={() => {
+            setIsDirty(true);
+            setDraft((current) => ({ ...current, weather_enabled: !current.weather_enabled }));
+          }}
+        >
+          {draft.weather_enabled ? "On" : "Off"}
+        </button>
       </label>
 
       <button

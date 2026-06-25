@@ -9,11 +9,13 @@ presentation settings in stage_view.py / display_settings.py. This is NOT part o
 the session animation/speech contracts; it only influences prompt text.
 
 Shape on disk / over the wire:
-    { "enabled": false, "timezone": "Europe/London", "location": "" }
+    { "enabled": false, "timezone": "Europe/London", "location": "", "weather_enabled": false }
 
 `timezone` is an optional IANA name; empty means "fall back to the default"
 (Europe/London) at render time. `location` is a free-text label (empty = omitted
-from the prompt; no geocoding here — that arrives with Stage B weather).
+from the prompt). `weather_enabled` opts in to a cached, keyless current-weather
+line in the ambient block (the first capability that makes an outbound network
+call — see app.services.weather); it only takes effect while `enabled` is on.
 """
 from __future__ import annotations
 
@@ -38,6 +40,7 @@ class AmbientContextState:
     enabled: bool = False
     timezone: str = DEFAULT_AMBIENT_TIMEZONE
     location: str = ""
+    weather_enabled: bool = False
 
     def __post_init__(self) -> None:
         self._restore()
@@ -61,6 +64,8 @@ class AmbientContextState:
             self.timezone = data["timezone"].strip()
         if isinstance(data.get("location"), str):
             self.location = data["location"].strip()
+        if isinstance(data.get("weather_enabled"), bool):
+            self.weather_enabled = data["weather_enabled"]
 
     def _persist(self) -> None:
         if self.state_path is None:
@@ -76,6 +81,7 @@ class AmbientContextState:
             "enabled": self.enabled,
             "timezone": self.timezone,
             "location": self.location,
+            "weather_enabled": self.weather_enabled,
         }
 
     def snapshot(self) -> dict:
@@ -87,6 +93,7 @@ class AmbientContextState:
         enabled: bool | None = None,
         timezone: str | None = None,
         location: str | None = None,
+        weather_enabled: bool | None = None,
     ) -> dict:
         """Merge a partial update and persist. `timezone`/`location` are trimmed;
         an empty timezone is allowed (render falls back to the default zone)."""
@@ -96,6 +103,8 @@ class AmbientContextState:
             self.timezone = timezone.strip()
         if isinstance(location, str):
             self.location = location.strip()
+        if isinstance(weather_enabled, bool):
+            self.weather_enabled = weather_enabled
         self._persist()
         return self.to_document()
 

@@ -1,0 +1,225 @@
+"""Keyless ambient weather via Open-Meteo (live-info Stage A+).
+
+Fetches current weather for the configured location and exposes a short line for
+the companion's `[AMBIENT]` block (e.g. "14°C, light rain (as of 14:22)"). No API
+key or account — Open-Meteo is free and keyless. Only a coordinate pair (resolved
+from the location label, or the timezone's city when the label is blank) leaves
+the machine; never conversation, persona, or memory.
+
+The refresh runs in the background, off the turn's hot path: `ambient_weather_line`
+returns the last cached value (or None) immediately and, when the cache is stale,
+spawns a daemon thread to refresh. It degrades silently to *no* weather line on any
+error / offline — the companion simply doesn't mention weather rather than guessing.
+
+Two keyless Open-Meteo endpoints are used:
+- geocoding-api.open-meteo.com/v1/search?name=<city>&count=1  -> lat/lon
+- api.open-meteo.com/v1/forecast?...&current=temperature_2m,weather_code
+"""
+from __future__ import annotations
+
+import json
+import logging
+import threading
+import time
+from datetime import datetime
+from typing import Callable
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
+
+logger = logging.getLogger(__name__)
+
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# How often to refresh in the background, and how stale a value may be before we
+# stop showing it at all (offline for longer than this -> drop the line).
+_REFRESH_INTERVAL_SECONDS = 15 * 60
+_HARD_EXPIRY_SECONDS = 3 * 60 * 60
+# Don't re-attempt a failing fetch on every single turn.
+_MIN_RETRY_INTERVAL_SECONDS = 60
+_HTTP_TIMEOUT_SECONDS = 4.0
+
+# WMO weather interpretation codes -> short human labels (Open-Meteo `weather_code`).
+_WMO_CODE_LABELS: dict[int, str] = {
+    0: "clear sky",
+    1: "mainly clear",
+    2: "partly cloudy",
+    3: "overcast",
+    45: "fog",
+    48: "rime fog",
+    51: "light drizzle",
+    53: "drizzle",
+    55: "heavy drizzle",
+    56: "freezing drizzle",
+    57: "freezing drizzle",
+    61: "light rain",
+    63: "rain",
+    65: "heavy rain",
+    66: "freezing rain",
+    67: "freezing rain",
+    71: "light snow",
+    73: "snow",
+    75: "heavy snow",
+    77: "snow grains",
+    80: "light showers",
+    81: "showers",
+    82: "heavy showers",
+    85: "snow showers",
+    86: "heavy snow showers",
+    95: "thunderstorm",
+    96: "thunderstorm with hail",
+    99: "thunderstorm with hail",
+}
+
+
+def describe_weather_code(code: int | None) -> str:
+    if code is None:
+        return "unknown conditions"
+    return _WMO_CODE_LABELS.get(int(code), "unsettled")
+
+
+def city_from_timezone(timezone: str) -> str:
+    """Derive a geocoding-friendly city from an IANA zone when no location label
+    is set: "Europe/London" -> "London", "America/New_York" -> "New York"."""
+    name = (timezone or "").strip()
+    if not name or "/" not in name:
+        return ""
+    return name.rsplit("/", 1)[-1].replace("_", " ").strip()
+
+
+def _http_get_json(url: str, params: dict[str, object], *, timeout: float = _HTTP_TIMEOUT_SECONDS) -> dict:
+    """GET a JSON document. Raises on any network/parse error (callers degrade)."""
+    query = urllib_parse.urlencode(params)
+    request = urllib_request.Request(f"{url}?{query}", method="GET")
+    with urllib_request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+class WeatherService:
+    """Cached current-weather line for one location at a time. Thread-safe; the
+    network refresh runs off the caller's thread."""
+
+    def __init__(
+        self,
+        *,
+        fetch_json: Callable[[str, dict], dict] | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        self._fetch_json = fetch_json or (lambda url, params: _http_get_json(url, params))
+        self._clock = clock or time.time
+        self._lock = threading.Lock()
+        self._query: str = ""
+        self._temp_c: float | None = None
+        self._code: int | None = None
+        self._fetched_epoch: float | None = None
+        self._last_attempt_epoch: float | None = None
+        self._refreshing: bool = False
+
+    # -- read seam -----------------------------------------------------------
+    def ambient_weather_line(self, *, location: str, timezone: str, now: datetime) -> str | None:
+        """Return a short weather line for the ambient block, or None when not
+        yet available / stale / offline. Never blocks on the network: a stale
+        cache only *schedules* a background refresh."""
+        query = (location or "").strip() or city_from_timezone(timezone)
+        if not query:
+            return None
+
+        with self._lock:
+            if query != self._query:
+                # Location changed -> drop the previous location's cache.
+                self._query = query
+                self._temp_c = None
+                self._code = None
+                self._fetched_epoch = None
+                self._last_attempt_epoch = None
+            line = self._format_line_locked(now)
+            should_refresh = self._should_refresh_locked()
+            if should_refresh:
+                self._refreshing = True
+                self._last_attempt_epoch = self._clock()
+                pending_query = query
+
+        if should_refresh:
+            self._spawn_refresh(pending_query)
+        return line
+
+    def _should_refresh_locked(self) -> bool:
+        now_epoch = self._clock()
+        if self._refreshing:
+            return False
+        if self._last_attempt_epoch is not None and now_epoch - self._last_attempt_epoch < _MIN_RETRY_INTERVAL_SECONDS:
+            return False
+        if self._fetched_epoch is None:
+            return True
+        return now_epoch - self._fetched_epoch >= _REFRESH_INTERVAL_SECONDS
+
+    def _format_line_locked(self, now: datetime) -> str | None:
+        if self._temp_c is None or self._fetched_epoch is None:
+            return None
+        if self._clock() - self._fetched_epoch > _HARD_EXPIRY_SECONDS:
+            return None
+        as_of = datetime.fromtimestamp(self._fetched_epoch, tz=now.tzinfo).strftime("%H:%M")
+        return f"{round(self._temp_c)}°C, {describe_weather_code(self._code)} (as of {as_of})"
+
+    # -- refresh -------------------------------------------------------------
+    def _spawn_refresh(self, query: str) -> None:
+        thread = threading.Thread(target=self._refresh_blocking, args=(query,), daemon=True)
+        thread.start()
+
+    def _refresh_blocking(self, query: str) -> None:
+        """Geocode (if needed) + fetch current weather, updating the cache. Any
+        failure leaves the previous cache intact and only logs at debug level."""
+        try:
+            coords = self._geocode(query)
+            if coords is None:
+                logger.debug("Weather geocode returned no match for %r", query)
+                return
+            latitude, longitude = coords
+            temp_c, code = self._fetch_current(latitude, longitude)
+            with self._lock:
+                # A concurrent location change may have superseded this query.
+                if query != self._query:
+                    return
+                self._temp_c = temp_c
+                self._code = code
+                self._fetched_epoch = self._clock()
+        except (urllib_error.URLError, TimeoutError, OSError, ValueError, KeyError) as exc:
+            logger.debug("Weather refresh for %r failed: %s", query, exc)
+        finally:
+            with self._lock:
+                self._refreshing = False
+
+    def _geocode(self, query: str) -> tuple[float, float] | None:
+        data = self._fetch_json(GEOCODE_URL, {"name": query, "count": 1, "format": "json"})
+        results = data.get("results")
+        if not isinstance(results, list) or not results:
+            return None
+        first = results[0]
+        return float(first["latitude"]), float(first["longitude"])
+
+    def _fetch_current(self, latitude: float, longitude: float) -> tuple[float, int | None]:
+        data = self._fetch_json(
+            FORECAST_URL,
+            {
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": "temperature_2m,weather_code",
+            },
+        )
+        current = data.get("current") or {}
+        temp_c = float(current["temperature_2m"])
+        raw_code = current.get("weather_code")
+        code = int(raw_code) if isinstance(raw_code, (int, float)) else None
+        return temp_c, code
+
+
+_weather_service: WeatherService | None = None
+
+
+def get_weather_service() -> WeatherService:
+    """Process-wide cached weather service (one location at a time)."""
+    global _weather_service
+    if _weather_service is None:
+        _weather_service = WeatherService()
+    return _weather_service
