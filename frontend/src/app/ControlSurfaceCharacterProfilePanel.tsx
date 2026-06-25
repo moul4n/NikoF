@@ -99,8 +99,13 @@ export function ControlSurfaceCharacterProfilePanel(): JSX.Element {
             rows={field.rows}
             disabled={saving}
             onChange={(event: { currentTarget: { value: string } }) => {
+              // Capture the value synchronously: React nulls `event.currentTarget`
+              // after the handler returns, but the functional setState updater runs
+              // later (during re-render), so reading it inside the updater throws and
+              // blanks the page. https://react.dev/reference/react-dom/components/common
+              const nextValue = event.currentTarget.value;
               setIsDirty(true);
-              setDraft((current) => ({ ...current, [field.key]: event.currentTarget.value }));
+              setDraft((current) => ({ ...current, [field.key]: nextValue }));
             }}
           />
         </label>
